@@ -1,0 +1,162 @@
+.page {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.header {
+  align-items: flex-end;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.header p,
+.header h1 {
+  margin: 0;
+}
+
+.header p,
+.header span,
+.summary span {
+  color: #64747d;
+}
+
+.header h1 {
+  font-size: 1.5rem;
+}
+
+.panel {
+  background: #ffffff;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.summary {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.summary div {
+  background: #f8fbfb;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.segmented {
+  background: #eef5f5;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  display: inline-grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, 1fr);
+  padding: 4px;
+  width: min(100%, 360px);
+}
+
+.segmented button,
+.actions button {
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  min-height: 42px;
+}
+
+.segmented button {
+  background: transparent;
+  color: #42555d;
+}
+
+.segmented .active {
+  background: #ffffff;
+  color: #006d77;
+  box-shadow: 0 4px 14px rgba(16, 32, 39, 0.08);
+}
+
+.grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.grid label {
+  color: #42555d;
+  display: grid;
+  gap: 7px;
+}
+
+.grid select,
+.grid textarea {
+  background: #f8fbfb;
+  border: 1px solid #cfdcde;
+  border-radius: 8px;
+  color: #102027;
+  font: inherit;
+  min-height: 44px;
+  padding: 10px 12px;
+}
+
+.grid textarea {
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.actions button {
+  background: #006d77;
+  color: #ffffff;
+  padding: 0 16px;
+}
+
+.actions .complete {
+  background: #16725a;
+}
+
+.actions button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.error,
+.success {
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.error {
+  background: #fff1f1;
+  color: #a02f2f;
+}
+
+.success {
+  background: #eaf8f3;
+  color: #16725a;
+}
+
+@media (max-width: 760px) {
+  .header,
+  .actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

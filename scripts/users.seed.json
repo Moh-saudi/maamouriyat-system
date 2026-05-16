@@ -1,0 +1,48 @@
+[
+  {
+    "email": "admin@mohp.gov.eg",
+    "password": "ChangeMe!2026",
+    "full_name": "مدير النظام",
+    "job_title": "مدير عام المتابعة",
+    "level": 1,
+    "department": "الإدارة المركزية"
+  },
+  {
+    "email": "director@mohp.gov.eg",
+    "password": "ChangeMe!2026",
+    "full_name": "مدير التفتيش",
+    "job_title": "مدير إدارة التفتيش",
+    "level": 3,
+    "department": "التفتيش والمتابعة",
+    "manager_email": "admin@mohp.gov.eg"
+  },
+  {
+    "email": "supervisor@mohp.gov.eg",
+    "password": "ChangeMe!2026",
+    "full_name": "مشرف المأموريات",
+    "job_title": "مشرف ميداني",
+    "level": 5,
+    "department": "التفتيش والمتابعة",
+    "manager_email": "director@mohp.gov.eg"
+  },
+  {
+    "email": "inspector@mohp.gov.eg",
+    "password": "ChangeMe!2026",
+    "full_name": "مفتش صحي",
+    "job_title": "مفتش منشآت صحية",
+    "level": 7,
+    "department": "التفتيش والمتابعة",
+    "manager_email": "supervisor@mohp.gov.eg"
+  },
+  {
+    "email": "corrections@mohp.gov.eg",
+    "password": "ChangeMe!2026",
+    "full_name": "مسؤول التصحيح",
+    "job_title": "منسق تصحيح المخالفات",
+    "level": 6,
+    "department": "إدارة التصحيح",
+    "is_lateral": true,
+    "lateral_type": "إدارة التصحيح",
+    "manager_email": "director@mohp.gov.eg"
+  }
+]

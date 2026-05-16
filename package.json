@@ -1,0 +1,29 @@
+{
+  "name": "maamouriyat-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "create:users": "node scripts/create-supabase-users.mjs",
+    "create:users:dry": "node scripts/create-supabase-users.mjs --dry-run"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.105.4",
+    "lucide-react": "^1.16.0",
+    "next": "15.0.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "15.0.3",
+    "typescript": "^5"
+  }
+}
