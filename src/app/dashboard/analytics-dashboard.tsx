@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Building2,
@@ -30,6 +31,7 @@ import {
 } from 'recharts'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'teal' | 'violet'
+type ReportFocus = 'all' | 'violations' | 'governorates' | 'performance'
 
 export type DashboardProfile = {
   fullName: string
@@ -111,14 +113,22 @@ const roleCopy: Record<string, { title: string; focus: string }> = {
 }
 
 const chartMargin = { bottom: 0, left: -12, right: 8, top: 12 }
+const reportFilters: Array<{ label: string; value: ReportFocus }> = [
+  { label: 'الكل', value: 'all' },
+  { label: 'المخالفات', value: 'violations' },
+  { label: 'المحافظات', value: 'governorates' },
+  { label: 'الأداء', value: 'performance' },
+]
 
 export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMetrics; profile: DashboardProfile }) {
+  const [reportFocus, setReportFocus] = useState<ReportFocus>('all')
   const role = getRole(profile)
   const completionRate = percent(metrics.missionsCompleted, metrics.missionsTotal)
   const correctionRate = percent(metrics.violationsCorrected, metrics.violationsTotal)
   const activeFacilityRate = percent(metrics.activeFacilities, metrics.facilitiesTotal)
   const violatingFacilityRate = percent(metrics.violatingFacilities, metrics.facilitiesTotal)
   const healthScore = Math.round((completionRate + correctionRate + activeFacilityRate + (100 - violatingFacilityRate)) / 4)
+  const visibleReports = useMemo(() => getVisibleReports(reportFocus), [reportFocus])
 
   return (
     <div className="analytics-dashboard">
@@ -144,87 +154,152 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         <MetricCard delta={`${metrics.missionsLate} متأخرة`} icon={Clock3} label="مأموريات تحتاج تدخل" tone={metrics.missionsLate ? 'red' : 'green'} value={metrics.missionsInProgress + metrics.missionsPending} />
       </section>
 
+      <section className="report-toolbar" aria-label="تصفية التقارير">
+        <div>
+          <strong>استعراض التقارير</strong>
+          <span>رتب العرض حسب ما تحتاجه على شاشة الموبايل أو سطح المكتب.</span>
+        </div>
+        <div className="segmented-control">
+          {reportFilters.map((item) => (
+            <button
+              className={reportFocus === item.value ? 'active' : ''}
+              key={item.value}
+              onClick={() => setReportFocus(item.value)}
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="report-grid">
-        <ReportPanel title="حركة المأموريات" subtitle="توزيع الحالات التشغيلية">
-          <ResponsiveContainer height={280}>
-            <PieChart>
-              <Pie data={toChartData(metrics.missionStatus)} dataKey="value" innerRadius={66} outerRadius={96} paddingAngle={3} nameKey="label">
-                {metrics.missionStatus.map((item) => (
-                  <Cell fill={toneColors[item.tone]} key={item.label} />
+        {visibleReports.includes('missions') && (
+          <ReportPanel title="حركة المأموريات" subtitle="توزيع الحالات التشغيلية">
+            {hasData(metrics.missionStatus) ? (
+              <ChartScroller>
+                <ResponsiveContainer height={280}>
+                  <PieChart>
+                    <Pie data={toChartData(metrics.missionStatus)} dataKey="value" innerRadius={66} outerRadius={96} paddingAngle={3} nameKey="label">
+                      {metrics.missionStatus.map((item) => (
+                        <Cell fill={toneColors[item.tone]} key={item.label} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={arabicNumber} />
+                    <Legend verticalAlign="bottom" />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartScroller>
+            ) : (
+              <EmptyReport title="لا توجد مأموريات بعد" />
+            )}
+          </ReportPanel>
+        )}
+
+        {visibleReports.includes('violations') && (
+          <ReportPanel title="المخالفات حسب الشدة" subtitle="حركة، متوسطة، بسيطة، ومصححة">
+            {hasData(metrics.priorityBreakdown) ? (
+              <ChartScroller>
+                <ResponsiveContainer height={280}>
+                  <BarChart data={toChartData(metrics.priorityBreakdown)} layout="vertical" margin={chartMargin}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" tickLine={false} axisLine={false} />
+                    <YAxis dataKey="label" type="category" width={96} tickLine={false} axisLine={false} />
+                    <Tooltip formatter={arabicNumber} />
+                    <Bar dataKey="value" radius={[8, 8, 8, 8]}>
+                      {metrics.priorityBreakdown.map((item) => (
+                        <Cell fill={toneColors[item.tone]} key={item.label} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartScroller>
+            ) : (
+              <EmptyReport title="لا توجد مخالفات مسجلة" />
+            )}
+          </ReportPanel>
+        )}
+
+        {visibleReports.includes('governorates') && (
+          <ReportPanel title="المرور حسب المحافظة" subtitle="عدد المأموريات المنفذة والمخططة">
+            {hasData(metrics.governorateVisits) ? (
+              <ChartScroller wide>
+                <ResponsiveContainer height={310}>
+                  <BarChart data={toChartData(metrics.governorateVisits)} margin={chartMargin}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={72} />
+                    <YAxis tickLine={false} axisLine={false} />
+                    <Tooltip formatter={arabicNumber} />
+                    <Bar dataKey="value" fill={toneColors.teal} radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartScroller>
+            ) : (
+              <EmptyReport title="لا توجد بيانات محافظات" />
+            )}
+          </ReportPanel>
+        )}
+
+        {visibleReports.includes('governorates') && (
+          <ReportPanel title="أيام المرور بكل محافظة" subtitle="عدد أيام المرور الفعلية أو المجدولة">
+            {hasData(metrics.visitDaysByGovernorate) ? (
+              <ChartScroller wide>
+                <ResponsiveContainer height={310}>
+                  <BarChart data={toChartData(metrics.visitDaysByGovernorate)} margin={chartMargin}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={72} />
+                    <YAxis tickLine={false} axisLine={false} />
+                    <Tooltip formatter={arabicNumber} />
+                    <Bar dataKey="value" fill={toneColors.blue} radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartScroller>
+            ) : (
+              <EmptyReport title="لا توجد أيام مرور محسوبة" />
+            )}
+          </ReportPanel>
+        )}
+
+        {visibleReports.includes('performance') && (
+          <ReportPanel title="أكثر القائمين بالمرور" subtitle="ترتيب المفتشين حسب عدد المأموريات">
+            {metrics.topInspectors.length ? (
+              <div className="ranking-list">
+                {metrics.topInspectors.map((item, index) => (
+                  <div className="ranking-row" key={item.label}>
+                    <span>{index + 1}</span>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <small>{item.detail}</small>
+                    </div>
+                    <b>{item.value.toLocaleString('ar-EG')}</b>
+                  </div>
                 ))}
-              </Pie>
-              <Tooltip formatter={arabicNumber} />
-              <Legend verticalAlign="bottom" />
-            </PieChart>
-          </ResponsiveContainer>
-        </ReportPanel>
-
-        <ReportPanel title="المخالفات حسب الشدة" subtitle="حركة، متوسطة، بسيطة، ومصححة">
-          <ResponsiveContainer height={280}>
-            <BarChart data={toChartData(metrics.priorityBreakdown)} layout="vertical" margin={chartMargin}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-              <XAxis type="number" tickLine={false} axisLine={false} />
-              <YAxis dataKey="label" type="category" width={90} tickLine={false} axisLine={false} />
-              <Tooltip formatter={arabicNumber} />
-              <Bar dataKey="value" radius={[8, 8, 8, 8]}>
-                {metrics.priorityBreakdown.map((item) => (
-                  <Cell fill={toneColors[item.tone]} key={item.label} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ReportPanel>
-
-        <ReportPanel title="المرور حسب المحافظة" subtitle="عدد المأموريات المنفذة والمخططة">
-          <ResponsiveContainer height={310}>
-            <BarChart data={toChartData(metrics.governorateVisits)} margin={chartMargin}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={64} />
-              <YAxis tickLine={false} axisLine={false} />
-              <Tooltip formatter={arabicNumber} />
-              <Bar dataKey="value" fill={toneColors.teal} radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ReportPanel>
-
-        <ReportPanel title="أيام المرور بكل محافظة" subtitle="عدد أيام المرور الفعلية أو المجدولة">
-          <ResponsiveContainer height={310}>
-            <BarChart data={toChartData(metrics.visitDaysByGovernorate)} margin={chartMargin}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} angle={-20} textAnchor="end" height={64} />
-              <YAxis tickLine={false} axisLine={false} />
-              <Tooltip formatter={arabicNumber} />
-              <Bar dataKey="value" fill={toneColors.blue} radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ReportPanel>
-
-        <ReportPanel title="أكثر القائمين بالمرور" subtitle="ترتيب المفتشين حسب عدد المأموريات">
-          <div className="ranking-list">
-            {metrics.topInspectors.map((item, index) => (
-              <div className="ranking-row" key={item.label}>
-                <span>{index + 1}</span>
-                <div>
-                  <strong>{item.label}</strong>
-                  <small>{item.detail}</small>
-                </div>
-                <b>{item.value.toLocaleString('ar-EG')}</b>
               </div>
-            ))}
-          </div>
-        </ReportPanel>
+            ) : (
+              <EmptyReport title="لا توجد بيانات مرور للمفتشين" />
+            )}
+          </ReportPanel>
+        )}
 
-        <ReportPanel title="الاتجاه الشهري" subtitle="نمو حركة المرور خلال آخر ستة أشهر">
-          <ResponsiveContainer height={280}>
-            <LineChart data={toChartData(metrics.monthlyTrend)} margin={chartMargin}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="label" tickLine={false} axisLine={false} />
-              <YAxis tickLine={false} axisLine={false} />
-              <Tooltip formatter={arabicNumber} />
-              <Line type="monotone" dataKey="value" stroke={toneColors.violet} strokeWidth={3} dot={{ fill: toneColors.violet, r: 5 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ReportPanel>
+        {visibleReports.includes('performance') && (
+          <ReportPanel title="الاتجاه الشهري" subtitle="نمو حركة المرور خلال آخر ستة أشهر">
+            {hasData(metrics.monthlyTrend) ? (
+              <ChartScroller>
+                <ResponsiveContainer height={280}>
+                  <LineChart data={toChartData(metrics.monthlyTrend)} margin={chartMargin}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                    <YAxis tickLine={false} axisLine={false} />
+                    <Tooltip formatter={arabicNumber} />
+                    <Line type="monotone" dataKey="value" stroke={toneColors.violet} strokeWidth={3} dot={{ fill: toneColors.violet, r: 5 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartScroller>
+            ) : (
+              <EmptyReport title="لا توجد حركة شهرية بعد" />
+            )}
+          </ReportPanel>
+        )}
       </section>
 
       <section className="pulse-grid">
@@ -242,6 +317,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
 
         .command-hero,
         .metric-card,
+        .report-toolbar,
         .report-panel,
         .pulse-item {
           background: var(--surface);
@@ -299,6 +375,50 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
+        .report-toolbar {
+          align-items: center;
+          display: grid;
+          gap: 12px;
+          padding: 14px;
+        }
+
+        .report-toolbar span {
+          color: var(--muted);
+          display: block;
+          font-size: 13px;
+          line-height: 1.6;
+          margin-top: 2px;
+        }
+
+        .segmented-control {
+          background: #edf3f4;
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          display: grid;
+          gap: 4px;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          padding: 4px;
+        }
+
+        .segmented-control button {
+          background: transparent;
+          border: 0;
+          border-radius: 6px;
+          color: var(--muted);
+          cursor: pointer;
+          font: inherit;
+          font-size: 13px;
+          font-weight: 800;
+          min-height: 36px;
+          padding: 6px;
+        }
+
+        .segmented-control button.active {
+          background: var(--surface);
+          box-shadow: 0 6px 18px rgba(16, 32, 39, 0.08);
+          color: var(--brand);
+        }
+
         .metric-card {
           display: grid;
           gap: 12px;
@@ -352,12 +472,49 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           display: grid;
           gap: 12px;
           min-height: 360px;
+          min-width: 0;
+          overflow: hidden;
           padding: 16px;
         }
 
         .report-panel h3 {
           font-size: 18px;
           margin: 0;
+        }
+
+        .chart-scroll {
+          margin: 0 -4px;
+          max-width: 100%;
+          min-width: 0;
+          overflow-x: auto;
+          padding: 0 4px 4px;
+        }
+
+        .chart-canvas {
+          height: 100%;
+          min-width: 420px;
+          width: 100%;
+        }
+
+        .chart-canvas.wide {
+          min-width: 560px;
+        }
+
+        .empty-report {
+          align-content: center;
+          border: 1px dashed var(--line);
+          border-radius: 8px;
+          color: var(--muted);
+          display: grid;
+          gap: 8px;
+          justify-items: center;
+          min-height: 230px;
+          padding: 18px;
+          text-align: center;
+        }
+
+        .empty-report strong {
+          color: var(--ink);
         }
 
         .ranking-list {
@@ -423,12 +580,58 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
             grid-template-columns: repeat(3, minmax(0, 1fr));
           }
 
+          .report-toolbar {
+            grid-template-columns: 1fr auto;
+          }
+
           .report-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
           .pulse-grid {
             grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+
+          .chart-canvas,
+          .chart-canvas.wide {
+            min-width: 0;
+          }
+        }
+
+        @media (max-width: 430px) {
+          .command-hero {
+            padding: 14px;
+          }
+
+          .command-hero h2 {
+            font-size: 22px;
+          }
+
+          .profile-card {
+            min-width: 0;
+            width: 100%;
+          }
+
+          .metric-grid,
+          .pulse-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          .metric-card {
+            min-height: 116px;
+          }
+
+          .metric-card strong {
+            font-size: 28px;
+          }
+
+          .report-panel {
+            min-height: 320px;
+            padding: 12px;
+          }
+
+          .segmented-control {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
           }
         }
       `}</style>
@@ -477,6 +680,24 @@ function ReportPanel({ children, subtitle, title }: { children: React.ReactNode;
   )
 }
 
+function ChartScroller({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className="chart-scroll">
+      <div className={`chart-canvas ${wide ? 'wide' : ''}`}>{children}</div>
+    </div>
+  )
+}
+
+function EmptyReport({ title }: { title: string }) {
+  return (
+    <div className="empty-report">
+      <Stethoscope size={24} />
+      <strong>{title}</strong>
+      <span>ستظهر البيانات هنا تلقائيًا بعد تسجيل المأموريات والمخالفات.</span>
+    </div>
+  )
+}
+
 function PulseItem({ label, tone, value }: { label: string; tone: Tone; value: number }) {
   return (
     <article className="pulse-item">
@@ -504,6 +725,17 @@ function percent(part: number, total: number) {
 
 function toChartData(items: ChartItem[]) {
   return items.map((item) => ({ ...item, fill: toneColors[item.tone] }))
+}
+
+function getVisibleReports(reportFocus: ReportFocus) {
+  if (reportFocus === 'violations') return ['violations']
+  if (reportFocus === 'governorates') return ['governorates']
+  if (reportFocus === 'performance') return ['performance']
+  return ['missions', 'violations', 'governorates', 'performance']
+}
+
+function hasData(items: ChartItem[]) {
+  return items.some((item) => item.value > 0)
 }
 
 function arabicNumber(value?: number | string | readonly (number | string)[]) {

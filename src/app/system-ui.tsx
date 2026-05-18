@@ -252,18 +252,20 @@ function AppShell({ children, view }: { children: React.ReactNode; view: View })
         </div>
       </header>
 
-      <aside className={`side-sheet ${menuOpen ? 'open' : ''}`}>
-        <div className="sheet-head">
-          <div className="brand-lockup">
-            <MinistryLogo size="menu" />
-            <strong>نظام المأموريات</strong>
+      {menuOpen && (
+        <aside className="side-sheet open">
+          <div className="sheet-head">
+            <div className="brand-lockup">
+              <MinistryLogo size="menu" />
+              <strong>نظام المأموريات</strong>
+            </div>
+            <button aria-label="إغلاق القائمة" className="icon-button" onClick={() => setMenuOpen(false)}>
+              <X size={20} />
+            </button>
           </div>
-          <button aria-label="إغلاق القائمة" className="icon-button" onClick={() => setMenuOpen(false)}>
-            <X size={20} />
-          </button>
-        </div>
-        <Navigation onNavigate={() => setMenuOpen(false)} />
-      </aside>
+          <Navigation onNavigate={() => setMenuOpen(false)} />
+        </aside>
+      )}
 
       {menuOpen && <button aria-label="إغلاق القائمة" className="scrim" onClick={() => setMenuOpen(false)} />}
 
@@ -503,6 +505,7 @@ function Style() {
       body {
         min-height: 100%;
         margin: 0;
+        overflow-x: hidden;
       }
 
       body {
@@ -556,6 +559,7 @@ function Style() {
       .ministry-logo {
         display: block;
         flex: 0 0 auto;
+        max-width: 100%;
         object-fit: contain;
       }
 
@@ -579,7 +583,11 @@ function Style() {
       .ministry-logo.header,
       .ministry-logo.menu,
       .ministry-logo.footer {
+        flex-basis: 42px;
         height: 42px;
+        max-height: 42px;
+        max-width: 42px;
+        min-width: 42px;
         width: 42px;
       }
 
