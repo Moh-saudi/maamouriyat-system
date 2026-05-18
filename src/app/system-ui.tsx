@@ -86,6 +86,30 @@ const violations = [
   { title: 'نقص مستلزمات الطوارئ', facility: 'مستشفى النيل العام', severity: 'عالية', tone: 'red' },
 ]
 
+const notifications = [
+  {
+    href: '/dashboard/missions',
+    meta: 'منذ 10 دقائق',
+    text: 'توجد مأموريات قيد التنفيذ تحتاج متابعة اليوم.',
+    title: 'متابعة المأموريات',
+    tone: 'blue',
+  },
+  {
+    href: '/dashboard/violations',
+    meta: 'منذ 35 دقيقة',
+    text: 'تم تسجيل مخالفة عالية الخطورة وتحتاج إجراء تصحيحي.',
+    title: 'مخالفة عالية الخطورة',
+    tone: 'red',
+  },
+  {
+    href: '/dashboard/facilities',
+    meta: 'اليوم',
+    text: 'راجع بيانات المنشآت قبل اعتماد خطة المرور القادمة.',
+    title: 'تحديث بيانات المنشآت',
+    tone: 'amber',
+  },
+]
+
 export function SystemUI({ view }: { view: View }) {
   if (view === 'login') {
     return <LoginScreen />
@@ -187,6 +211,7 @@ function LoginScreen() {
 
 function AppShell({ children, view }: { children: React.ReactNode; view: View }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
 
   return (
     <main className="app-shell">
@@ -202,10 +227,29 @@ function AppShell({ children, view }: { children: React.ReactNode; view: View })
             <h1>{pageTitle(view)}</h1>
           </div>
         </div>
-        <button aria-label="التنبيهات" className="icon-button">
-          <Bell size={20} />
-          <span className="dot" />
-        </button>
+        <div className="notification-wrap">
+          <button
+            aria-expanded={notificationsOpen}
+            aria-label="التنبيهات"
+            className="icon-button"
+            onClick={() => setNotificationsOpen((isOpen) => !isOpen)}
+            type="button"
+          >
+            <Bell size={20} />
+            <span className="dot" />
+          </button>
+          {notificationsOpen && (
+            <>
+              <button
+                aria-label="إغلاق التنبيهات"
+                className="notification-scrim"
+                onClick={() => setNotificationsOpen(false)}
+                type="button"
+              />
+              <NotificationsPanel onNavigate={() => setNotificationsOpen(false)} />
+            </>
+          )}
+        </div>
       </header>
 
       <aside className={`side-sheet ${menuOpen ? 'open' : ''}`}>
@@ -251,6 +295,29 @@ function Navigation({ onNavigate }: { onNavigate: () => void }) {
       <NavItem href="/dashboard/users" icon={Users} label="المستخدمين" onClick={onNavigate} />
       <NavItem href="/dashboard/settings" icon={Settings} label="الإعدادات" onClick={onNavigate} />
     </div>
+  )
+}
+
+function NotificationsPanel({ onNavigate }: { onNavigate: () => void }) {
+  return (
+    <section aria-label="قائمة التنبيهات" className="notifications-panel">
+      <div className="notifications-head">
+        <strong>التنبيهات</strong>
+        <span>{notifications.length} جديدة</span>
+      </div>
+      <div className="notifications-list">
+        {notifications.map((item) => (
+          <Link className="notification-item" href={item.href} key={item.title} onClick={onNavigate}>
+            <span className={`notification-mark ${item.tone}`} />
+            <span>
+              <strong>{item.title}</strong>
+              <small>{item.text}</small>
+              <em>{item.meta}</em>
+            </span>
+          </Link>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -668,6 +735,108 @@ function Style() {
         position: absolute;
         top: 9px;
         width: 10px;
+      }
+
+      .notification-wrap {
+        position: relative;
+      }
+
+      .notifications-panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        display: grid;
+        gap: 10px;
+        left: 0;
+        padding: 12px;
+        position: absolute;
+        top: 52px;
+        width: min(86vw, 360px);
+        z-index: 60;
+      }
+
+      .notification-scrim {
+        background: transparent;
+        border: 0;
+        bottom: 0;
+        left: 0;
+        position: fixed;
+        right: 0;
+        top: 0;
+        z-index: 50;
+      }
+
+      .notifications-head {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .notifications-head span {
+        background: #edf7f7;
+        border-radius: 999px;
+        color: var(--brand);
+        font-size: 12px;
+        font-weight: 800;
+        padding: 4px 8px;
+      }
+
+      .notifications-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .notification-item {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 10px 1fr;
+        padding: 10px;
+      }
+
+      .notification-item:hover {
+        background: #f6fbfb;
+      }
+
+      .notification-item strong,
+      .notification-item small,
+      .notification-item em {
+        display: block;
+      }
+
+      .notification-item small {
+        color: var(--muted);
+        line-height: 1.6;
+        margin-top: 3px;
+      }
+
+      .notification-item em {
+        color: var(--brand);
+        font-size: 12px;
+        font-style: normal;
+        font-weight: 800;
+        margin-top: 6px;
+      }
+
+      .notification-mark {
+        border-radius: 99px;
+        height: 10px;
+        margin-top: 7px;
+        width: 10px;
+      }
+
+      .notification-mark.blue {
+        background: var(--blue);
+      }
+
+      .notification-mark.red {
+        background: var(--red);
+      }
+
+      .notification-mark.amber {
+        background: var(--amber);
       }
 
       .content,
