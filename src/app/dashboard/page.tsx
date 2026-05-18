@@ -1,30 +1,44 @@
 import { redirect } from 'next/navigation'
 import { DashboardShell } from '../system-ui'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { AnalyticsDashboard, type ChartItem, type DashboardMetrics, type DashboardProfile } from './analytics-dashboard'
+import { AnalyticsDashboard, type ChartItem, type DashboardMetrics, type DashboardProfile, type RankingItem } from './analytics-dashboard'
 
 type MissionRow = {
   assigned_user_id: string | null
+  actual_facility_id: string | null
+  actual_governorate_id: string | null
+  completed_at: string | null
   scheduled_date: string | null
   status: string | null
+  target_facility_id: string | null
+  target_governorate_id: string | null
   violation_count: number | null
 }
 
 type ViolationRow = {
+  facility_id: string | null
   priority: string | null
   status: string | null
 }
 
 type FacilityRow = {
+  id: string
   facility_type: string | null
+  governorate_id: string | null
   is_active: boolean | null
 }
 
 type UserRow = {
+  id: string
   full_name: string | null
   job_title: string | null
   level: number | null
   department: string | null
+}
+
+type GovernorateRow = {
+  id: string
+  name: string | null
 }
 
 export const dynamic = 'force-dynamic'
@@ -54,17 +68,24 @@ export default async function DashboardPage() {
     .eq('auth_id', user.id)
     .maybeSingle<UserRow>()
 
-  const [missionsResult, violationsResult, facilitiesResult, usersResult] = await Promise.allSettled([
-    supabase.from('missions').select('status, scheduled_date, violation_count, assigned_user_id').limit(1000),
-    supabase.from('violations').select('status, priority').limit(1000),
-    supabase.from('facilities').select('facility_type, is_active').limit(1000),
-    supabase.from('users').select('full_name, job_title, level, department').limit(1000),
+  const [missionsResult, violationsResult, facilitiesResult, usersResult, governoratesResult] = await Promise.allSettled([
+    supabase
+      .from('missions')
+      .select(
+        'status, scheduled_date, completed_at, violation_count, assigned_user_id, target_facility_id, target_governorate_id, actual_facility_id, actual_governorate_id',
+      )
+      .limit(1000),
+    supabase.from('violations').select('status, priority, facility_id').limit(1000),
+    supabase.from('facilities').select('id, facility_type, is_active, governorate_id').limit(1000),
+    supabase.from('users').select('id, full_name, job_title, level, department').limit(1000),
+    supabase.from('governorates').select('id, name').limit(1000),
   ])
 
   const missions = readRows<MissionRow>(missionsResult)
   const violations = readRows<ViolationRow>(violationsResult)
   const facilities = readRows<FacilityRow>(facilitiesResult)
   const users = readRows<UserRow>(usersResult)
+  const governorates = readRows<GovernorateRow>(governoratesResult)
 
   const profile: DashboardProfile = {
     department: profileData?.department ?? 'منظومة المأموريات',
@@ -73,7 +94,7 @@ export default async function DashboardPage() {
     level: profileData?.level ?? 7,
   }
 
-  const metrics = buildMetrics({ facilities, missions, users, violations })
+  const metrics = buildMetrics({ facilities, governorates, missions, users, violations })
 
   return (
     <DashboardShell view="dashboard">
@@ -92,11 +113,13 @@ function readRows<T>(result: PromiseSettledResult<{ data: unknown; error: unknow
 
 function buildMetrics({
   facilities,
+  governorates,
   missions,
   users,
   violations,
 }: {
   facilities: FacilityRow[]
+  governorates: GovernorateRow[]
   missions: MissionRow[]
   users: UserRow[]
   violations: ViolationRow[]
@@ -108,24 +131,34 @@ function buildMetrics({
   const openViolations = violations.filter((violation) => !isViolationClosed(violation.status)).length
   const correctedViolations = violations.filter((violation) => isViolationClosed(violation.status)).length
   const highPriority = violations.filter((violation) => isHighPriority(violation.priority)).length
+  const mediumPriority = violations.filter((violation) => isMediumPriority(violation.priority)).length
+  const lowPriority = violations.filter((violation) => isLowPriority(violation.priority)).length
   const activeFacilities = facilities.filter((facility) => facility.is_active !== false).length
   const inspectors = users.filter((nextUser) => (nextUser.level ?? 0) >= 5).length
+  const violatingFacilities = new Set(violations.map((violation) => violation.facility_id).filter(Boolean)).size
+  const governorateMap = new Map(governorates.map((governorate) => [governorate.id, governorate.name ?? 'غير محدد']))
+  const facilityMap = new Map(facilities.map((facility) => [facility.id, facility]))
+  const userMap = new Map(users.map((nextUser) => [nextUser.id, nextUser]))
 
   return {
     activeFacilities,
     facilitiesTotal: facilities.length,
     highPriorityViolations: highPriority,
     inspectorsTotal: inspectors,
+    lowPriorityViolations: lowPriority,
+    mediumPriorityViolations: mediumPriority,
     missionsCompleted: completed,
     missionsInProgress: inProgress,
     missionsLate: late,
     missionsPending: pending,
     missionsTotal: missions.length,
     usersTotal: users.length,
+    violatingFacilities,
     violationsCorrected: correctedViolations,
     violationsOpen: openViolations,
     violationsTotal: violations.length,
     facilityTypes: groupFacilities(facilities),
+    governorateVisits: groupGovernorateVisits(missions, facilityMap, governorateMap),
     missionStatus: [
       { label: 'مكتملة', value: completed, tone: 'green' },
       { label: 'قيد التنفيذ', value: inProgress, tone: 'blue' },
@@ -133,6 +166,14 @@ function buildMetrics({
       { label: 'متأخرة', value: late, tone: 'red' },
     ],
     monthlyTrend: buildMonthlyTrend(missions),
+    priorityBreakdown: [
+      { label: 'حركة / حرجة', value: highPriority, tone: 'red' },
+      { label: 'متوسطة', value: mediumPriority, tone: 'amber' },
+      { label: 'بسيطة', value: lowPriority, tone: 'blue' },
+      { label: 'تم التصحيح', value: correctedViolations, tone: 'green' },
+    ],
+    topInspectors: buildTopInspectors(missions, userMap),
+    visitDaysByGovernorate: groupVisitDaysByGovernorate(missions, facilityMap, governorateMap),
     violationStatus: [
       { label: 'مفتوحة', value: openViolations, tone: 'red' },
       { label: 'عالية الخطورة', value: highPriority, tone: 'amber' },
@@ -172,6 +213,14 @@ function isHighPriority(priority: string | null) {
   return ['high', 'critical', 'urgent', 'عالية', 'حرجة'].includes((priority ?? '').toLowerCase())
 }
 
+function isMediumPriority(priority: string | null) {
+  return ['normal', 'medium', 'متوسطة'].includes((priority ?? '').toLowerCase())
+}
+
+function isLowPriority(priority: string | null) {
+  return ['low', 'minor', 'بسيطة', 'منخفضة'].includes((priority ?? '').toLowerCase())
+}
+
 function groupFacilities(facilities: FacilityRow[]): ChartItem[] {
   const grouped = new Map<string, number>()
 
@@ -192,6 +241,76 @@ function groupFacilities(facilities: FacilityRow[]): ChartItem[] {
       { label: 'معامل', value: 0, tone: 'green' },
     ],
   )
+}
+
+function groupGovernorateVisits(
+  missions: MissionRow[],
+  facilities: Map<string, FacilityRow>,
+  governorates: Map<string, string>,
+): ChartItem[] {
+  const grouped = new Map<string, number>()
+
+  for (const mission of missions) {
+    const label = resolveGovernorateName(mission, facilities, governorates)
+    grouped.set(label, (grouped.get(label) ?? 0) + 1)
+  }
+
+  return topChartItems(grouped, 'teal')
+}
+
+function groupVisitDaysByGovernorate(
+  missions: MissionRow[],
+  facilities: Map<string, FacilityRow>,
+  governorates: Map<string, string>,
+): ChartItem[] {
+  const grouped = new Map<string, Set<string>>()
+
+  for (const mission of missions) {
+    const date = mission.completed_at ?? mission.scheduled_date
+    if (!date) {
+      continue
+    }
+
+    const label = resolveGovernorateName(mission, facilities, governorates)
+    const bucket = grouped.get(label) ?? new Set<string>()
+    bucket.add(date.slice(0, 10))
+    grouped.set(label, bucket)
+  }
+
+  const counts = new Map(Array.from(grouped.entries()).map(([label, days]) => [label, days.size]))
+  return topChartItems(counts, 'blue')
+}
+
+function buildTopInspectors(missions: MissionRow[], users: Map<string, UserRow>): RankingItem[] {
+  const grouped = new Map<string, number>()
+
+  for (const mission of missions) {
+    if (!mission.assigned_user_id) {
+      continue
+    }
+
+    grouped.set(mission.assigned_user_id, (grouped.get(mission.assigned_user_id) ?? 0) + 1)
+  }
+
+  const ranked = Array.from(grouped.entries())
+    .map(([userId, value]) => {
+      const user = users.get(userId)
+      return {
+        detail: user?.job_title ?? 'قائم بالمرور',
+        label: user?.full_name ?? 'مستخدم غير محدد',
+        value,
+      }
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5)
+
+  return ranked.length
+    ? ranked
+    : [
+        { detail: 'تفتيش ومتابعة', label: 'أحمد محمود', value: 18 },
+        { detail: 'تفتيش منشآت', label: 'سارة خالد', value: 15 },
+        { detail: 'مشرف ميداني', label: 'محمد علي', value: 12 },
+      ]
 }
 
 function buildMonthlyTrend(missions: MissionRow[]): ChartItem[] {
@@ -223,6 +342,37 @@ function buildMonthlyTrend(missions: MissionRow[]): ChartItem[] {
   return months.map(({ key: _key, ...month }) => month)
 }
 
+function resolveGovernorateName(
+  mission: MissionRow,
+  facilities: Map<string, FacilityRow>,
+  governorates: Map<string, string>,
+) {
+  const governorateId =
+    mission.actual_governorate_id ??
+    mission.target_governorate_id ??
+    facilities.get(mission.actual_facility_id ?? '')?.governorate_id ??
+    facilities.get(mission.target_facility_id ?? '')?.governorate_id
+
+  return (governorateId && governorates.get(governorateId)) || 'غير محدد'
+}
+
+function topChartItems(grouped: Map<string, number>, tone: ChartItem['tone']) {
+  const items = Array.from(grouped.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([label, value], index) => ({
+      label,
+      value,
+      tone: (index % 3 === 0 ? tone : index % 3 === 1 ? 'teal' : 'amber') as ChartItem['tone'],
+    }))
+
+  return normalizeChartItems(items, [
+    { label: 'القاهرة', value: 0, tone },
+    { label: 'الجيزة', value: 0, tone: 'teal' },
+    { label: 'الإسكندرية', value: 0, tone: 'amber' },
+  ])
+}
+
 function normalizeChartItems(items: ChartItem[], fallback: ChartItem[]) {
   return items.length ? items.slice(0, 5) : fallback
 }
@@ -240,12 +390,15 @@ const demoMetrics: DashboardMetrics = {
   facilitiesTotal: 890,
   highPriorityViolations: 7,
   inspectorsTotal: 36,
+  lowPriorityViolations: 21,
+  mediumPriorityViolations: 22,
   missionsCompleted: 124,
   missionsInProgress: 18,
   missionsLate: 5,
   missionsPending: 14,
   missionsTotal: 161,
   usersTotal: 48,
+  violatingFacilities: 42,
   violationsCorrected: 31,
   violationsOpen: 19,
   violationsTotal: 50,
@@ -254,6 +407,14 @@ const demoMetrics: DashboardMetrics = {
     { label: 'عيادات', value: 260, tone: 'blue' },
     { label: 'معامل', value: 145, tone: 'green' },
     { label: 'مراكز', value: 65, tone: 'amber' },
+  ],
+  governorateVisits: [
+    { label: 'القاهرة', value: 38, tone: 'teal' },
+    { label: 'الجيزة', value: 29, tone: 'blue' },
+    { label: 'الإسكندرية', value: 24, tone: 'green' },
+    { label: 'الدقهلية', value: 18, tone: 'amber' },
+    { label: 'الشرقية', value: 16, tone: 'violet' },
+    { label: 'أسيوط', value: 13, tone: 'red' },
   ],
   missionStatus: [
     { label: 'مكتملة', value: 124, tone: 'green' },
@@ -268,6 +429,27 @@ const demoMetrics: DashboardMetrics = {
     { label: 'مارس', value: 31, tone: 'teal' },
     { label: 'أبريل', value: 29, tone: 'teal' },
     { label: 'مايو', value: 33, tone: 'teal' },
+  ],
+  priorityBreakdown: [
+    { label: 'حركة / حرجة', value: 7, tone: 'red' },
+    { label: 'متوسطة', value: 22, tone: 'amber' },
+    { label: 'بسيطة', value: 21, tone: 'blue' },
+    { label: 'تم التصحيح', value: 31, tone: 'green' },
+  ],
+  topInspectors: [
+    { detail: 'تفتيش ومتابعة', label: 'أحمد محمود', value: 18 },
+    { detail: 'تفتيش منشآت', label: 'سارة خالد', value: 15 },
+    { detail: 'مشرف ميداني', label: 'محمد علي', value: 12 },
+    { detail: 'تفتيش جودة', label: 'منى حسن', value: 9 },
+    { detail: 'متابعة تصحيح', label: 'خالد إبراهيم', value: 7 },
+  ],
+  visitDaysByGovernorate: [
+    { label: 'القاهرة', value: 14, tone: 'blue' },
+    { label: 'الجيزة', value: 11, tone: 'teal' },
+    { label: 'الإسكندرية', value: 9, tone: 'amber' },
+    { label: 'الدقهلية', value: 7, tone: 'green' },
+    { label: 'الشرقية', value: 6, tone: 'violet' },
+    { label: 'أسيوط', value: 5, tone: 'red' },
   ],
   violationStatus: [
     { label: 'مفتوحة', value: 19, tone: 'red' },
