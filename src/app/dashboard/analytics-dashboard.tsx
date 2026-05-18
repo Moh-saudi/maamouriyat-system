@@ -2,15 +2,13 @@
 
 import { useMemo, useState } from 'react'
 import {
-  AlertTriangle,
   Building2,
-  CheckCircle2,
   ClipboardList,
   Clock3,
-  MapPinned,
   ShieldCheck,
   Siren,
   Stethoscope,
+  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -138,10 +136,13 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           <h2>{roleCopy[role].title}</h2>
           <p>{roleCopy[role].focus}</p>
         </div>
-        <div className="profile-card">
-          <ShieldCheck size={20} />
-          <strong>{profile.fullName}</strong>
-          <span>{profile.jobTitle || `المستوى ${profile.level}`}</span>
+        <div
+          aria-label={`${profile.fullName} - ${profile.jobTitle || `المستوى ${profile.level}`}`}
+          className="profile-chip"
+          title={`${profile.fullName} - ${profile.jobTitle || `المستوى ${profile.level}`}`}
+        >
+          <UserRound size={20} />
+          <span>{profile.fullName}</span>
         </div>
       </section>
 
@@ -271,7 +272,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                       <strong>{item.label}</strong>
                       <small>{item.detail}</small>
                     </div>
-                    <b>{item.value.toLocaleString('ar-EG')}</b>
+                    <b>{item.value.toLocaleString('en-US')}</b>
                   </div>
                 ))}
               </div>
@@ -312,11 +313,11 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
       <style jsx>{`
         .analytics-dashboard {
           display: grid;
-          gap: 16px;
+          gap: 12px;
         }
 
         .command-hero,
-        .metric-card,
+        :global(.metric-card),
         .report-toolbar,
         .report-panel,
         .pulse-item {
@@ -329,8 +330,8 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         .command-hero {
           align-items: center;
           display: grid;
-          gap: 18px;
-          padding: 20px;
+          gap: 12px;
+          padding: 16px;
         }
 
         .command-hero h2 {
@@ -345,23 +346,27 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           max-width: 54rem;
         }
 
-        .profile-card {
+        .profile-chip {
           align-items: center;
-          background: #edf7f7;
+          background: #f4faf9;
           border: 1px solid #cfe5e6;
           border-radius: 8px;
           color: var(--brand);
-          display: grid;
-          gap: 4px 10px;
-          grid-template-columns: 24px 1fr;
+          display: inline-flex;
+          gap: 8px;
           justify-self: start;
-          min-width: 240px;
-          padding: 12px;
+          max-width: min(100%, 240px);
+          min-height: 42px;
+          padding: 8px 10px;
         }
 
-        .profile-card span {
-          color: var(--muted);
-          grid-column: 2;
+        .profile-chip span {
+          color: var(--brand);
+          font-size: 13px;
+          font-weight: 900;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .metric-grid,
@@ -378,8 +383,8 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         .report-toolbar {
           align-items: center;
           display: grid;
-          gap: 12px;
-          padding: 14px;
+          gap: 10px;
+          padding: 12px 14px;
         }
 
         .report-toolbar span {
@@ -419,23 +424,24 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           color: var(--brand);
         }
 
-        .metric-card {
+        :global(.metric-card) {
+          border-top: 3px solid var(--metric-tone);
           display: grid;
-          gap: 12px;
-          min-height: 142px;
+          gap: 10px;
+          min-height: 130px;
           padding: 14px;
         }
 
-        .metric-card header {
+        :global(.metric-head) {
           align-items: center;
           display: flex;
           gap: 10px;
           justify-content: space-between;
         }
 
-        .metric-icon {
+        :global(.metric-icon) {
           align-items: center;
-          background: #edf7f7;
+          background: var(--metric-soft);
           border-radius: 8px;
           display: inline-flex;
           height: 40px;
@@ -443,12 +449,18 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           width: 40px;
         }
 
-        .metric-card strong {
-          font-size: 32px;
+        :global(.metric-body) {
+          align-self: end;
+          display: grid;
+          gap: 7px;
+        }
+
+        :global(.metric-card strong) {
+          font-size: clamp(26px, 4vw, 34px);
           line-height: 1;
         }
 
-        .metric-card span,
+        :global(.metric-card span),
         .report-panel p,
         .pulse-item span,
         .ranking-row small {
@@ -457,11 +469,15 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           line-height: 1.6;
         }
 
-        .delta {
+        :global(.metric-note) {
           border-radius: 999px;
           font-size: 12px;
           font-weight: 800;
+          line-height: 1.4;
+          max-width: 120px;
           padding: 4px 8px;
+          text-align: center;
+          white-space: nowrap;
         }
 
         .report-grid {
@@ -598,7 +614,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           }
         }
 
-        @media (max-width: 430px) {
+        @media (max-width: 640px) {
           .command-hero {
             padding: 14px;
           }
@@ -607,9 +623,14 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
             font-size: 22px;
           }
 
-          .profile-card {
-            min-width: 0;
-            width: 100%;
+          .profile-chip {
+            justify-self: end;
+            max-width: 48px;
+            padding: 10px;
+          }
+
+          .profile-chip span {
+            display: none;
           }
 
           .metric-grid,
@@ -617,12 +638,12 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
             grid-template-columns: minmax(0, 1fr);
           }
 
-          .metric-card {
-            min-height: 116px;
+          :global(.metric-card) {
+            min-height: 128px;
           }
 
-          .metric-card strong {
-            font-size: 28px;
+          :global(.metric-card strong) {
+            font-size: 32px;
           }
 
           .report-panel {
@@ -653,17 +674,27 @@ function MetricCard({
   value: number
 }) {
   return (
-    <article className="metric-card">
-      <header>
+    <article
+      className="metric-card"
+      style={
+        {
+          '--metric-soft': `${toneColors[tone]}14`,
+          '--metric-tone': toneColors[tone],
+        } as React.CSSProperties
+      }
+    >
+      <div className="metric-head">
         <span className="metric-icon" style={{ color: toneColors[tone] }}>
           <Icon size={21} />
         </span>
-        <span className="delta" style={{ backgroundColor: `${toneColors[tone]}18`, color: toneColors[tone] }}>
+        <span className="metric-note" style={{ backgroundColor: `${toneColors[tone]}18`, color: toneColors[tone] }}>
           {delta}
         </span>
-      </header>
-      <strong>{value.toLocaleString('ar-EG')}</strong>
-      <span>{label}</span>
+      </div>
+      <div className="metric-body">
+        <strong>{value.toLocaleString('en-US')}</strong>
+        <span>{label}</span>
+      </div>
     </article>
   )
 }
@@ -744,7 +775,7 @@ function arabicNumber(value?: number | string | readonly (number | string)[]) {
   }
 
   if (typeof value === 'number') {
-    return value.toLocaleString('ar-EG')
+    return value.toLocaleString('en-US')
   }
 
   return value ?? ''

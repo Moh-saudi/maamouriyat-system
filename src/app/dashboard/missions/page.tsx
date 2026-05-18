@@ -78,7 +78,7 @@ export default async function MissionsPage() {
                 <strong>{mission.serial_number}</strong>
                 <p>{mission.visit_purpose || 'بدون غرض مسجل'}</p>
               </div>
-              <span className={styles.status}>{statusText(mission.status)}</span>
+              <span className={`${styles.status} ${styles[statusTone(mission.status)]}`}>{statusText(mission.status)}</span>
             </div>
 
             <dl className={styles.meta}>
@@ -102,7 +102,9 @@ export default async function MissionsPage() {
 
             <div className={styles.cardActions}>
               {mission.destination_changed && <span className={styles.changed}>تم تغيير الوجهة</span>}
-              <Link href={`/dashboard/missions/${mission.id}/execute`}>تنفيذ / تحديث</Link>
+              <Link href={`/dashboard/missions/${mission.id}/execute`}>
+                {mission.status === 'completed' ? 'عرض التفاصيل' : 'تنفيذ / تحديث'}
+              </Link>
             </div>
           </article>
           )
@@ -138,4 +140,11 @@ function statusText(status: string | null) {
   if (status === 'completed') return 'مكتملة'
   if (status === 'draft') return 'مسودة'
   return status ?? 'غير محدد'
+}
+
+function statusTone(status: string | null) {
+  if (status === 'completed') return 'green'
+  if (status === 'in_progress') return 'blue'
+  if (status === 'assigned') return 'amber'
+  return 'default'
 }

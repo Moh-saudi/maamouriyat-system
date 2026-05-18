@@ -8,7 +8,7 @@ const settings = [
 
 export default function SettingsPage() {
   return (
-    <DashboardShell view="dashboard">
+    <DashboardShell view="settings">
       <div className="stack">
         <section className="welcome-band">
           <div>

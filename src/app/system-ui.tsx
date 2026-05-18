@@ -23,7 +23,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-type View = 'login' | 'dashboard' | 'missions' | 'violations'
+type View = 'login' | 'dashboard' | 'missions' | 'violations' | 'facilities' | 'users' | 'settings'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabasePublishableKey =
@@ -477,6 +477,9 @@ function SectionHeader({ actionHref, actionText, title }: { actionHref?: string;
 function pageTitle(view: View) {
   if (view === 'missions') return 'المأموريات'
   if (view === 'violations') return 'المخالفات'
+  if (view === 'facilities') return 'المنشآت'
+  if (view === 'users') return 'المستخدمون'
+  if (view === 'settings') return 'الإعدادات'
   return 'لوحة القيادة'
 }
 
@@ -545,11 +548,7 @@ function Style() {
 
       .login-hero {
         align-content: end;
-        background:
-          linear-gradient(140deg, rgba(0, 109, 119, 0.92), rgba(42, 157, 143, 0.72)),
-          url('https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=1400&q=80');
-        background-position: center;
-        background-size: cover;
+        background: linear-gradient(140deg, #005f68 0%, #006d77 45%, #2a9d8f 100%);
         color: white;
         display: grid;
         min-height: 260px;
@@ -994,12 +993,54 @@ function Style() {
         padding: 5px 9px;
       }
 
+      .pill.green {
+        background: #e8f7f4;
+        color: var(--brand-2);
+      }
+
+      .pill.blue {
+        background: #e8f1fb;
+        color: var(--blue);
+      }
+
+      .pill.red {
+        background: #fdeaea;
+        color: var(--red);
+      }
+
+      .pill.amber {
+        background: #fdf4e3;
+        color: var(--amber);
+      }
+
+      .empty-state {
+        background: var(--surface);
+        border: 1px dashed var(--line);
+        border-radius: 8px;
+        color: var(--muted);
+        display: grid;
+        gap: 8px;
+        padding: 32px 20px;
+        text-align: center;
+      }
+
+      .empty-state h2 {
+        color: var(--ink);
+        font-size: 18px;
+      }
+
       .meta-grid {
         color: var(--muted);
         display: grid;
         font-size: 13px;
         gap: 6px;
         grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .toolbar {

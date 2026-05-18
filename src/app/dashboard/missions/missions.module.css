@@ -76,8 +76,23 @@
 }
 
 .status {
-  background: #e7f5f3;
-  color: #006d77;
+  background: #eef6f6;
+  color: #64747d;
+}
+
+.status.green {
+  background: #e8f7f4;
+  color: #2a9d8f;
+}
+
+.status.blue {
+  background: #e8f1fb;
+  color: #2c6fbb;
+}
+
+.status.amber {
+  background: #fdf4e3;
+  color: #b7791f;
 }
 
 .changed {
