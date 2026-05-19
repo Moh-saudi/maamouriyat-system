@@ -35,9 +35,13 @@ export async function middleware(req: NextRequest) {
     },
   })
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    // network/auth failure → treat as unauthenticated
+  }
 
   if (!user && !isLoginPage) {
     const redirectUrl = req.nextUrl.clone()
