@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2 } from 'lucide-react'
+import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2, LayoutGrid, List, Copy, Check, FileSpreadsheet } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import { normalizeDemoRole } from '@/lib/roles'
 
@@ -180,6 +180,8 @@ export function UserPortal({
   const supabase = createBrowserSupabaseClient()
   const [users, setUsers] = useState<UserRow[]>(initialUsers)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
+  const [selectedDetailUser, setSelectedDetailUser] = useState<UserRow | null>(null)
 
   const handleImpersonateUser = (userEmail: string) => {
     if (!userEmail) return;
@@ -187,6 +189,59 @@ export function UserPortal({
     document.cookie = `maamouriyat_demo_session=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
     document.cookie = `maamouriyat_user_role=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
     window.location.href = '/dashboard'
+  }
+
+  const handleExportToExcel = () => {
+    // CSV columns headers
+    const headers = [
+      'الاسم الكامل',
+      'المسمى الوظيفي',
+      'مستوى الصلاحية',
+      'المنشأة/الإدارة التابع لها',
+      'البريد الإلكتروني',
+      'رقم الهاتف',
+      'الكود المالي',
+      'حالة الحساب'
+    ]
+
+    // Map each filtered user to a row
+    const rows = filteredUsers.map(u => [
+      u.full_name,
+      u.job_title || 'مفتش تفتيش ميداني',
+      levelLabel(u.level),
+      u.department || 'ديوان عام الوزارة',
+      u.email || '',
+      u.phone || '',
+      u.financial_code || '',
+      u.is_active !== false ? 'نشط وموثق' : 'معلق'
+    ])
+
+    // Convert rows to CSV, using double quotes to handle values that might contain commas
+    const csvRows = [
+      headers.join(','),
+      ...rows.map(row => 
+        row.map(val => {
+          const escaped = String(val ?? '').replace(/"/g, '""')
+          return `"${escaped}"`
+        }).join(',')
+      )
+    ]
+
+    // Add UTF-8 BOM prefix \ufeff so MS Excel recognizes the Arabic characters
+    const csvContent = '\ufeff' + csvRows.join('\n')
+
+    // Create a blob and download it
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const dateStr = new Date().toISOString().split('T')[0]
+    
+    link.setAttribute('href', url)
+    link.setAttribute('download', `دليل_موظفي_المنظومة_${dateStr}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
   
   // Search & Filter states
@@ -570,231 +625,348 @@ export function UserPortal({
             الدعم والتنسيق المالي
           </button>
         </div>
+
+        {/* Actions Wrapper: Excel Export + Layout Switcher */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          {/* Export to Excel Button */}
+          <button
+            onClick={handleExportToExcel}
+            style={{
+              background: '#e8f5e9',
+              color: '#2e7d32',
+              border: '1px solid #c8e6c9',
+              borderRadius: '8px',
+              minHeight: '34px',
+              padding: '0 12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontSize: '12px',
+              transition: 'all 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#c8e6c9'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#e8f5e9'
+            }}
+            title="تصدير الموظفين الحاليين إلى ملف إكسيل"
+            type="button"
+          >
+            <FileSpreadsheet size={14} />
+            تصدير للأكسيل 📊
+          </button>
+
+          {/* Layout View Toggler */}
+          <div style={{ display: 'flex', gap: '4px', background: '#f0f4f5', padding: '4px', borderRadius: '10px' }}>
+            <button
+              onClick={() => setViewMode('grid')}
+              style={{
+                background: viewMode === 'grid' ? 'white' : 'transparent',
+                color: viewMode === 'grid' ? 'var(--brand)' : '#546e7a',
+                border: 0,
+                borderRadius: '8px',
+                width: '34px',
+                height: '34px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: viewMode === 'grid' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+                transition: 'all 0.2s'
+              }}
+              title="عرض كشبكة كروت"
+              type="button"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            
+            <button
+              onClick={() => setViewMode('table')}
+              style={{
+                background: viewMode === 'table' ? 'white' : 'transparent',
+                color: viewMode === 'table' ? 'var(--brand)' : '#546e7a',
+                border: 0,
+                borderRadius: '8px',
+                width: '34px',
+                height: '34px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: viewMode === 'table' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+                transition: 'all 0.2s'
+              }}
+              title="عرض كجدول بيانات"
+              type="button"
+            >
+              <List size={16} />
+            </button>
+          </div>
+        </div>
       </section>
 
-      {/* Staff Grid Directory */}
-      <section style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-        gap: '16px',
-        marginTop: '8px'
-      }}>
-        {filteredUsers.map((u) => {
-          const badgeStyle = levelToneColors(u.level)
-          
-          // Deterministic statistics and meta information based on user profile
-          const hash = u.full_name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-          
-          const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
-          const joinMonth = months[hash % 12]
-          const joinYear = 2024 + (hash % 3)
-          const joinDate = `انضم في ${joinMonth} ${joinYear}`
-          
-          let systemScope = 'صلاحية محدودة بالمنظومة'
-          if (u.level === 1) systemScope = 'إشراف كامل وإدارة المنظومة واعتماد عام'
-          else if (u.level === 2) systemScope = 'اعتماد مأموريات الإدارات والتقارير العامة'
-          else if (u.level === 3) systemScope = 'اعتماد خطط وتكليفات الإدارة العامة'
-          else if (u.level === 4) systemScope = 'إنشاء التكليفات وتسجيل الكوادر'
-          else if (u.level === 5) systemScope = 'مراجعة المالي وتدقيق بنود الصرف'
-          else if (u.level === 7) systemScope = 'التنفيذ الميداني ورصد المخالفات الفورية'
+      {/* Staff Directory List/Grid Wrapper */}
+      {viewMode === 'grid' ? (
+        <section style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gap: '16px',
+          marginTop: '8px'
+        }}>
+          {filteredUsers.map((u) => {
+            const badgeStyle = levelToneColors(u.level)
+            
+            // Deterministic statistics and meta information based on user profile
+            const hash = u.full_name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+            
+            const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
+            const joinMonth = months[hash % 12]
+            const joinYear = 2024 + (hash % 3)
+            const joinDate = `انضم في ${joinMonth} ${joinYear}`
+            
+            let systemScope = 'صلاحية محدودة بالمنظومة'
+            if (u.level === 1) systemScope = 'إشراف كامل وإدارة المنظومة واعتماد عام'
+            else if (u.level === 2) systemScope = 'اعتماد مأموريات الإدارات والتقارير العامة'
+            else if (u.level === 3) systemScope = 'اعتماد خطط وتكليفات الإدارة العامة'
+            else if (u.level === 4) systemScope = 'إنشاء التكليفات وتسجيل الكوادر'
+            else if (u.level === 5) systemScope = 'مراجعة المالي وتدقيق بنود الصرف'
+            else if (u.level === 7) systemScope = 'التنفيذ الميداني ورصد المخالفات الفورية'
 
-          let missionStats = ''
-          if (u.level === 7) {
-            const activeM = (hash % 3) + 1
-            const compM = (hash % 15) + 5
-            missionStats = `المأموريات الميدانية: ${activeM} جارية | ${compM} مكتملة`
-          } else if (u.level === 5) {
-            const audited = (hash % 20) + 10
-            missionStats = `معاملات مالية مدققة: ${audited} مطالبة`
-          } else if (u.level === 4) {
-            const assigned = (hash % 25) + 12
-            missionStats = `مأموريات مجدولة ومكلفة: ${assigned}`
-          } else {
-            const approved = (hash % 35) + 20
-            missionStats = `مأموريات تم اعتمادها: ${approved} خطة`
-          }
+            let missionStats = ''
+            if (u.level === 7) {
+              const activeM = (hash % 3) + 1
+              const compM = (hash % 15) + 5
+              missionStats = `المأموريات الميدانية: ${activeM} جارية | ${compM} مكتملة`
+            } else if (u.level === 5) {
+              const audited = (hash % 20) + 10
+              missionStats = `معاملات مالية مدققة: ${audited} مطالبة`
+            } else if (u.level === 4) {
+              const assigned = (hash % 25) + 12
+              missionStats = `مأموريات مجدولة ومكلفة: ${assigned}`
+            } else {
+              const approved = (hash % 35) + 20
+              missionStats = `مأموريات تم اعتمادها: ${approved} خطة`
+            }
 
-          const isVerified = u.is_active !== false
-          
-          return (
-            <article
-              key={u.id}
-              style={{
-                background: 'white',
-                border: '1px solid var(--line)',
-                borderRadius: '12px',
-                padding: '14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.01)',
-                transition: 'all 0.2s',
-                position: 'relative',
-                overflow: 'hidden'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-3px)'
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(16,32,39,0.05)'
-                e.currentTarget.style.borderColor = 'var(--brand)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)'
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.01)'
-                e.currentTarget.style.borderColor = 'var(--line)'
-              }}
-            >
-              {/* Top Details (Avatar, Name, Pill) */}
-              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <UserAvatar name={u.full_name} level={u.level} />
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <h4 style={{ margin: 0, fontSize: '13.5px', color: '#102027', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.full_name}</h4>
-                    <BadgeCheck size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-                  </div>
+            const isVerified = u.is_active !== false
+            
+            return (
+              <article
+                key={u.id}
+                onClick={() => setSelectedDetailUser(u)}
+                style={{
+                  background: 'white',
+                  border: '1px solid var(--line)',
+                  borderRadius: '12px',
+                  padding: '14px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.01)',
+                  transition: 'all 0.2s',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  cursor: 'pointer'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-3px)'
+                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(16,32,39,0.05)'
+                  e.currentTarget.style.borderColor = 'var(--brand)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.01)'
+                  e.currentTarget.style.borderColor = 'var(--line)'
+                }}
+              >
+                {/* Top Details (Avatar, Name, Pill) */}
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <UserAvatar name={u.full_name} level={u.level} />
                   
-                  <span style={{
-                    fontSize: '9.5px',
-                    fontWeight: 'bold',
-                    color: badgeStyle.text,
-                    background: badgeStyle.bg,
-                    border: `1px solid ${badgeStyle.border}`,
-                    padding: '1px 6px',
-                    borderRadius: '20px',
-                    alignSelf: 'flex-start',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {levelLabel(u.level)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Middle Section details */}
-              <div style={{
-                background: '#f8fbfb',
-                padding: '10px',
-                borderRadius: '8px',
-                border: '1px solid #cfdcde',
-                display: 'grid',
-                gap: '6px',
-                fontSize: '11.5px'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                  <Shield size={13} style={{ color: '#546e7a', marginTop: '2px', flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <strong style={{ color: '#263238', fontSize: '12px' }}>{u.job_title ?? 'مفتش تفتيش ميداني'}</strong>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                  <MapPin size={13} style={{ color: '#546e7a', marginTop: '2px', flexShrink: 0 }} />
-                  <span style={{ color: '#455a64', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.department ?? 'ديوان عام وزارة الصحة والسكان'}</span>
-                </div>
-
-                {/* Email Display */}
-                {u.email && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Mail size={13} style={{ color: '#546e7a', flexShrink: 0 }} />
-                    <span style={{ color: '#455a64', userSelect: 'all', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</span>
-                  </div>
-                )}
-
-                {/* Mobile Phone Display */}
-                {u.phone && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Phone size={13} style={{ color: '#546e7a', flexShrink: 0 }} />
-                    <span style={{ color: '#455a64' }}>{u.phone}</span>
-                  </div>
-                )}
-
-                {/* Dynamic Joined Date & Status */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px' }}>
-                  <span style={{ color: '#78909c', fontSize: '10.5px' }}>{joinDate}</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: isVerified ? '#2ecc71' : '#e74c3c', fontSize: '10.5px', fontWeight: 'bold' }}>
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isVerified ? '#2ecc71' : '#e74c3c' }} />
-                    {isVerified ? 'موثق ونشط' : 'معلق'}
-                  </span>
-                </div>
-
-                {/* Dynamic Scope Capabilities */}
-                <div style={{ borderTop: '1px dashed #cfdcde', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <span style={{ color: '#78909c', fontSize: '10px', fontWeight: 'bold' }}>الصلاحية والمؤشرات:</span>
-                  <span style={{ color: '#546e7a', fontSize: '11px', lineHeight: '1.4' }}>• {systemScope}</span>
-                  <span style={{ color: 'var(--brand)', fontSize: '11px', fontWeight: 'bold' }}>• {missionStats}</span>
-                </div>
-
-                {u.financial_code && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px' }}>
-                    <Hash size={12} style={{ color: '#546e7a' }} />
-                    <span style={{ color: '#455a64' }}>الكود المالي:</span>
-                    <code style={{ background: '#e0f2f1', color: '#004d40', padding: '1px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>{u.financial_code}</code>
-                  </div>
-                )}
-              </div>
-
-              {/* Bottom Quick Actions (Email, Call) - Compact design */}
-              <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '2px' }}>
-                {u.email && (
-                  <a
-                    href={`mailto:${u.email}`}
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px',
-                      background: '#eef6f6',
-                      color: 'var(--brand)',
-                      border: '1px solid #cfdcde',
-                      borderRadius: '6px',
-                      minHeight: '32px',
-                      textDecoration: 'none',
-                      fontSize: '11.5px',
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <h4 style={{ margin: 0, fontSize: '13.5px', color: '#102027', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.full_name}</h4>
+                      <BadgeCheck size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+                    </div>
+                    
+                    <span style={{
+                      fontSize: '9.5px',
                       fontWeight: 'bold',
-                      transition: 'background 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
-                  >
-                    <Mail size={12} />
-                    مراسلة
-                  </a>
-                )}
+                      color: badgeStyle.text,
+                      background: badgeStyle.bg,
+                      border: `1px solid ${badgeStyle.border}`,
+                      padding: '1px 6px',
+                      borderRadius: '20px',
+                      alignSelf: 'flex-start',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {levelLabel(u.level)}
+                    </span>
+                  </div>
+                </div>
 
-                {u.phone && (
-                  <a
-                    href={`tel:${u.phone}`}
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '4px',
-                      background: '#ffffff',
-                      color: '#263238',
-                      border: '1px solid #cfdcde',
-                      borderRadius: '6px',
-                      minHeight: '32px',
-                      textDecoration: 'none',
-                      fontSize: '11.5px',
-                      fontWeight: 'bold',
-                      transition: 'background 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#f5f7f8'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
-                  >
-                    <Phone size={12} />
-                    اتصال
-                  </a>
-                )}
+                {/* Middle Section details */}
+                <div style={{
+                  background: '#f8fbfb',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #cfdcde',
+                  display: 'grid',
+                  gap: '6px',
+                  fontSize: '11.5px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                    <Shield size={13} style={{ color: '#546e7a', marginTop: '2px', flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <strong style={{ color: '#263238', fontSize: '12px' }}>{u.job_title ?? 'مفتش تفتيش ميداني'}</strong>
+                    </div>
+                  </div>
 
-                {currentUserLevel <= 1 && u.email && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                    <MapPin size={13} style={{ color: '#546e7a', marginTop: '2px', flexShrink: 0 }} />
+                    <span style={{ color: '#455a64', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.department ?? 'ديوان عام وزارة الصحة والسكان'}</span>
+                  </div>
+
+                  {/* Email Display */}
+                  {u.email && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Mail size={13} style={{ color: '#546e7a', flexShrink: 0 }} />
+                      <span style={{ color: '#455a64', userSelect: 'all', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</span>
+                    </div>
+                  )}
+
+                  {/* Mobile Phone Display */}
+                  {u.phone && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Phone size={13} style={{ color: '#546e7a', flexShrink: 0 }} />
+                      <span style={{ color: '#455a64' }}>{u.phone}</span>
+                    </div>
+                  )}
+
+                  {/* Dynamic Joined Date & Status */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px' }}>
+                    <span style={{ color: '#78909c', fontSize: '10.5px' }}>{joinDate}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: isVerified ? '#2ecc71' : '#e74c3c', fontSize: '10.5px', fontWeight: 'bold' }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isVerified ? '#2ecc71' : '#e74c3c' }} />
+                      {isVerified ? 'موثق ونشط' : 'معلق'}
+                    </span>
+                  </div>
+
+                  {/* Dynamic Scope Capabilities */}
+                  <div style={{ borderTop: '1px dashed #cfdcde', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <span style={{ color: '#78909c', fontSize: '10px', fontWeight: 'bold' }}>الصلاحية والمؤشرات:</span>
+                    <span style={{ color: '#546e7a', fontSize: '11px', lineHeight: '1.4' }}>• {systemScope}</span>
+                    <span style={{ color: 'var(--brand)', fontSize: '11px', fontWeight: 'bold' }}>• {missionStats}</span>
+                  </div>
+
+                  {u.financial_code && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px' }}>
+                      <Hash size={12} style={{ color: '#546e7a' }} />
+                      <span style={{ color: '#455a64' }}>الكود المالي:</span>
+                      <code style={{ background: '#e0f2f1', color: '#004d40', padding: '1px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>{u.financial_code}</code>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Quick Actions (Email, Call) - Compact design */}
+                <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '2px' }}>
+                  {u.email && (
+                    <a
+                      href={`mailto:${u.email}`}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        background: '#eef6f6',
+                        color: 'var(--brand)',
+                        border: '1px solid #cfdcde',
+                        borderRadius: '6px',
+                        minHeight: '32px',
+                        textDecoration: 'none',
+                        fontSize: '11.5px',
+                        fontWeight: 'bold',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
+                    >
+                      <Mail size={12} />
+                      مراسلة
+                    </a>
+                  )}
+
+                  {u.phone && (
+                    <a
+                      href={`tel:${u.phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                        background: '#ffffff',
+                        color: '#263238',
+                        border: '1px solid #cfdcde',
+                        borderRadius: '6px',
+                        minHeight: '32px',
+                        textDecoration: 'none',
+                        fontSize: '11.5px',
+                        fontWeight: 'bold',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f5f7f8'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#ffffff'}
+                    >
+                      <Phone size={12} />
+                      اتصال
+                    </a>
+                  )}
+
+                  {currentUserLevel <= 1 && u.email && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleImpersonateUser(u.email!)
+                      }}
+                      style={{
+                        background: '#eef6f6',
+                        color: 'var(--brand)',
+                        border: '1px solid #cfdcde',
+                        borderRadius: '6px',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                        flexShrink: 0
+                      }}
+                      title="محاكاة الدخول الفوري بهذا الحساب"
+                      type="button"
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
+                    >
+                      <Shield size={13} style={{ transform: 'rotate(180deg)' }} />
+                    </button>
+                  )}
+
                   <button
-                    onClick={() => handleImpersonateUser(u.email!)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteUser(u.id)
+                    }}
                     style={{
-                      background: '#eef6f6',
-                      color: 'var(--brand)',
-                      border: '1px solid #cfdcde',
+                      background: '#fff1f1',
+                      color: '#e74c3c',
+                      border: '1px solid #f9d5d5',
                       borderRadius: '6px',
                       width: '32px',
                       height: '32px',
@@ -805,62 +977,267 @@ export function UserPortal({
                       transition: 'background 0.2s',
                       flexShrink: 0
                     }}
-                    title="محاكاة الدخول الفوري بهذا الحساب"
+                    title="حذف الموظف نهائياً"
                     type="button"
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#fcd9d9'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f1'}
                   >
-                    <Shield size={13} style={{ transform: 'rotate(180deg)' }} />
+                    <Trash2 size={13} />
                   </button>
-                )}
+                </div>
+              </article>
+            )
+          })}
 
-                <button
-                  onClick={() => handleDeleteUser(u.id)}
-                  style={{
-                    background: '#fff1f1',
-                    color: '#e74c3c',
-                    border: '1px solid #f9d5d5',
-                    borderRadius: '6px',
-                    width: '32px',
-                    height: '32px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    transition: 'background 0.2s',
-                    flexShrink: 0
-                  }}
-                  title="حذف الموظف نهائياً"
-                  type="button"
-                  onMouseEnter={(e) => e.currentTarget.style.background = '#fcd9d9'}
-                  onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f1'}
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-            </article>
-          )
-        })}
+          {filteredUsers.length === 0 && (
+            <div style={{
+              gridColumn: '1 / -1',
+              textAlign: 'center',
+              background: 'white',
+              padding: '48px 24px',
+              borderRadius: '16px',
+              border: '1px dashed #cfdcde',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Activity size={40} style={{ color: '#90a4ae' }} />
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#102027', fontWeight: 'bold' }}>لا يوجد موظفون يطابقون خيارات البحث</h3>
+              <p style={{ margin: 0, fontSize: '13px', color: '#78909c' }}>يرجى تعديل مصطلح البحث أو اختيار تصنيف فلترة مختلف.</p>
+            </div>
+          )}
+        </section>
+      ) : (
+        /* Staff Table Directory View */
+        <section style={{
+          background: 'white',
+          border: '1px solid var(--line)',
+          borderRadius: '16px',
+          boxShadow: 'var(--shadow)',
+          overflow: 'hidden',
+          marginTop: '8px'
+        }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              textAlign: 'right',
+              fontSize: '13px',
+              minWidth: '950px'
+            }}>
+              <thead>
+                <tr style={{
+                  background: '#f8fbfb',
+                  borderBottom: '1px solid var(--line)',
+                  color: '#37474f'
+                }}>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>الموظف والكادر</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>المسمى الوظيفي</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>مستوى الصلاحية</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>الجهة / الإدارة</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>البيانات المالية</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>وسائل الاتصال</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>الحالة</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold', textAlign: 'center' }}>إجراءات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredUsers.map((u) => {
+                  const badgeStyle = levelToneColors(u.level)
+                  const isVerified = u.is_active !== false
+                  return (
+                    <tr
+                      key={u.id}
+                      onClick={() => setSelectedDetailUser(u)}
+                      style={{
+                        borderBottom: '1px solid #eef2f3',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f4f8f8'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent'
+                      }}
+                    >
+                      {/* Avatar & Name */}
+                      <td style={{ padding: '12px 20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <UserAvatar name={u.full_name} level={u.level} />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span style={{ fontWeight: 'bold', color: '#102027' }}>{u.full_name}</span>
+                            <span style={{ fontSize: '11px', color: '#78909c' }}>موثق بالكامل</span>
+                          </div>
+                        </div>
+                      </td>
 
-        {filteredUsers.length === 0 && (
-          <div style={{
-            gridColumn: '1 / -1',
-            textAlign: 'center',
-            background: 'white',
-            padding: '48px 24px',
-            borderRadius: '16px',
-            border: '1px dashed #cfdcde',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <Activity size={40} style={{ color: '#90a4ae' }} />
-            <h3 style={{ margin: 0, fontSize: '16px', color: '#102027', fontWeight: 'bold' }}>لا يوجد موظفون يطابقون خيارات البحث</h3>
-            <p style={{ margin: 0, fontSize: '13px', color: '#78909c' }}>يرجى تعديل مصطلح البحث أو اختيار تصنيف فلترة مختلف.</p>
+                      {/* Job Title */}
+                      <td style={{ padding: '12px 20px', color: '#263238', fontWeight: '500' }}>
+                        {u.job_title ?? 'مفتش تفتيش ميداني'}
+                      </td>
+
+                      {/* Level Label Badge */}
+                      <td style={{ padding: '12px 20px' }}>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: 'bold',
+                          color: badgeStyle.text,
+                          background: badgeStyle.bg,
+                          border: `1px solid ${badgeStyle.border}`,
+                          padding: '3px 8px',
+                          borderRadius: '20px',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          {levelLabel(u.level)}
+                        </span>
+                      </td>
+
+                      {/* Department */}
+                      <td style={{ padding: '12px 20px', color: '#455a64' }}>
+                        {u.department ?? 'ديوان عام وزارة الصحة والسكان'}
+                      </td>
+
+                      {/* Financial Code */}
+                      <td style={{ padding: '12px 20px' }}>
+                        {u.financial_code ? (
+                          <code style={{
+                            background: '#e0f2f1',
+                            color: '#004d40',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            fontSize: '11.5px',
+                            fontWeight: 'bold'
+                          }}>
+                            {u.financial_code}
+                          </code>
+                        ) : (
+                          <span style={{ color: '#b0bec5', fontSize: '12px' }}>—</span>
+                        )}
+                      </td>
+
+                      {/* Contact Info (Quick Mail/Call Icons with text) */}
+                      <td style={{ padding: '12px 20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11.5px' }}>
+                          {u.email && (
+                            <a
+                              href={`mailto:${u.email}`}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--brand)', textDecoration: 'none' }}
+                            >
+                              <Mail size={12} />
+                              <span style={{ textDecoration: 'underline' }}>{u.email}</span>
+                            </a>
+                          )}
+                          {u.phone && (
+                            <a
+                              href={`tel:${u.phone}`}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#455a64', textDecoration: 'none' }}
+                            >
+                              <Phone size={12} />
+                              <span>{u.phone}</span>
+                            </a>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ padding: '12px 20px' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: isVerified ? '#2ecc71' : '#e74c3c',
+                          fontSize: '11px',
+                          fontWeight: 'bold'
+                        }}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isVerified ? '#2ecc71' : '#e74c3c' }} />
+                          {isVerified ? 'نشط وموثق' : 'معلق'}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '12px 20px', textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                          {currentUserLevel <= 1 && u.email && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleImpersonateUser(u.email!)
+                              }}
+                              style={{
+                                background: '#eef6f6',
+                                color: 'var(--brand)',
+                                border: '1px solid #cfdcde',
+                                borderRadius: '6px',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'background 0.2s',
+                              }}
+                              title="محاكاة الدخول الفوري بهذا الحساب"
+                              type="button"
+                              onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
+                            >
+                              <Shield size={12} style={{ transform: 'rotate(180deg)' }} />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteUser(u.id)
+                            }}
+                            style={{
+                              background: '#fff1f1',
+                              color: '#e74c3c',
+                              border: '1px solid #f9d5d5',
+                              borderRadius: '6px',
+                              width: '28px',
+                              height: '28px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              transition: 'background 0.2s',
+                            }}
+                            title="حذف الموظف نهائياً"
+                            type="button"
+                            onMouseEnter={(e) => e.currentTarget.style.background = '#fcd9d9'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = '#fff1f1'}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
-      </section>
+
+          {filteredUsers.length === 0 && (
+            <div style={{
+              textAlign: 'center',
+              padding: '48px 24px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+              <Activity size={40} style={{ color: '#90a4ae' }} />
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#102027', fontWeight: 'bold' }}>لا يوجد موظفون يطابقون خيارات البحث</h3>
+              <p style={{ margin: 0, fontSize: '13px', color: '#78909c' }}>يرجى تعديل مصطلح البحث أو اختيار تصنيف فلترة مختلف.</p>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Staff Registration Modal overlay */}
       {showAddForm && (
@@ -1102,6 +1479,375 @@ export function UserPortal({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Detailed User Profile Modal overlay */}
+      {selectedDetailUser && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(16, 32, 39, 0.6)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px',
+          zIndex: 999,
+        }}>
+          {/* Modal Card */}
+          <div style={{
+            background: 'white',
+            border: '1px solid var(--line)',
+            borderRadius: '20px',
+            maxWidth: '580px',
+            width: '100%',
+            boxShadow: '0 12px 40px rgba(16,32,39,0.2)',
+            maxHeight: '92vh',
+            overflowY: 'auto',
+            position: 'relative',
+          }}>
+            {/* Modal Header Cover with dynamic role gradient */}
+            <div style={{
+              background: 'linear-gradient(135deg, #006d77 0%, #11998e 100%)',
+              padding: '24px 28px',
+              color: 'white',
+              position: 'relative',
+              borderTopLeftRadius: '19px',
+              borderTopRightRadius: '19px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px'
+            }}>
+              <button
+                onClick={() => setSelectedDetailUser(null)}
+                style={{
+                  position: 'absolute',
+                  top: '16px',
+                  left: '16px',
+                  background: 'rgba(255, 255, 255, 0.15)',
+                  border: 0,
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: 'white',
+                  transition: 'background 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
+                type="button"
+              >
+                <X size={18} />
+              </button>
+
+              {/* Avatar Inside Header */}
+              <div style={{
+                border: '3px solid white',
+                borderRadius: '50%',
+                overflow: 'hidden',
+                background: 'white',
+                width: '64px',
+                height: '64px',
+                boxShadow: '0 4px 10px rgba(0,0,0,0.15)'
+              }}>
+                <UserAvatar name={selectedDetailUser.full_name} level={selectedDetailUser.level} />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 'bold' }}>{selectedDetailUser.full_name}</h3>
+                <span style={{
+                  fontSize: '11px',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  color: 'white',
+                  padding: '2px 8px',
+                  borderRadius: '20px',
+                  alignSelf: 'flex-start',
+                  fontWeight: 'bold',
+                  border: '1px solid rgba(255, 255, 255, 0.3)'
+                }}>
+                  {levelLabel(selectedDetailUser.level)}
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* Job Title and Org */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold' }}>المسمى الوظيفي الفعلي:</span>
+                  <span style={{ fontSize: '13.5px', color: '#263238', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Shield size={16} style={{ color: 'var(--brand)' }} />
+                    {selectedDetailUser.job_title ?? 'مفتش ميداني'}
+                  </span>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold' }}>المنشأة الطبية / الإدارة:</span>
+                  <span style={{ fontSize: '13.5px', color: '#263238', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <MapPin size={16} style={{ color: 'var(--brand)' }} />
+                    {selectedDetailUser.department ?? 'ديوان عام الوزارة'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Status and Financial Code */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', borderTop: '1px dashed #cfdcde', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold' }}>حالة الحساب والموثوقية:</span>
+                  <span style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: selectedDetailUser.is_active !== false ? '#2ecc71' : '#e74c3c',
+                    fontSize: '13.5px',
+                    fontWeight: 'bold'
+                  }}>
+                    <BadgeCheck size={16} />
+                    {selectedDetailUser.is_active !== false ? 'نشط وموثق بالكامل' : 'معلق'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold' }}>الكود المالي المعتمد:</span>
+                  {selectedDetailUser.financial_code ? (
+                    <code style={{
+                      background: '#e0f2f1',
+                      color: '#004d40',
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      alignSelf: 'flex-start'
+                    }}>
+                      {selectedDetailUser.financial_code}
+                    </code>
+                  ) : (
+                    <span style={{ color: '#90a4ae', fontSize: '13px' }}>غير متاح</span>
+                  )}
+                </div>
+              </div>
+
+              {/* System Capabilities Section */}
+              <div style={{
+                background: '#f8fbfb',
+                padding: '16px',
+                borderRadius: '12px',
+                border: '1px solid #cfdcde',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px'
+              }}>
+                <h4 style={{ margin: 0, fontSize: '13px', color: '#102027', fontWeight: 'bold', borderBottom: '1px solid #cfdcde', paddingBottom: '6px' }}>
+                  الصلاحيات التفصيلية بالمنظومة:
+                </h4>
+                <ul style={{ margin: 0, paddingRight: '16px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px', color: '#546e7a', listStyleType: 'disc' }}>
+                  <li>
+                    <strong>صلاحيات التنفيذ: </strong> 
+                    {selectedDetailUser.level === 1 && 'التحكم الهيكلي الشامل وإعادة بذر المنظومة وتدقيق التراخيص.'}
+                    {selectedDetailUser.level === 2 && 'اعتماد مأموريات القطاعات بالكامل والمطابقة الجغرافية.'}
+                    {selectedDetailUser.level === 3 && 'إصدار واعتماد التكليفات الطبية والموافقة على المبيت.'}
+                    {selectedDetailUser.level === 4 && 'إنشاء التكليفات ومتابعة الفروع الإقليمية.'}
+                    {selectedDetailUser.level === 5 && 'مراجعة المعاملات وبنود صرف بدلات الانتقال والمبيت.'}
+                    {selectedDetailUser.level === 7 && 'تنفيذ المأموريات الميدانية ورصد التباين الجغرافي بالـ GPS.'}
+                  </li>
+                  <li>
+                    <strong>مستوى الترخيص: </strong> مستوى صلاحية {selectedDetailUser.level} إداري
+                  </li>
+                </ul>
+              </div>
+
+              {/* Contact Information with Copy Feature */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px dashed #cfdcde', paddingTop: '16px' }}>
+                <h4 style={{ margin: 0, fontSize: '13px', color: '#102027', fontWeight: 'bold' }}>قنوات الاتصال المباشر:</h4>
+                
+                {/* Email Item */}
+                {selectedDetailUser.email && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: '#f8fbfb',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cfdcde'
+                  }}>
+                    <a
+                      href={`mailto:${selectedDetailUser.email}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--brand)', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}
+                    >
+                      <Mail size={16} />
+                      <span style={{ textDecoration: 'underline' }}>{selectedDetailUser.email}</span>
+                    </a>
+                    
+                    <button
+                      onClick={() => {
+                        if (selectedDetailUser.email) {
+                          navigator.clipboard.writeText(selectedDetailUser.email)
+                          alert('تم نسخ البريد الإلكتروني للحافظة!')
+                        }
+                      }}
+                      style={{
+                        background: 'white',
+                        border: '1px solid #cfdcde',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        color: '#546e7a',
+                        fontWeight: 'bold',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f5f7f8'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                      type="button"
+                    >
+                      <Copy size={12} />
+                      نسخ البريد
+                    </button>
+                  </div>
+                )}
+
+                {/* Phone Item */}
+                {selectedDetailUser.phone && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: '#f8fbfb',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cfdcde'
+                  }}>
+                    <a
+                      href={`tel:${selectedDetailUser.phone}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#263238', textDecoration: 'none', fontSize: '13px', fontWeight: 'bold' }}
+                    >
+                      <Phone size={16} style={{ color: 'var(--brand)' }} />
+                      <span>{selectedDetailUser.phone}</span>
+                    </a>
+                    
+                    <button
+                      onClick={() => {
+                        if (selectedDetailUser.phone) {
+                          navigator.clipboard.writeText(selectedDetailUser.phone)
+                          alert('تم نسخ رقم الهاتف للحافظة!')
+                        }
+                      }}
+                      style={{
+                        background: 'white',
+                        border: '1px solid #cfdcde',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        fontSize: '11px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        color: '#546e7a',
+                        fontWeight: 'bold',
+                        transition: 'background 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f5f7f8'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                      type="button"
+                    >
+                      <Copy size={12} />
+                      نسخ الهاتف
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Actions Footer inside Modal */}
+              <div style={{
+                display: 'flex',
+                gap: '10px',
+                borderTop: '1px solid #eef6f6',
+                paddingTop: '20px',
+                marginTop: '10px'
+              }}>
+                {currentUserLevel <= 1 && selectedDetailUser.email && (
+                  <button
+                    onClick={() => handleImpersonateUser(selectedDetailUser.email!)}
+                    style={{
+                      flex: 1,
+                      background: 'var(--brand)',
+                      color: 'white',
+                      border: 0,
+                      borderRadius: '8px',
+                      minHeight: '40px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      fontSize: '12.5px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      boxShadow: '0 2px 6px rgba(16, 122, 102, 0.15)'
+                    }}
+                    type="button"
+                  >
+                    <Shield size={16} style={{ transform: 'rotate(180deg)' }} />
+                    محاكاة الدخول بهذا الكادر
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    const idToDelete = selectedDetailUser.id
+                    setSelectedDetailUser(null)
+                    handleDeleteUser(idToDelete)
+                  }}
+                  style={{
+                    background: '#fff1f1',
+                    color: '#e74c3c',
+                    border: '1px solid #f9d5d5',
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 16px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '12.5px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  type="button"
+                >
+                  <Trash2 size={16} />
+                  حذف الحساب نهائياً
+                </button>
+
+                <button
+                  onClick={() => setSelectedDetailUser(null)}
+                  style={{
+                    background: '#f0f4f5',
+                    color: '#546e7a',
+                    border: 0,
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 20px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '12.5px'
+                  }}
+                  type="button"
+                >
+                  إغلاق
+                </button>
+              </div>
+
+            </div>
+          </div>
         </div>
       )}
     </div>
