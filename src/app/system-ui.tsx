@@ -170,6 +170,7 @@ function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showDemoAccounts, setShowDemoAccounts] = useState(false)
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -217,7 +218,7 @@ function LoginScreen() {
         </div>
         <div>
           <h2>تسجيل الدخول</h2>
-          <p>استخدم أي حساب تجريبي بكلمة مرور موحدة: {demoPassword}</p>
+          <p>البوابة الرقمية لحوكمة ومتابعة المأموريات الميدانية</p>
         </div>
 
         {error && <div className="alert">{error}</div>}
@@ -228,7 +229,7 @@ function LoginScreen() {
             autoComplete="email"
             inputMode="email"
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="admin@admin.com"
+            placeholder="أدخل بريدك الإلكتروني المعتمد"
             required
             type="email"
             value={email}
@@ -241,7 +242,7 @@ function LoginScreen() {
             <input
               autoComplete="current-password"
               onChange={(event) => setPassword(event.target.value)}
-              placeholder={demoPassword}
+              placeholder="••••••••"
               required
               type={showPassword ? 'text' : 'password'}
               value={password}
@@ -256,19 +257,69 @@ function LoginScreen() {
           </span>
         </label>
 
-        <div className="demo-accounts" aria-label="حسابات تجريبية">
-          {demoAccounts.map((account) => (
-            <button
-              key={account}
-              onClick={() => {
-                setEmail(account)
-                setPassword(demoPassword)
-              }}
-              type="button"
-            >
-              {account}
-            </button>
-          ))}
+        {/* Collapsible Simulation Demo Accounts - Hidden by default for professional security look */}
+        <div style={{ marginTop: '4px', marginBottom: '8px', minWidth: 0, width: '100%' }}>
+          <button
+            type="button"
+            onClick={() => setShowDemoAccounts(prev => !prev)}
+            style={{
+              background: 'transparent',
+              border: 0,
+              color: 'var(--brand)',
+              fontSize: '12.5px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 0',
+              textDecoration: 'underline',
+              outline: 'none'
+            }}
+          >
+            <span>{showDemoAccounts ? '⬇️ إخفاء حسابات العرض التجريبي للمحاكاة' : '⚙️ عرض خيارات المحاكاة وحسابات العرض التجريبي'}</span>
+          </button>
+
+          {showDemoAccounts && (
+            <div style={{
+              background: '#f8fbfb',
+              border: '1px solid #cfdcde',
+              borderRadius: '8px',
+              padding: '12px',
+              marginTop: '6px',
+              boxSizing: 'border-box',
+              width: '100%',
+              minWidth: 0
+            }}>
+              <p style={{ margin: '0 0 10px 0', fontSize: '10.5px', color: '#546e7a', lineHeight: '1.5', textAlign: 'right' }}>
+                💡 <strong>بيئة المحاكاة والاختبار:</strong> هذه الحسابات مخصصة حصرياً لمعاينة وتجربة كافة صلاحيات وأدوار النظام بكلمة مرور موحدة: <code style={{ background: '#eef6f6', padding: '2px 6px', borderRadius: '4px', color: 'var(--brand)', fontWeight: 'bold' }}>{demoPassword}</code>. يمكن إلغاء وحظر هذه اللوحة بالكامل في بيئة الإنتاج السحابية والاعتماد على التسجيل الحقيقي المؤمن.
+              </p>
+              <div className="demo-accounts" aria-label="حسابات تجريبية" style={{ margin: 0, display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '180px', overflowY: 'auto' }}>
+                {demoAccounts.map((account) => (
+                  <button
+                    key={account}
+                    onClick={() => {
+                      setEmail(account)
+                      setPassword(demoPassword)
+                    }}
+                    type="button"
+                    style={{
+                      fontSize: '11px',
+                      padding: '4px 8px',
+                      background: '#ffffff',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s',
+                      color: '#37474f'
+                    }}
+                  >
+                    {account}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <button className="primary-action" disabled={loading} type="submit">
