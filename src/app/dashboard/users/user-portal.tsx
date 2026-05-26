@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2 } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
+import { normalizeDemoRole } from '@/lib/roles'
 
 type UserRow = {
   id: string
@@ -179,6 +180,14 @@ export function UserPortal({
   const supabase = createBrowserSupabaseClient()
   const [users, setUsers] = useState<UserRow[]>(initialUsers)
   const [showAddForm, setShowAddForm] = useState(false)
+
+  const handleImpersonateUser = (userEmail: string) => {
+    if (!userEmail) return;
+    const resolvedRole = normalizeDemoRole(userEmail) || 'inspector'
+    document.cookie = `maamouriyat_demo_session=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
+    document.cookie = `maamouriyat_user_role=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
+    window.location.href = '/dashboard'
+  }
   
   // Search & Filter states
   const [searchQuery, setSearchQuery] = useState('')
@@ -777,6 +786,32 @@ export function UserPortal({
                     <Phone size={12} />
                     اتصال
                   </a>
+                )}
+
+                {currentUserLevel <= 1 && u.email && (
+                  <button
+                    onClick={() => handleImpersonateUser(u.email!)}
+                    style={{
+                      background: '#eef6f6',
+                      color: 'var(--brand)',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '6px',
+                      width: '32px',
+                      height: '32px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s',
+                      flexShrink: 0
+                    }}
+                    title="محاكاة الدخول الفوري بهذا الحساب"
+                    type="button"
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
+                  >
+                    <Shield size={13} style={{ transform: 'rotate(180deg)' }} />
+                  </button>
                 )}
 
                 <button

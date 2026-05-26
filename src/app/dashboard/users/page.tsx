@@ -57,9 +57,14 @@ export default async function UsersPage() {
     }
 
     const defaultDemoUsers = [
-      { id: 'demo-u1', full_name: 'أحمد محمود', job_title: 'مدير عام المتابعة', level: 2, department: 'ديوان عام وزارة الصحة والسكان', is_active: true, email: 'admin@admin.com', phone: '01012345678', financial_code: 'FIN-100293', facility_id: 'demo-f4' },
-      { id: 'demo-u2', full_name: 'سارة خالد', job_title: 'مفتش منشآت صحية', level: 7, department: 'إدارة مكافحة العدوى', is_active: true, email: 'inspector@inspector.com', phone: '01122334455', financial_code: 'FIN-200384' },
-      { id: 'demo-u3', full_name: 'محمد علي', job_title: 'مشرف ميداني', level: 5, department: 'إدارة الصيدلة والمستلزمات', is_active: true, email: 'supervisor@supervisor.com', phone: '01234567890', financial_code: 'FIN-300482' },
+      { id: 'demo-u4', full_name: 'المهندس عمرو عبد العزيز', job_title: 'مدير الإدارة التقنية والدعم الفني', level: 0, department: 'الإدارة العامة لنظم المعلومات والتحول الرقمي', is_active: true, email: 'techadmin@mohp.gov.eg', phone: '01222222222', financial_code: 'FIN-000001', facility_id: 'demo-f4' },
+      { id: 'demo-u1', full_name: 'أحمد محمود العشري', job_title: 'مدير عام المتابعة والرقابة', level: 1, department: 'ديوان عام وزارة الصحة والسكان', is_active: true, email: 'admin@admin.com', phone: '01012345678', financial_code: 'FIN-100293', facility_id: 'demo-f4' },
+      { id: 'demo-u8', full_name: 'د. أحمد عبد الرحمن', job_title: 'رئيس إدارة مركزية للطب العلاجي', level: 2, department: 'الإدارة المركزية للشئون العلاجية', is_active: true, email: 'director@director.com', phone: '01020020020', financial_code: 'FIN-200100', facility_id: 'demo-f4' },
+      { id: 'demo-u5', full_name: 'د. ميرفت أحمد الجندي', job_title: 'مدير عام المستشفيات العلاجية', level: 3, department: 'الإدارة العامة للمستشفيات', is_active: true, email: 'generalmanager@mohp.gov.eg', phone: '01033333333', financial_code: 'FIN-300100', facility_id: 'demo-f4' },
+      { id: 'demo-u3', full_name: 'محمد علي سليم', job_title: 'مشرف ميداني ومتابع تشغيل', level: 3, department: 'إدارة الصيدلة والمستلزمات', is_active: true, email: 'supervisor@supervisor.com', phone: '01234567890', financial_code: 'FIN-300482' },
+      { id: 'demo-u6', full_name: 'د. ياسر جلال المنشاوي', job_title: 'موظف تكليف وتشغيل ميداني', level: 4, department: 'قسم التشغيل والتكليف', is_active: true, email: 'creator@mohp.gov.eg', phone: '01044444444', financial_code: 'FIN-400100' },
+      { id: 'demo-u7', full_name: 'أ. طارق عبد الحميد', job_title: 'مفتش ومراجع مالي وإداري', level: 5, department: 'الإدارة الشؤون المالية والإدارية', is_active: true, email: 'financial@mohp.gov.eg', phone: '01055555555', financial_code: 'FIN-500100' },
+      { id: 'demo-u2', full_name: 'سارة خالد البشري', job_title: 'مفتش منشآت صحية ومكافحة عدوى', level: 7, department: 'إدارة مكافحة العدوى', is_active: true, email: 'inspector@inspector.com', phone: '01122334455', financial_code: 'FIN-200384' },
     ]
 
     let currentUserLevel = 7
