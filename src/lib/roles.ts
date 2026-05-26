@@ -160,8 +160,27 @@ export function getUserNavigation(
       const decoded = userPermissionsRaw.includes('%') ? decodeURIComponent(userPermissionsRaw) : userPermissionsRaw
       const parsed = JSON.parse(decoded)
       const userKey = emailOrId.trim().toLowerCase()
-      if (parsed && parsed[userKey] && Array.isArray(parsed[userKey])) {
-        return parsed[userKey] as readonly NavigationKey[]
+      
+      const resolvedRole = normalizeDemoRole(userKey) || role
+      
+      if (parsed) {
+        // 1. Match literal key (e.g. email)
+        if (parsed[userKey] && Array.isArray(parsed[userKey])) {
+          return parsed[userKey] as readonly NavigationKey[]
+        }
+        
+        // 2. Match resolved role key (e.g. 'superadmin', 'techadmin')
+        if (parsed[resolvedRole] && Array.isArray(parsed[resolvedRole])) {
+          return parsed[resolvedRole] as readonly NavigationKey[]
+        }
+        
+        // 3. Match any key that maps to the same resolved role
+        const matchedKey = Object.keys(parsed).find(
+          (k) => normalizeDemoRole(k) === resolvedRole
+        )
+        if (matchedKey && Array.isArray(parsed[matchedKey])) {
+          return parsed[matchedKey] as readonly NavigationKey[]
+        }
       }
     } catch {}
   }
