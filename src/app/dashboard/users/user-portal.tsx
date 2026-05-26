@@ -28,7 +28,7 @@ type FacilityOption = {
 function levelLabel(level: number) {
   if (level === 1) return 'سوبر أدمن المنظومة'
   if (level === 2) return 'رئيس إدارة مركزية'
-  if (level === 3) return 'مدير عام المستشفيات'
+  if (level === 3) return 'مدير عام إدارة عامة'
   if (level === 4) return 'موظف مختص بالتشغيل'
   if (level === 5) return 'مستخدم مالي ومراجع'
   return 'مفتش قائم بالمرور'
