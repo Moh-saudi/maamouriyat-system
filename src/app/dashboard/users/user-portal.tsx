@@ -905,7 +905,10 @@ export function UserPortal({
                   transition: 'all 0.2s',
                   position: 'relative',
                   overflow: 'hidden',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  minWidth: 0,
+                  width: '100%',
+                  boxSizing: 'border-box'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'translateY(-3px)'
@@ -919,28 +922,46 @@ export function UserPortal({
                 }}
               >
                 {/* Top Details (Avatar, Name, Pill) */}
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', minWidth: 0, width: '100%' }}>
                   <UserAvatar name={u.full_name} level={u.level} />
                   
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <h4 style={{ margin: 0, fontSize: '13.5px', color: '#102027', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.full_name}</h4>
-                      <BadgeCheck size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0, width: '100%' }}>
+                      <h4 style={{ margin: 0, fontSize: '13.5px', color: '#102027', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{u.full_name}</h4>
+                      {isVerified && <BadgeCheck size={14} style={{ color: '#2ecc71', flexShrink: 0 }} />}
                     </div>
                     
-                    <span style={{
-                      fontSize: '9.5px',
-                      fontWeight: 'bold',
-                      color: badgeStyle.text,
-                      background: badgeStyle.bg,
-                      border: `1px solid ${badgeStyle.border}`,
-                      padding: '1px 6px',
-                      borderRadius: '20px',
-                      alignSelf: 'flex-start',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {levelLabel(u.level)}
-                    </span>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{
+                        fontSize: '9.5px',
+                        fontWeight: 'bold',
+                        color: badgeStyle.text,
+                        background: badgeStyle.bg,
+                        border: `1px solid ${badgeStyle.border}`,
+                        padding: '1px 6px',
+                        borderRadius: '20px',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {levelLabel(u.level)}
+                      </span>
+
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px',
+                        fontSize: '9px',
+                        fontWeight: 'bold',
+                        color: isVerified ? '#2ecc71' : '#e74c3c',
+                        background: isVerified ? '#e8fdf0' : '#fdeded',
+                        border: `1px solid ${isVerified ? '#a3f2c0' : '#f9c5c5'}`,
+                        padding: '1px 6px',
+                        borderRadius: '20px',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: isVerified ? '#2ecc71' : '#e74c3c' }} />
+                        {isVerified ? 'نشط وموثق' : 'معلق'}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -952,38 +973,41 @@ export function UserPortal({
                   border: '1px solid #cfdcde',
                   display: 'grid',
                   gap: '6px',
-                  fontSize: '11.5px'
+                  fontSize: '11.5px',
+                  minWidth: 0,
+                  width: '100%',
+                  boxSizing: 'border-box'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', minWidth: 0, width: '100%' }}>
                     <Shield size={13} style={{ color: '#546e7a', marginTop: '2px', flexShrink: 0 }} />
-                    <div style={{ minWidth: 0 }}>
-                      <strong style={{ color: '#263238', fontSize: '12px' }}>{u.job_title ?? 'مفتش تفتيش ميداني'}</strong>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <strong style={{ color: '#263238', fontSize: '12px', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block' }}>{u.job_title ?? 'مفتش تفتيش ميداني'}</strong>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                    <MapPin size={13} style={{ color: '#546e7a', marginTop: '2px', flexShrink: 0 }} />
-                    <span style={{ color: '#455a64', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.department ?? 'ديوان عام وزارة الصحة والسكان'}</span>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', minWidth: 0, width: '100%' }}>
+                    <MapPin size={13} style={{ color: '#546e7a', marginTop: '3px', flexShrink: 0 }} />
+                    <span style={{ color: '#455a64', lineHeight: '1.4', wordBreak: 'break-word', whiteSpace: 'normal', flex: 1, minWidth: 0 }}>{u.department ?? 'ديوان عام وزارة الصحة والسكان'}</span>
                   </div>
 
                   {/* Email Display */}
                   {u.email && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, width: '100%' }}>
                       <Mail size={13} style={{ color: '#546e7a', flexShrink: 0 }} />
-                      <span style={{ color: '#455a64', userSelect: 'all', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</span>
+                      <span style={{ color: '#455a64', userSelect: 'all', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{u.email}</span>
                     </div>
                   )}
 
                   {/* Mobile Phone Display */}
                   {u.phone && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, width: '100%' }}>
                       <Phone size={13} style={{ color: '#546e7a', flexShrink: 0 }} />
-                      <span style={{ color: '#455a64' }}>{u.phone}</span>
+                      <span style={{ color: '#455a64', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', flex: 1 }}>{u.phone}</span>
                     </div>
                   )}
 
                   {/* Dynamic Joined Date & Status */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px', minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
                     <span style={{ color: '#78909c', fontSize: '10.5px' }}>{joinDate}</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: isVerified ? '#2ecc71' : '#e74c3c', fontSize: '10.5px', fontWeight: 'bold' }}>
                       <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isVerified ? '#2ecc71' : '#e74c3c' }} />
@@ -992,23 +1016,23 @@ export function UserPortal({
                   </div>
 
                   {/* Dynamic Scope Capabilities */}
-                  <div style={{ borderTop: '1px dashed #cfdcde', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <div style={{ borderTop: '1px dashed #cfdcde', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
                     <span style={{ color: '#78909c', fontSize: '10px', fontWeight: 'bold' }}>الصلاحية والمؤشرات:</span>
-                    <span style={{ color: '#546e7a', fontSize: '11px', lineHeight: '1.4' }}>• {systemScope}</span>
-                    <span style={{ color: 'var(--brand)', fontSize: '11px', fontWeight: 'bold' }}>• {missionStats}</span>
+                    <span style={{ color: '#546e7a', fontSize: '11px', lineHeight: '1.4', wordBreak: 'break-word', whiteSpace: 'normal' }}>• {systemScope}</span>
+                    <span style={{ color: 'var(--brand)', fontSize: '11px', fontWeight: 'bold', wordBreak: 'break-word', whiteSpace: 'normal' }}>• {missionStats}</span>
                   </div>
 
                   {u.financial_code && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px' }}>
-                      <Hash size={12} style={{ color: '#546e7a' }} />
-                      <span style={{ color: '#455a64' }}>الكود المالي:</span>
-                      <code style={{ background: '#e0f2f1', color: '#004d40', padding: '1px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>{u.financial_code}</code>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', borderTop: '1px dashed #cfdcde', paddingTop: '6px', marginTop: '2px', minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
+                      <Hash size={12} style={{ color: '#546e7a', flexShrink: 0 }} />
+                      <span style={{ color: '#455a64', whiteSpace: 'nowrap' }}>الكود المالي:</span>
+                      <code style={{ background: '#e0f2f1', color: '#004d40', padding: '1px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, textAlign: 'center' }}>{u.financial_code}</code>
                     </div>
                   )}
                 </div>
 
                 {/* Bottom Quick Actions (Email, Call) - Compact design */}
-                <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '2px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginTop: 'auto', paddingTop: '2px', flexWrap: 'wrap', minWidth: 0, width: '100%', boxSizing: 'border-box' }}>
                   {u.email && (
                     <a
                       href={`mailto:${u.email}`}
