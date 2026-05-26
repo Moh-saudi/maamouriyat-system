@@ -18,23 +18,49 @@ export async function middleware(req: NextRequest) {
   const supabasePublishableKey =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
   const isLoginPage = req.nextUrl.pathname === '/login'
-  const demoRole = normalizeDemoRole(req.cookies.get('maamouriyat_demo_session')?.value)
+  const demoCookieValue = req.cookies.get('maamouriyat_demo_session')?.value
+  const demoRole = normalizeDemoRole(demoCookieValue)
   const hasDemoSession = Boolean(demoRole)
 
   const dynamicPermissionsRaw = req.cookies.get('maamouriyat_dynamic_permissions')?.value
   const userPermissionsRaw = req.cookies.get('maamouriyat_user_permissions')?.value
 
+  const hasSupabaseCreds = Boolean(
+    supabaseUrl &&
+      supabasePublishableKey &&
+      supabasePublishableKey !== 'your-anon-key-here' &&
+      !supabaseUrl.includes('your-project')
+  )
+
+  // Real-time server logging for Vercel/Node environment diagnostics
+  console.log(
+    `[MOHP Middleware] Path: ${req.nextUrl.pathname} | Cookie: ${demoCookieValue || 'None'} | ResolvedRole: ${demoRole || 'None'} | HasDemo: ${hasDemoSession} | HasSupabase: ${hasSupabaseCreds}`
+  )
+
   if (demoRole && !isLoginPage) {
     const demoEmail = `${demoRole}@${demoRole}.com`
     if (!canUserOpenPath(demoEmail, demoRole, req.nextUrl.pathname, dynamicPermissionsRaw, userPermissionsRaw)) {
+      console.log(`[MOHP Middleware] Access Denied: redirecting Role ${demoRole} from ${req.nextUrl.pathname} to /dashboard`)
       const redirectUrl = req.nextUrl.clone()
       redirectUrl.pathname = '/dashboard'
       return NextResponse.redirect(redirectUrl)
     }
+
+    // Direct bypass for active sandbox sessions to access dashboard routes
+    if (req.nextUrl.pathname.startsWith('/dashboard')) {
+      console.log(`[MOHP Middleware] Bypassing database check: permitting Role ${demoRole} to path ${req.nextUrl.pathname}`)
+      return NextResponse.next({ request: req })
+    }
   }
 
-  if (!supabaseUrl || !supabasePublishableKey || supabasePublishableKey === 'your-anon-key-here') {
+  if (!hasSupabaseCreds) {
+    if (hasDemoSession) {
+      console.log(`[MOHP Middleware] Permit offline-bypass: allowing ${req.nextUrl.pathname} due to active sandbox session`)
+      return NextResponse.next({ request: req })
+    }
+
     if (!isLoginPage) {
+      console.log(`[MOHP Middleware] Redirecting to /login (Supabase unconfigured & no sandbox session found)`)
       const redirectUrl = req.nextUrl.clone()
       redirectUrl.pathname = '/login'
       return NextResponse.redirect(redirectUrl)
@@ -45,15 +71,15 @@ export async function middleware(req: NextRequest) {
 
   let supabaseResponse = NextResponse.next({ request: req })
 
-  const supabase = createServerClient(supabaseUrl, supabasePublishableKey, {
+  const supabase = createServerClient(supabaseUrl!, supabasePublishableKey!, {
     cookies: {
       getAll() {
         return req.cookies.getAll()
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value))
+      setAll(cookiesToSet: any[]) {
+        cookiesToSet.forEach(({ name, value }: any) => req.cookies.set(name, value))
         supabaseResponse = NextResponse.next({ request: req })
-        cookiesToSet.forEach(({ name, value, options }) => {
+        cookiesToSet.forEach(({ name, value, options }: any) => {
           supabaseResponse.cookies.set(name, value, options)
         })
       },
