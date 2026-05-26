@@ -4,6 +4,7 @@ import { DashboardShell } from '@/app/system-ui'
 import { getDemoSessionEmail, getDemoSessionRole } from '@/lib/demo-session'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { UserPortal } from './user-portal'
+import { realEgyptianMedicalFacilities } from '@/lib/real-facilities'
 
 type UserRow = {
   id: string
@@ -36,13 +37,7 @@ export default async function UsersPage() {
     liveFacilities = facData ?? []
   }
 
-  const defaultMockFacilities = [
-    { id: 'demo-f1', name: 'مستشفى النيل العام', address: 'القاهرة' },
-    { id: 'demo-f2', name: 'مركز صحة الأسرة النموذجي', address: 'الجيزة' },
-    { id: 'demo-f3', name: 'مستشفى القاهرة الجديدة', address: 'التجمع' },
-    { id: 'demo-f4', name: 'ديوان عام وزارة الصحة والسكان', address: 'العاصمة الإدارية' }
-  ]
-  const facilities = liveFacilities.length ? liveFacilities : defaultMockFacilities
+  const facilities = liveFacilities.length ? liveFacilities : realEgyptianMedicalFacilities
 
   // --- DEMO MODE WORKFLOW PORTAL ---
   if (!supabase || demoEmail) {
