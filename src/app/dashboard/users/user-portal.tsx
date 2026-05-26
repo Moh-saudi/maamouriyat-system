@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2, LayoutGrid, List, Copy, Check, FileSpreadsheet } from 'lucide-react'
+import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2, LayoutGrid, List, Copy, Check, FileSpreadsheet, Edit2 } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import { normalizeDemoRole } from '@/lib/roles'
 
@@ -242,6 +242,142 @@ export function UserPortal({
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  const [editingUser, setEditingUser] = useState<UserRow | null>(null)
+  
+  // Edit Form States
+  const [editFullName, setEditFullName] = useState('')
+  const [editJobTitle, setEditJobTitle] = useState('')
+  const [editLevel, setEditLevel] = useState(7)
+  const [editDepartment, setEditDepartment] = useState('')
+  const [editFacilityId, setEditFacilityId] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [editFinancialCode, setEditFinancialCode] = useState('')
+  const [editIsActive, setEditIsActive] = useState(true)
+
+  const startEditingUser = (u: UserRow) => {
+    setEditingUser(u)
+    setEditFullName(u.full_name)
+    setEditJobTitle(u.job_title || '')
+    setEditLevel(u.level)
+    setEditDepartment(u.department || '')
+    setEditFacilityId(u.facility_id || '')
+    setEditEmail(u.email || '')
+    setEditPhone(u.phone || '')
+    setEditFinancialCode(u.financial_code || '')
+    setEditIsActive(u.is_active !== false)
+  }
+
+  async function handleUpdateUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!editingUser) return
+    setError('')
+    setSuccess('')
+
+    const name = editFullName.trim()
+    const job = editJobTitle.trim()
+    const userEmail = editEmail.trim().toLowerCase()
+    const userPhone = editPhone.trim()
+    const finCode = editFinancialCode.trim()
+
+    if (!name) {
+      setError('يرجى إدخال الاسم الكامل للموظف.')
+      return
+    }
+
+    if (!userEmail) {
+      setError('يرجى إدخال بريد إلكتروني صالح.')
+      return
+    }
+
+    setLoading(true)
+
+    const selectedFac = facilities.find(f => f.id === editFacilityId)
+    const finalDepartment = selectedFac ? selectedFac.name : editDepartment || 'ديوان عام الوزارة'
+
+    if (demoMode) {
+      const updatedUser: UserRow = {
+        ...editingUser,
+        full_name: name,
+        job_title: job || 'مفتش ميداني',
+        level: editLevel,
+        department: finalDepartment,
+        is_active: editIsActive,
+        email: userEmail,
+        phone: userPhone || null,
+        facility_id: editFacilityId || null,
+        financial_code: finCode || null,
+      }
+
+      const cookieName = 'maamouriyat_demo_users'
+      const updatedList = users.map(u => u.id === editingUser.id ? updatedUser : u)
+      document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify(updatedList))}; path=/; max-age=604800; SameSite=Lax`
+
+      setUsers(updatedList)
+      setSuccess('تم تحديث بيانات وصلاحيات الموظف بنجاح في وضع المحاكاة.')
+      resetEditForm()
+      return
+    }
+
+    if (!supabase) {
+      setError('إعداد قاعدة بيانات Supabase غير متوفر حالياً.')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const payload = {
+        full_name: name,
+        job_title: job || null,
+        level: editLevel,
+        department: finalDepartment,
+        facility_id: editFacilityId || null,
+        email: userEmail,
+        phone: userPhone || null,
+        financial_code: finCode || null,
+        is_active: editIsActive,
+      }
+
+      const { data, error: updateError } = await supabase
+        .from('users')
+        .update(payload)
+        .eq('id', editingUser.id)
+        .select('id, full_name, job_title, level, department, is_active, email, phone, facility_id, financial_code')
+        .single()
+
+      if (updateError) {
+        setError(updateError.message)
+        setLoading(false)
+        return
+      }
+
+      if (data) {
+        setUsers((current) => current.map(u => u.id === editingUser.id ? (data as UserRow) : u))
+        setSuccess('تم تحديث صلاحيات وبيانات الموظف على قاعدة البيانات الحية بنجاح.')
+        resetEditForm()
+      }
+    } catch (err: any) {
+      setError(err.message || 'خطأ أثناء الاتصال بالخادم الرئيسي.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function resetEditForm() {
+    setEditingUser(null)
+    setEditFullName('')
+    setEditJobTitle('')
+    setEditLevel(7)
+    setEditDepartment('')
+    setEditFacilityId('')
+    setEditEmail('')
+    setEditPhone('')
+    setEditFinancialCode('')
+    setEditIsActive(true)
+    setLoading(false)
+    router.refresh()
   }
   
   // Search & Filter states
@@ -958,6 +1094,35 @@ export function UserPortal({
                     </button>
                   )}
 
+                  {currentUserLevel <= 1 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        startEditingUser(u)
+                      }}
+                      style={{
+                        background: '#eef6f6',
+                        color: 'var(--brand)',
+                        border: '1px solid #cfdcde',
+                        borderRadius: '6px',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                        flexShrink: 0
+                      }}
+                      title="تعديل بيانات وصلاحيات الموظف"
+                      type="button"
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                  )}
+
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
@@ -1188,6 +1353,34 @@ export function UserPortal({
                               <Shield size={12} style={{ transform: 'rotate(180deg)' }} />
                             </button>
                           )}
+                          {currentUserLevel <= 1 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                startEditingUser(u)
+                              }}
+                              style={{
+                                background: '#eef6f6',
+                                color: 'var(--brand)',
+                                border: '1px solid #cfdcde',
+                                borderRadius: '6px',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'background 0.2s',
+                              }}
+                              title="تعديل الموظف"
+                              type="button"
+                              onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                          )}
+
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -1801,6 +1994,35 @@ export function UserPortal({
                   </button>
                 )}
 
+                {currentUserLevel <= 1 && (
+                  <button
+                    onClick={() => {
+                      const userToEdit = selectedDetailUser
+                      setSelectedDetailUser(null)
+                      startEditingUser(userToEdit)
+                    }}
+                    style={{
+                      flex: 1,
+                      background: '#eef6f6',
+                      color: 'var(--brand)',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      minHeight: '40px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      fontSize: '12.5px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                    type="button"
+                  >
+                    <Edit2 size={16} />
+                    تعديل الصلاحيات والبيانات
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     const idToDelete = selectedDetailUser.id
@@ -1848,6 +2070,255 @@ export function UserPortal({
 
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Staff Editing Modal overlay */}
+      {editingUser && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(16, 32, 39, 0.55)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px',
+          zIndex: 999,
+          overflowY: 'auto'
+        }}>
+          <form
+            onSubmit={handleUpdateUser}
+            style={{
+              background: 'white',
+              border: '1px solid var(--line)',
+              borderRadius: '16px',
+              padding: '28px',
+              maxWidth: '540px',
+              width: '100%',
+              display: 'grid',
+              gap: '16px',
+              boxShadow: '0 8px 32px rgba(16,32,39,0.15)',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              position: 'relative',
+              animation: 'modalSlideUp 0.3s ease-out'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eef6f6', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#102027', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Edit2 size={22} style={{ color: 'var(--brand)' }} />
+                تعديل صلاحيات وبيانات الموظف
+              </h3>
+              <button
+                onClick={() => setEditingUser(null)}
+                style={{ background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center' }}
+                type="button"
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+              الاسم الكامل للموظف *
+              <input
+                onChange={(event) => setEditFullName(event.target.value)}
+                placeholder="مثال: د. أحمد محمد السيد"
+                required
+                style={{
+                  background: '#f8fbfb',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '8px',
+                  minHeight: '40px',
+                  padding: '0 12px',
+                  fontSize: '13.5px',
+                  outline: 'none'
+                }}
+                type="text"
+                value={editFullName}
+              />
+            </label>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                المسمى الوظيفي *
+                <input
+                  onChange={(event) => setEditJobTitle(event.target.value)}
+                  placeholder="مثال: مفتش مكافحة العدوى"
+                  required
+                  style={{
+                    background: '#f8fbfb',
+                    border: '1px solid #cfdcde',
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    outline: 'none'
+                  }}
+                  type="text"
+                  value={editJobTitle}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                الصلاحيات التنظيمية بالمنظومة
+                <select
+                  onChange={(event) => setEditLevel(parseInt(event.target.value))}
+                  style={{
+                    background: '#f8fbfb',
+                    border: '1px solid #cfdcde',
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 8px',
+                    fontSize: '13px',
+                    outline: 'none'
+                  }}
+                  value={editLevel}
+                >
+                  <option value={7}>مستوى 7 — قائم بالمرور (مفتش ميداني)</option>
+                  <option value={5}>مستوى 5 — مراجع مالي للمستندات</option>
+                  <option value={4}>مستوى 4 — موظف مختص بالتكليفات</option>
+                  <option value={3}>مستوى 3 — مدير عام الإدارة العامة</option>
+                  <option value={2}>مستوى 2 — رئيس رئيس الإدارة المركزية</option>
+                  <option value={1}>مستوى 1 — سوبر أدمن (مدير المنظومة)</option>
+                </select>
+              </label>
+            </div>
+
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+              البريد الإلكتروني للربط وتلقي الإشعارات *
+              <input
+                onChange={(event) => setEditEmail(event.target.value)}
+                placeholder="أدخل بريد Gmail أو Hotmail أو البريد الحكومي المعتمد"
+                required
+                style={{
+                  background: '#f8fbfb',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '8px',
+                  minHeight: '40px',
+                  padding: '0 12px',
+                  fontSize: '13.5px',
+                  outline: 'none'
+                }}
+                type="email"
+                value={editEmail}
+              />
+            </label>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                رقم الهاتف المحمول للتواصل المباشر
+                <input
+                  onChange={(event) => setEditPhone(event.target.value)}
+                  placeholder="01xxxxxxxxx"
+                  style={{
+                    background: '#f8fbfb',
+                    border: '1px solid #cfdcde',
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 12px',
+                    fontSize: '13.5px',
+                    outline: 'none'
+                  }}
+                  type="tel"
+                  value={editPhone}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                كود الموظف بالنظام المالي الموحد
+                <input
+                  onChange={(event) => setEditFinancialCode(event.target.value)}
+                  placeholder="مثال: FIN-103948"
+                  style={{
+                    background: '#f8fbfb',
+                    border: '1px solid #cfdcde',
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 12px',
+                    fontSize: '13.5px',
+                    outline: 'none'
+                  }}
+                  type="text"
+                  value={editFinancialCode}
+                />
+              </label>
+            </div>
+
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+              الجهة أو المنشأة الطبية التابع لها الموظف الرئيسي *
+              <select
+                onChange={(event) => setEditFacilityId(event.target.value)}
+                required
+                style={{
+                  background: '#f8fbfb',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '8px',
+                  minHeight: '40px',
+                  padding: '0 8px',
+                  fontSize: '13.5px',
+                  outline: 'none'
+                }}
+                value={editFacilityId}
+              >
+                <option value="">-- اختر المنشأة المسجلة --</option>
+                {facilities.map((fac) => (
+                  <option key={fac.id} value={fac.id}>
+                    {fac.name} {fac.address ? `(${fac.address})` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold', cursor: 'pointer' }}>
+              <input
+                checked={editIsActive}
+                onChange={(event) => setEditIsActive(event.target.checked)}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                type="checkbox"
+              />
+              حساب نشط وموثق لتأدية المأموريات
+            </label>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-start', marginTop: '14px', borderTop: '1px solid #eef6f6', paddingTop: '16px' }}>
+              <button
+                disabled={loading}
+                style={{
+                  background: 'var(--brand)',
+                  color: 'white',
+                  border: 0,
+                  borderRadius: '8px',
+                  minHeight: '42px',
+                  padding: '0 24px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  fontSize: '13.5px',
+                  boxShadow: '0 4px 12px rgba(16, 122, 102, 0.15)'
+                }}
+                type="submit"
+              >
+                {loading ? 'جاري الحفظ والتعديل...' : 'حفظ التعديلات بالكامل'}
+              </button>
+              
+              <button
+                onClick={() => setEditingUser(null)}
+                style={{
+                  background: '#f0f4f5',
+                  color: '#546e7a',
+                  border: 0,
+                  borderRadius: '8px',
+                  minHeight: '42px',
+                  padding: '0 20px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  fontSize: '13.5px'
+                }}
+                type="button"
+              >
+                إلغاء
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>
