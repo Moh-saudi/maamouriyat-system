@@ -4,7 +4,7 @@ import { DashboardShell } from '@/app/system-ui'
 import { getDemoSessionEmail, getDemoSessionRole } from '@/lib/demo-session'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { UserPortal } from './user-portal'
-import { realEgyptianMedicalFacilities } from '@/lib/real-facilities'
+import { realEgyptianMedicalFacilities, realEgyptianMinistryUnits } from '@/lib/real-facilities'
 
 type UserRow = {
   id: string
@@ -37,7 +37,20 @@ export default async function UsersPage() {
     liveFacilities = facData ?? []
   }
 
-  const facilities = liveFacilities.length ? liveFacilities : realEgyptianMedicalFacilities
+  // Combine live/local physical health facilities with real ministry departments
+  const baseFacilities = liveFacilities.length ? liveFacilities : realEgyptianMedicalFacilities
+  const facilities = [
+    ...realEgyptianMinistryUnits.map(unit => ({
+      id: unit.id,
+      name: `ديوان عام الوزارة - ${unit.name}`,
+      address: unit.level || 'ديوان عام الوزارة'
+    })),
+    ...baseFacilities.map(fac => ({
+      id: fac.id,
+      name: fac.name,
+      address: fac.address || ''
+    }))
+  ]
 
   // --- DEMO MODE WORKFLOW PORTAL ---
   if (!supabase || demoEmail) {
