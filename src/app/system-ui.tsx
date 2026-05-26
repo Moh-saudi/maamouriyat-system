@@ -177,8 +177,8 @@ function LoginScreen() {
 
     // Check for local demo login first to avoid making a failing Supabase API request
     if (isDemoLogin(email, password)) {
-      const demoRole = email.trim().toLowerCase().split('@')[0]
-      document.cookie = `maamouriyat_demo_session=${demoRole}; path=/; max-age=86400; SameSite=Lax`
+      const resolvedRole = normalizeDemoRole(email) || 'inspector'
+      document.cookie = `maamouriyat_demo_session=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
       router.push('/dashboard')
       router.refresh()
       return

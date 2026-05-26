@@ -62,14 +62,70 @@ export const roleDefinitions = {
 export type DemoRole = keyof typeof roleDefinitions
 export type NavigationKey = (typeof roleDefinitions)[DemoRole]['navigation'][number]
 
-export const demoAccounts = Object.values(roleDefinitions).map((role) => role.email)
+export const demoEmailToRoleMap: Record<string, DemoRole> = {
+  'admin@admin.com': 'superadmin',
+  'superadmin@mohp.gov.eg': 'superadmin',
+  'techadmin@mohp.gov.eg': 'techadmin',
+  'techadmin@admin.com': 'techadmin',
+  'director@director.com': 'central',
+  'central@mohp.gov.eg': 'central',
+  'supervisor@supervisor.com': 'generalmanager',
+  'generalmanager@mohp.gov.eg': 'generalmanager',
+  'creator@mohp.gov.eg': 'creator',
+  'financial@mohp.gov.eg': 'financial',
+  'inspector@inspector.com': 'inspector',
+  'inspector@mohp.gov.eg': 'inspector',
+  'corrections@corrections.com': 'inspector',
+}
+
+export const demoRoleAliases: Record<string, DemoRole> = {
+  admin: 'superadmin',
+  superadmin: 'superadmin',
+  techadmin: 'techadmin',
+  director: 'central',
+  central: 'central',
+  supervisor: 'generalmanager',
+  generalmanager: 'generalmanager',
+  creator: 'creator',
+  financial: 'financial',
+  inspector: 'inspector',
+  corrections: 'inspector',
+}
+
+export const demoAccounts = Array.from(new Set([
+  ...Object.keys(demoEmailToRoleMap),
+  ...Object.values(roleDefinitions).map((role) => role.email)
+]))
+
 export const demoSessionRoles = Object.keys(roleDefinitions) as DemoRole[]
 
 export function normalizeDemoRole(value?: string | null): DemoRole | null {
   if (!value) return null
   const normalized = decodeURIComponent(value).trim().toLowerCase()
-  const role = normalized.includes('@') ? normalized.split('@')[0] : normalized
-  return demoSessionRoles.includes(role as DemoRole) ? (role as DemoRole) : null
+  
+  if (demoEmailToRoleMap[normalized]) {
+    return demoEmailToRoleMap[normalized]
+  }
+  
+  if (demoSessionRoles.includes(normalized as DemoRole)) {
+    return normalized as DemoRole
+  }
+  
+  if (demoRoleAliases[normalized]) {
+    return demoRoleAliases[normalized]
+  }
+  
+  const prefix = normalized.includes('@') ? normalized.split('@')[0] : normalized
+  
+  if (demoRoleAliases[prefix]) {
+    return demoRoleAliases[prefix]
+  }
+  
+  if (demoSessionRoles.includes(prefix as DemoRole)) {
+    return prefix as DemoRole
+  }
+
+  return null
 }
 
 export function isDemoAccount(email: string) {
