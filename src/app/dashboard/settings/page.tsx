@@ -1,34 +1,35 @@
 import { DashboardShell } from '../../system-ui'
+import { defaultCorrectionUnits, type CorrectionUnitOption } from '@/lib/correction-units'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { SettingsPortal } from './settings-portal'
 
-const settings = [
-  { label: 'صلاحيات المستويات', value: 'مفعلة حسب الهيكل الإداري' },
-  { label: 'تنبيهات المأموريات', value: 'قيد التجهيز' },
-  { label: 'ربط Supabase', value: 'يعتمد على متغيرات البيئة في Vercel' },
-]
+export const dynamic = 'force-dynamic'
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const supabase = await createServerSupabaseClient()
+  let correctionUnits: CorrectionUnitOption[] = defaultCorrectionUnits.map((name) => ({ name }))
+  let centralStoreReady = false
+
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('correction_units')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('sort_order')
+      .order('name')
+
+    if (!error && data?.length) {
+      correctionUnits = data
+      centralStoreReady = true
+    }
+  }
+
   return (
     <DashboardShell view="settings">
-      <div className="stack">
-        <section className="welcome-band">
-          <div>
-            <p className="eyebrow">إدارة النظام</p>
-            <h2>الإعدادات</h2>
-            <p>إعدادات تشغيلية مختصرة للنظام وروابط التكامل الأساسية.</p>
-          </div>
-        </section>
-
-        <section className="cards-list">
-          {settings.map((item) => (
-            <article className="mission-card" key={item.label}>
-              <div className="card-line">
-                <strong>{item.label}</strong>
-              </div>
-              <p>{item.value}</p>
-            </article>
-          ))}
-        </section>
-      </div>
+      <SettingsPortal
+        initialUnits={correctionUnits}
+        centralStoreReady={centralStoreReady}
+      />
     </DashboardShell>
   )
 }

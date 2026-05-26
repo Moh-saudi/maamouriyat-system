@@ -1,8 +1,19 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import {
+  demoAccounts,
+  demoPassword,
+  getRoleDefinition,
+  normalizeDemoRole,
+  roleDefinitions,
+  type DemoRole,
+  type NavigationKey,
+  getRoleNavigation,
+  getUserNavigation,
+} from '@/lib/roles'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import {
   AlertTriangle,
@@ -11,6 +22,8 @@ import {
   CheckCircle2,
   ClipboardList,
   Filter,
+  Eye,
+  EyeOff,
   Home,
   LogOut,
   Menu,
@@ -23,7 +36,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-type View = 'login' | 'dashboard' | 'missions' | 'violations' | 'facilities' | 'users' | 'settings'
+type View = 'login' | 'dashboard' | 'missions' | 'violations' | 'facilities' | 'users' | 'settings' | 'checklists'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabasePublishableKey =
@@ -110,6 +123,16 @@ const notifications = [
   },
 ]
 
+const navigationDefinitions: Record<NavigationKey, { href: string; icon: LucideIcon; label: string }> = {
+  dashboard: { href: '/dashboard', icon: Home, label: 'لوحة القيادة' },
+  facilities: { href: '/dashboard/facilities', icon: Building2, label: 'المنشآت' },
+  missions: { href: '/dashboard/missions', icon: ClipboardList, label: 'المأموريات' },
+  settings: { href: '/dashboard/settings', icon: Settings, label: 'الإعدادات' },
+  users: { href: '/dashboard/users', icon: Users, label: 'المستخدمون' },
+  violations: { href: '/dashboard/violations', icon: AlertTriangle, label: 'المخالفات' },
+  checklists: { href: '/dashboard/checklists', icon: ClipboardList, label: 'استمارات المرور' },
+}
+
 export function SystemUI({ view }: { view: View }) {
   if (view === 'login') {
     return <LoginScreen />
@@ -124,20 +147,42 @@ export function SystemUI({ view }: { view: View }) {
   )
 }
 
-export function DashboardShell({ children, view = 'dashboard' }: { children: React.ReactNode; view?: Exclude<View, 'login'> }) {
-  return <AppShell view={view}>{children}</AppShell>
+export function DashboardShell({
+  children,
+  role = null,
+  view = 'dashboard',
+}: {
+  children: React.ReactNode
+  role?: DemoRole | null
+  view?: Exclude<View, 'login'>
+}) {
+  return (
+    <AppShell initialRole={role} view={view}>
+      {children}
+    </AppShell>
+  )
 }
 
 function LoginScreen() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+
+    // Check for local demo login first to avoid making a failing Supabase API request
+    if (isDemoLogin(email, password)) {
+      const demoRole = email.trim().toLowerCase().split('@')[0]
+      document.cookie = `maamouriyat_demo_session=${demoRole}; path=/; max-age=86400; SameSite=Lax`
+      router.push('/dashboard')
+      router.refresh()
+      return
+    }
 
     if (!supabase) {
       router.push('/dashboard')
@@ -172,7 +217,7 @@ function LoginScreen() {
         </div>
         <div>
           <h2>تسجيل الدخول</h2>
-          <p>ادخل بيانات الحساب للمتابعة إلى لوحة النظام.</p>
+          <p>استخدم أي حساب تجريبي بكلمة مرور موحدة: {demoPassword}</p>
         </div>
 
         {error && <div className="alert">{error}</div>}
@@ -183,7 +228,7 @@ function LoginScreen() {
             autoComplete="email"
             inputMode="email"
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="admin@mohp.gov.eg"
+            placeholder="admin@admin.com"
             required
             type="email"
             value={email}
@@ -192,14 +237,39 @@ function LoginScreen() {
 
         <label>
           كلمة المرور
-          <input
-            autoComplete="current-password"
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            type="password"
-            value={password}
-          />
+          <span className="password-field">
+            <input
+              autoComplete="current-password"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder={demoPassword}
+              required
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+            />
+            <button
+              aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+              onClick={() => setShowPassword((isVisible) => !isVisible)}
+              type="button"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </span>
         </label>
+
+        <div className="demo-accounts" aria-label="حسابات تجريبية">
+          {demoAccounts.map((account) => (
+            <button
+              key={account}
+              onClick={() => {
+                setEmail(account)
+                setPassword(demoPassword)
+              }}
+              type="button"
+            >
+              {account}
+            </button>
+          ))}
+        </div>
 
         <button className="primary-action" disabled={loading} type="submit">
           {loading ? 'جاري الدخول...' : 'تسجيل الدخول'}
@@ -209,13 +279,177 @@ function LoginScreen() {
   )
 }
 
-function AppShell({ children, view }: { children: React.ReactNode; view: View }) {
+function AppShell({ children, initialRole, view }: { children: React.ReactNode; initialRole?: DemoRole | null; view: View }) {
+  const router = useRouter()
+  const [currentRole, setCurrentRole] = useState<DemoRole | null>(initialRole ?? null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const roleInfo = getRoleDefinition(currentRole)
+  const [notificationsList, setNotificationsList] = useState<any[]>([])
+
+  useEffect(() => {
+    async function resolveUserEmail() {
+      const demoRole = readDemoRoleFromCookie()
+      if (demoRole) {
+        setUserEmail(`${demoRole}@${demoRole}.com`)
+        return
+      }
+      if (supabase) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user) {
+            setUserEmail(user.email ?? user.id)
+            const { data: profileData } = await supabase
+              .from('users')
+              .select('level')
+              .eq('auth_id', user.id)
+              .maybeSingle()
+            if (profileData) {
+              const level = profileData.level ?? 7
+              const role = level === 0 ? 'techadmin' : level === 1 ? 'superadmin' : level === 2 ? 'central' : level === 3 ? 'generalmanager' : level === 4 ? 'creator' : level === 5 ? 'financial' : 'inspector'
+              document.cookie = `maamouriyat_user_role=${role}; path=/; max-age=86400; SameSite=Lax`
+            }
+          }
+        } catch {}
+      }
+    }
+    resolveUserEmail()
+  }, [currentRole])
+
+  useEffect(() => {
+    setCurrentRole(readDemoRoleFromCookie() ?? initialRole ?? null)
+  }, [initialRole])
+
+  useEffect(() => {
+    async function loadNotifications() {
+      // 1. Demo Mode Cookie Feed
+      const isDemo = readDemoRoleFromCookie()
+      if (isDemo) {
+        const cookieName = 'maamouriyat_demo_notifications'
+        const existingCookie = document.cookie
+          .split('; ')
+          .find((item) => item.startsWith(`${cookieName}=`))
+          ?.split('=')[1]
+        let list = []
+        if (existingCookie) {
+          try {
+            list = JSON.parse(decodeURIComponent(existingCookie))
+          } catch {}
+        } else {
+          list = [
+            {
+              href: '/dashboard/missions',
+              meta: 'منذ 10 دقائق',
+              text: 'توجد مأموريات قيد التنفيذ تحتاج متابعة اليوم.',
+              title: 'متابعة المأموريات',
+              tone: 'blue',
+              is_read: false
+            },
+            {
+              href: '/dashboard/violations',
+              meta: 'منذ 35 دقيقة',
+              text: 'تم تسجيل مخالفة عالية الخطورة وتحتاج إجراء تصحيحي.',
+              title: 'مخالفة عالية الخطورة',
+              tone: 'red',
+              is_read: false
+            }
+          ]
+          document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify(list))}; path=/; max-age=604800; SameSite=Lax`
+        }
+        setNotificationsList(list)
+        return
+      }
+
+      // 2. Production Live Mode (Supabase)
+      if (supabase) {
+        try {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user) {
+            const { data, error } = await supabase
+              .from('notifications')
+              .select('*')
+              .eq('is_read', false)
+              .order('sent_at', { ascending: false })
+              .limit(10)
+            
+            if (!error && data) {
+              setNotificationsList(data.map(n => ({
+                href: n.mission_id ? `/dashboard/missions` : `/dashboard/violations`,
+                meta: new Date(n.sent_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+                text: n.body,
+                title: n.title,
+                tone: n.type === 'mission_assigned' ? 'blue' : 'red',
+                is_read: n.is_read
+              })))
+            }
+          }
+        } catch (e) {
+          console.error(e)
+        }
+      }
+    }
+
+    loadNotifications()
+    const interval = setInterval(loadNotifications, 10000)
+    return () => clearInterval(interval)
+  }, [currentRole])
+
+  async function handleClearNotifications() {
+    const isDemo = readDemoRoleFromCookie()
+    if (isDemo) {
+      const cookieName = 'maamouriyat_demo_notifications'
+      document.cookie = `${cookieName}=; path=/; max-age=0; SameSite=Lax`
+      setNotificationsList([])
+      return
+    }
+
+    if (supabase) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data: profile } = await supabase.from('users').select('id').eq('auth_id', user.id).single()
+          if (profile) {
+            await supabase.from('notifications').update({ is_read: true }).eq('user_id', profile.id)
+          }
+          setNotificationsList([])
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+  }
+
+  async function handleLogout() {
+    setUserMenuOpen(false)
+    setNotificationsOpen(false)
+    setMenuOpen(false)
+
+    if (supabase) {
+      await supabase.auth.signOut()
+    }
+
+    document.cookie = 'maamouriyat_demo_session=; path=/; max-age=0; SameSite=Lax'
+
+    router.replace('/login')
+    router.refresh()
+  }
 
   return (
     <main className="app-shell">
       <Style />
+      <aside className="desktop-sidebar" aria-label="التنقل الرئيسي">
+        <div className="desktop-brand">
+          <MinistryLogo size="menu" />
+          <div>
+            <strong>نظام المأموريات</strong>
+            <span>وزارة الصحة والسكان</span>
+          </div>
+        </div>
+        <Navigation role={currentRole} userEmail={userEmail} />
+      </aside>
+
       <header className="topbar">
         <button aria-label="فتح القائمة" className="icon-button" onClick={() => setMenuOpen(true)}>
           <Menu size={20} />
@@ -225,30 +459,71 @@ function AppShell({ children, view }: { children: React.ReactNode; view: View })
           <div>
             <p className="eyebrow">وزارة الصحة والسكان</p>
             <h1>{pageTitle(view)}</h1>
+            <span className="topbar-role">{roleInfo.jobTitle}</span>
           </div>
         </div>
-        <div className="notification-wrap">
+        <div className="topbar-actions">
+          <div className="user-menu-wrap">
           <button
-            aria-expanded={notificationsOpen}
-            aria-label="التنبيهات"
-            className="icon-button"
-            onClick={() => setNotificationsOpen((isOpen) => !isOpen)}
+            aria-expanded={userMenuOpen}
+            className="user-menu-button"
+            onClick={() => setUserMenuOpen((isOpen) => !isOpen)}
             type="button"
+            title={roleInfo.name}
           >
-            <Bell size={20} />
-            <span className="dot" />
+            <User size={18} />
+            <span>{roleInfo.name}</span>
           </button>
-          {notificationsOpen && (
+          {userMenuOpen && (
             <>
               <button
-                aria-label="إغلاق التنبيهات"
-                className="notification-scrim"
-                onClick={() => setNotificationsOpen(false)}
+                aria-label="إغلاق بيانات المستخدم"
+                className="user-menu-scrim"
+                onClick={() => setUserMenuOpen(false)}
                 type="button"
               />
-              <NotificationsPanel onNavigate={() => setNotificationsOpen(false)} />
+              <div className="user-menu-panel">
+                <strong>{roleInfo.name}</strong>
+                <span>{roleInfo.jobTitle}</span>
+                <button onClick={handleLogout} type="button">
+                  <LogOut size={17} />
+                  تسجيل الخروج
+                </button>
+              </div>
             </>
           )}
+          </div>
+          <button className="logout-button" onClick={handleLogout} title="تسجيل الخروج" type="button">
+            <LogOut size={18} />
+            <span>خروج</span>
+          </button>
+          <div className="notification-wrap">
+            <button
+              aria-expanded={notificationsOpen}
+              aria-label="التنبيهات"
+              className="icon-button"
+              onClick={() => setNotificationsOpen((isOpen) => !isOpen)}
+              type="button"
+            >
+              <Bell size={20} />
+              {notificationsList.length > 0 && <span className="dot" />}
+            </button>
+            {notificationsOpen && (
+              <>
+                <button
+                  aria-label="إغلاق التنبيهات"
+                  className="notification-scrim"
+                  onClick={() => setNotificationsOpen(false)}
+                  type="button"
+                />
+                <NotificationsPanel
+                  onNavigate={() => setNotificationsOpen(false)}
+                  notificationsList={notificationsList}
+                  onClear={handleClearNotifications}
+                />
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -263,15 +538,16 @@ function AppShell({ children, view }: { children: React.ReactNode; view: View })
               <X size={20} />
             </button>
           </div>
-          <Navigation onNavigate={() => setMenuOpen(false)} />
+          <Navigation onNavigate={() => setMenuOpen(false)} role={currentRole} userEmail={userEmail} />
         </aside>
       )}
 
       {menuOpen && <button aria-label="إغلاق القائمة" className="scrim" onClick={() => setMenuOpen(false)} />}
 
-      <section className="content">
+      <section className="content-shell">
+        <div className="content">
         {children}
-        <SecurityFooter />
+        </div>
       </section>
 
       <nav className="bottom-nav" aria-label="التنقل الرئيسي">
@@ -287,28 +563,84 @@ function AppShell({ children, view }: { children: React.ReactNode; view: View })
   )
 }
 
-function Navigation({ onNavigate }: { onNavigate: () => void }) {
+function isDemoLogin(email: string, password: string) {
+  return (demoAccounts as readonly string[]).includes(email.trim().toLowerCase()) && password === demoPassword
+}
+
+function readDemoRoleFromCookie() {
+  if (typeof document === 'undefined') return null
+  const match = document.cookie
+    .split('; ')
+    .find((cookie) => cookie.startsWith('maamouriyat_demo_session='))
+  return normalizeDemoRole(match?.split('=')[1])
+}
+
+function readDynamicPermissionsFromCookie() {
+  if (typeof document === 'undefined') return null
+  const match = document.cookie
+    .split('; ')
+    .find((cookie) => cookie.startsWith('maamouriyat_dynamic_permissions='))
+  return match ? decodeURIComponent(match.split('=')[1]) : null
+}
+
+function readUserPermissionsFromCookie() {
+  if (typeof document === 'undefined') return null
+  const match = document.cookie
+    .split('; ')
+    .find((cookie) => cookie.startsWith('maamouriyat_user_permissions='))
+  return match ? decodeURIComponent(match.split('=')[1]) : null
+}
+
+function Navigation({ onNavigate, role, userEmail }: { onNavigate?: () => void; role: DemoRole | null; userEmail?: string | null }) {
+  const roleInfo = getRoleDefinition(role)
+  const dynamicPermissionsRaw = readDynamicPermissionsFromCookie()
+  const userPermissionsRaw = readUserPermissionsFromCookie()
+  const allowedKeys = getUserNavigation(
+    userEmail || (role ? `${role}@${role}.com` : null),
+    role ?? 'superadmin',
+    dynamicPermissionsRaw,
+    userPermissionsRaw
+  )
+  const items = allowedKeys.map((key: NavigationKey) => ({
+    key,
+    ...navigationDefinitions[key],
+  }))
+
   return (
     <div className="sheet-nav">
-      <NavItem href="/dashboard" icon={Home} label="لوحة القيادة" onClick={onNavigate} />
-      <NavItem href="/dashboard/missions" icon={ClipboardList} label="المأموريات" onClick={onNavigate} />
-      <NavItem href="/dashboard/violations" icon={AlertTriangle} label="المخالفات" onClick={onNavigate} />
-      <NavItem href="/dashboard/facilities" icon={Building2} label="المنشآت" onClick={onNavigate} />
-      <NavItem href="/dashboard/users" icon={Users} label="المستخدمين" onClick={onNavigate} />
-      <NavItem href="/dashboard/settings" icon={Settings} label="الإعدادات" onClick={onNavigate} />
+      <span className="role-nav-label">{roleInfo.homeLabel}</span>
+      {items.map((item: any) => (
+        <NavItem
+          href={item.href}
+          icon={item.icon}
+          key={item.key}
+          label={item.key === 'dashboard' ? roleInfo.homeLabel : item.label}
+          onClick={onNavigate}
+        />
+      ))}
     </div>
   )
 }
 
-function NotificationsPanel({ onNavigate }: { onNavigate: () => void }) {
+function NotificationsPanel({
+  onNavigate,
+  notificationsList,
+  onClear,
+}: {
+  onNavigate: () => void
+  notificationsList: any[]
+  onClear: () => void
+}) {
   return (
     <section aria-label="قائمة التنبيهات" className="notifications-panel">
       <div className="notifications-head">
         <strong>التنبيهات</strong>
-        <span>{notifications.length} جديدة</span>
+        <span style={{ cursor: 'pointer', color: 'var(--red)', fontSize: '11px', fontWeight: 'bold' }} onClick={onClear}>
+          مسح الكل
+        </span>
       </div>
       <div className="notifications-list">
-        {notifications.map((item) => (
+        {notificationsList.map((item) => (
           <Link className="notification-item" href={item.href} key={item.title} onClick={onNavigate}>
             <span className={`notification-mark ${item.tone}`} />
             <span>
@@ -318,6 +650,11 @@ function NotificationsPanel({ onNavigate }: { onNavigate: () => void }) {
             </span>
           </Link>
         ))}
+        {notificationsList.length === 0 && (
+          <p style={{ padding: '16px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px', margin: 0 }}>
+            لا توجد تنبيهات جديدة
+          </p>
+        )}
       </div>
     </section>
   )
@@ -353,8 +690,25 @@ function NavItem({
   const pathname = usePathname()
   const active = pathname === href
 
+  async function handleClick(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (href === '/login') {
+      event.preventDefault()
+      onClick?.()
+
+      if (supabase) {
+        await supabase.auth.signOut()
+      }
+
+      document.cookie = 'maamouriyat_demo_session=; path=/; max-age=0; SameSite=Lax'
+      window.location.assign('/login')
+      return
+    }
+
+    onClick?.()
+  }
+
   return (
-    <Link className={`nav-item ${active ? 'active' : ''}`} href={href} onClick={onClick}>
+    <Link className={`nav-item ${active ? 'active' : ''}`} href={href} onClick={handleClick}>
       <Icon size={19} />
       <span>{label}</span>
     </Link>
@@ -679,18 +1033,99 @@ function Style() {
         padding: 12px;
       }
 
+      .demo-accounts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .demo-accounts button {
+        background: #edf7f7;
+        border: 1px solid #cfe5e6;
+        border-radius: 999px;
+        color: var(--brand);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 800;
+        padding: 7px 10px;
+      }
+
+      .password-field {
+        display: block;
+        position: relative;
+      }
+
+      .password-field input {
+        padding-left: 46px;
+        width: 100%;
+      }
+
+      .password-field button {
+        align-items: center;
+        background: transparent;
+        border: 0;
+        color: var(--muted);
+        cursor: pointer;
+        display: inline-flex;
+        height: 42px;
+        justify-content: center;
+        left: 6px;
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 42px;
+      }
+
       .app-shell {
+        display: flex;
+        flex-direction: column;
         min-height: 100dvh;
-        padding: 14px 14px 86px;
+        padding: 78px 14px calc(118px + env(safe-area-inset-bottom));
+      }
+
+      .desktop-sidebar {
+        display: none;
+      }
+
+      .desktop-brand {
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 10px;
+        padding-bottom: 14px;
+      }
+
+      .desktop-brand strong,
+      .desktop-brand span {
+        display: block;
+      }
+
+      .desktop-brand strong {
+        font-size: 15px;
+      }
+
+      .desktop-brand span {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 3px;
       }
 
       .topbar {
         align-items: center;
+        background: rgba(243, 247, 247, 0.94);
+        backdrop-filter: blur(14px);
         display: grid;
         gap: 12px;
-        grid-template-columns: 44px 1fr 44px;
+        grid-template-columns: 44px 1fr auto;
         margin: 0 auto 16px;
         max-width: 960px;
+        padding-block: 2px;
+        position: fixed;
+        right: 14px;
+        left: 14px;
+        top: 12px;
+        z-index: 25;
+        width: auto;
       }
 
       .topbar h1 {
@@ -705,6 +1140,18 @@ function Style() {
       }
 
       .topbar-title h1 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .topbar-role {
+        color: var(--muted);
+        display: block;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.4;
+        margin-top: 1px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -731,6 +1178,104 @@ function Style() {
       .icon-button.accent {
         background: var(--brand);
         color: white;
+      }
+
+      .topbar-actions {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .user-menu-wrap {
+        position: relative;
+      }
+
+      .user-menu-button {
+        align-items: center;
+        background: #edf7f7;
+        border: 1px solid #cfe5e6;
+        border-radius: 8px;
+        color: var(--brand);
+        cursor: pointer;
+        display: inline-flex;
+        font-weight: 900;
+        gap: 8px;
+        min-height: 44px;
+        max-width: 170px;
+        padding: 8px 10px;
+      }
+
+      .user-menu-button span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .logout-button {
+        align-items: center;
+        background: #fff2f1;
+        border: 1px solid #ffc9c5;
+        border-radius: 8px;
+        color: var(--red);
+        display: none;
+        font-size: 13px;
+        font-weight: 900;
+        gap: 7px;
+        min-height: 44px;
+        padding: 8px 10px;
+      }
+
+      .user-menu-scrim {
+        background: transparent;
+        border: 0;
+        bottom: 0;
+        left: 0;
+        position: fixed;
+        right: 0;
+        top: 0;
+        z-index: 50;
+      }
+
+      .user-menu-panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        display: grid;
+        gap: 8px;
+        left: 0;
+        min-width: 210px;
+        padding: 12px;
+        position: absolute;
+        top: 52px;
+        z-index: 60;
+      }
+
+      .user-menu-panel strong,
+      .user-menu-panel span {
+        display: block;
+      }
+
+      .user-menu-panel span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .user-menu-panel button {
+        align-items: center;
+        background: #fff2f1;
+        border: 1px solid #ffc9c5;
+        border-radius: 8px;
+        color: var(--red);
+        cursor: pointer;
+        display: flex;
+        font: inherit;
+        font-weight: 900;
+        gap: 8px;
+        justify-content: center;
+        margin-top: 4px;
+        min-height: 40px;
       }
 
       .dot {
@@ -846,15 +1391,24 @@ function Style() {
         background: var(--amber);
       }
 
+      .content-shell,
       .content,
       .stack {
         display: grid;
         gap: 14px;
       }
 
-      .content {
+      .content-shell {
+        flex: 1;
+        grid-template-rows: minmax(0, 1fr) auto;
         margin: 0 auto;
         max-width: 960px;
+        min-height: 0;
+        width: 100%;
+      }
+
+      .content {
+        min-height: 0;
       }
 
       .security-footer {
@@ -865,6 +1419,7 @@ function Style() {
         box-shadow: var(--shadow);
         display: flex;
         gap: 12px;
+        margin-top: auto;
         padding: 12px;
       }
 
@@ -1075,7 +1630,7 @@ function Style() {
         gap: 4px;
         grid-template-columns: 48px repeat(4, minmax(0, 1fr));
         left: 0;
-        padding: 8px;
+        padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
         position: fixed;
         right: 0;
         z-index: 20;
@@ -1131,6 +1686,13 @@ function Style() {
         margin-top: 20px;
       }
 
+      .role-nav-label {
+        color: var(--brand);
+        font-size: 12px;
+        font-weight: 900;
+        padding: 0 10px 4px;
+      }
+
       .sheet-nav .nav-item {
         grid-template-columns: 22px 1fr;
         justify-items: start;
@@ -1165,7 +1727,7 @@ function Style() {
         }
 
         .app-shell {
-          padding: 22px 22px 96px;
+          padding: 88px 22px calc(128px + env(safe-area-inset-bottom));
         }
 
         .stats-grid {
@@ -1175,6 +1737,116 @@ function Style() {
         .welcome-band {
           align-items: center;
           grid-template-columns: 1fr auto;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .app-shell {
+          align-items: start;
+          display: grid;
+          gap: 18px;
+          grid-template-areas:
+            "sidebar topbar"
+            "sidebar content";
+          grid-template-columns: 232px minmax(0, 1fr);
+          grid-template-rows: auto 1fr;
+          padding: 24px;
+        }
+
+        .desktop-sidebar {
+          align-self: start;
+          background: var(--surface);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          box-shadow: var(--shadow);
+          display: grid;
+          gap: 14px;
+          grid-area: sidebar;
+          max-height: calc(100dvh - 48px);
+          min-height: calc(100dvh - 48px);
+          overflow: auto;
+          padding: 16px;
+          position: sticky;
+          top: 24px;
+        }
+
+        .topbar {
+          grid-area: topbar;
+          grid-template-columns: minmax(0, 1fr) auto;
+          left: auto;
+          margin: 0;
+          max-width: none;
+          position: sticky;
+          right: auto;
+          top: 24px;
+          z-index: 25;
+          width: 100%;
+        }
+
+        .topbar > .icon-button:first-child {
+          display: none;
+        }
+
+        .topbar h1 {
+          font-size: 24px;
+        }
+
+        .logout-button {
+          display: inline-flex;
+        }
+
+        .content-shell {
+          grid-area: content;
+          margin: 0;
+          max-width: 1440px;
+          min-height: calc(100dvh - 107px);
+        }
+
+        .bottom-nav {
+          display: none;
+        }
+
+        .side-sheet,
+        .scrim {
+          display: none;
+        }
+
+        .sheet-nav {
+          gap: 6px;
+          margin-top: 0;
+        }
+
+        .sheet-nav .nav-item {
+          grid-template-columns: 22px 1fr;
+          justify-items: start;
+          min-height: 44px;
+          padding: 8px 10px;
+        }
+
+        .sheet-nav .nav-item.active {
+          box-shadow: inset -3px 0 0 var(--brand);
+        }
+
+        .notifications-panel {
+          left: 0;
+          right: auto;
+        }
+      }
+
+      @media (max-width: 520px) {
+        .user-menu-button {
+          max-width: 44px;
+          padding: 8px;
+          width: 44px;
+        }
+
+        .user-menu-button span {
+          display: none;
+        }
+
+        .user-menu-panel {
+          left: 0;
+          min-width: min(78vw, 240px);
         }
       }
     `}</style>

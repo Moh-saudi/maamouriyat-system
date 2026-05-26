@@ -59,6 +59,13 @@
   grid-column: 1 / -1;
 }
 
+.fieldTitle {
+  color: #42555d;
+  display: block;
+  font-size: 0.92rem;
+  margin-bottom: 7px;
+}
+
 .form label {
   color: #42555d;
   display: grid;
@@ -80,6 +87,114 @@
 
 .form textarea {
   resize: vertical;
+}
+
+.employeePicker {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.employeePicker button,
+.teamMember button,
+.confirmDialog button {
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.employeePicker button {
+  background: #006d77;
+  color: #ffffff;
+}
+
+.employeePicker button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.teamList {
+  background: #f8fbfb;
+  border: 1px solid #cfdcde;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  min-height: 54px;
+  padding: 10px;
+}
+
+.teamList p {
+  color: #64747d;
+  margin: 0;
+}
+
+.teamMember,
+.inlineCheck {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  display: flex !important;
+  gap: 10px !important;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.inlineCheck input {
+  min-height: auto;
+  width: auto;
+}
+
+.teamMember span {
+  display: grid;
+  gap: 2px;
+}
+
+.teamMember strong {
+  color: #102027;
+}
+
+.teamMember small {
+  color: #64747d;
+}
+
+.teamMember button {
+  background: #fff1f1;
+  color: #a02f2f;
+}
+
+.notice {
+  background: #fdf4e3;
+  border: 1px solid #efd5a3;
+  border-radius: 8px;
+  color: #8a5a12;
+  padding: 10px 12px;
+}
+
+.durationBox {
+  align-items: center;
+  background: #eef8f7;
+  border: 1px solid #c9e5e3;
+  border-radius: 8px;
+  color: #0d5961;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.durationBox span {
+  color: #42555d;
+  font-size: 0.92rem;
+}
+
+.durationBox strong {
+  font-size: 1.05rem;
 }
 
 .segmented {
@@ -146,13 +261,108 @@
   color: #16725a;
 }
 
+.modalBackdrop {
+  align-items: center;
+  background: rgba(16, 32, 39, 0.42);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 80;
+}
+
+.confirmDialog {
+  background: #ffffff;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(16, 32, 39, 0.24);
+  display: grid;
+  gap: 12px;
+  max-width: 430px;
+  padding: 18px;
+  width: 100%;
+}
+
+.confirmDialog h3,
+.confirmDialog p {
+  margin: 0;
+}
+
+.confirmDialog p {
+  color: #64747d;
+  line-height: 1.8;
+}
+
+.confirmDialog strong {
+  background: #f8fbfb;
+  border: 1px solid #cfdcde;
+  border-radius: 8px;
+  color: #102027;
+  padding: 10px;
+  text-align: center;
+}
+
+.confirmDialog div {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.confirmDialog button:first-child {
+  background: #eef5f5;
+  color: #42555d;
+}
+
+.confirmDialog button:last-child {
+  background: #006d77;
+  color: #ffffff;
+}
+
 @media (max-width: 720px) {
   .header {
     align-items: start;
     flex-direction: column;
+    gap: 6px;
+  }
+
+  .page {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .section {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .form input,
+  .form select,
+  .form textarea {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 0.88rem;
   }
 
   .grid {
     grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .employeePicker {
+    grid-template-columns: 1fr auto;
+    display: grid;
+    gap: 8px;
+  }
+
+  .employeePicker button {
+    min-height: 40px;
+    padding: 0 12px;
+    font-size: 0.88rem;
+  }
+
+  .confirmDialog div {
+    grid-template-columns: 1fr;
+    display: grid;
   }
 }

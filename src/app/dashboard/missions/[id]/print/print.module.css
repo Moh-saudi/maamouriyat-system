@@ -1,0 +1,269 @@
+.screen {
+  background: #eef3f4;
+  min-height: 100vh;
+  padding: 22px;
+}
+
+.toolbar {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 auto 16px;
+  max-width: 210mm;
+}
+
+.toolbar a,
+.printButton {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #cfdcde;
+  border-radius: 8px;
+  color: #0d5961;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  text-decoration: none;
+}
+
+.printButton {
+  background: #006d77;
+  border-color: #006d77;
+  color: #ffffff;
+}
+
+.sheet {
+  background: #ffffff;
+  border: 1px solid #d7e2e3;
+  box-shadow: 0 22px 70px rgba(16, 32, 39, 0.14);
+  color: #102027;
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  min-height: 297mm;
+  padding: 16mm;
+  width: 210mm;
+}
+
+.officialHeader {
+  align-items: center;
+  border-bottom: 3px double #102027;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr auto 1fr;
+  padding-bottom: 14px;
+  text-align: center;
+}
+
+.officialHeader div {
+  display: grid;
+  gap: 4px;
+}
+
+.officialHeader strong {
+  font-size: 16px;
+}
+
+.officialHeader span,
+.metaStrip span,
+.footer,
+.section dt {
+  color: #5d6d75;
+}
+
+.officialHeader img {
+  height: 74px;
+  object-fit: contain;
+  width: 74px;
+}
+
+.titleBlock {
+  border-bottom: 1px solid #d7e2e3;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: 10px 0 14px;
+  text-align: center;
+}
+
+.titleBlock p,
+.titleBlock h1,
+.section h2,
+.statement h2 {
+  margin: 0;
+}
+
+.titleBlock p {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.titleBlock h1 {
+  color: #006d77;
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.metaStrip {
+  border: 1px solid #cfdcde;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metaStrip div {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.metaStrip div + div {
+  border-right: 1px solid #cfdcde;
+}
+
+.metaStrip strong {
+  font-size: 16px;
+}
+
+.section,
+.statement {
+  display: grid;
+  gap: 10px;
+}
+
+.section h2,
+.statement h2 {
+  background: #f2f7f7;
+  border-right: 4px solid #006d77;
+  font-size: 16px;
+  padding: 8px 10px;
+}
+
+.grid {
+  border: 1px solid #d7e2e3;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.grid div {
+  min-height: 64px;
+  padding: 10px 12px;
+}
+
+.grid div:nth-child(odd) {
+  border-left: 1px solid #d7e2e3;
+}
+
+.grid div:nth-child(n + 3) {
+  border-top: 1px solid #d7e2e3;
+}
+
+.section dt {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.section dd {
+  font-size: 15px;
+  font-weight: 800;
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.statement p {
+  border: 1px solid #d7e2e3;
+  line-height: 1.9;
+  margin: 0;
+  min-height: 72px;
+  padding: 12px;
+}
+
+.signatures {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.signatures div {
+  border-top: 1px solid #102027;
+  display: grid;
+  gap: 8px;
+  min-height: 76px;
+  padding-top: 8px;
+  text-align: center;
+}
+
+.signatures span {
+  color: #5d6d75;
+  font-size: 13px;
+}
+
+.footer {
+  border-top: 1px solid #d7e2e3;
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 10px;
+  text-align: center;
+}
+
+@page {
+  margin: 10mm;
+  size: A4;
+}
+
+@media print {
+  .screen {
+    background: #ffffff;
+    padding: 0;
+  }
+
+  .toolbar {
+    display: none;
+  }
+
+  .sheet {
+    border: 0;
+    box-shadow: none;
+    min-height: auto;
+    padding: 0;
+    width: auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .screen {
+    padding: 10px;
+  }
+
+  .sheet {
+    min-height: auto;
+    padding: 14px;
+    width: 100%;
+  }
+
+  .officialHeader,
+  .metaStrip,
+  .grid,
+  .signatures {
+    grid-template-columns: 1fr;
+  }
+
+  .metaStrip div + div,
+  .grid div:nth-child(odd),
+  .grid div:nth-child(n + 3) {
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .metaStrip div + div,
+  .grid div + div {
+    border-top: 1px solid #d7e2e3;
+  }
+}

@@ -1,6 +1,8 @@
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { DashboardShell } from '@/app/system-ui'
+import { getDemoSessionEmail, getDemoSessionRole } from '@/lib/demo-session'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 
 type ViolationRow = {
@@ -51,10 +53,69 @@ function normalizeRelation<T>(value: T | T[] | null): T | null {
 export const dynamic = 'force-dynamic'
 
 export default async function ViolationsPage() {
+  const demoEmail = await getDemoSessionEmail()
+  const demoRole = await getDemoSessionRole()
   const supabase = await createServerSupabaseClient()
 
-  if (!supabase) {
-    redirect('/login')
+  if (!supabase || demoEmail) {
+    const store = await cookies()
+    const rawDemoViolations = store.get('maamouriyat_demo_violations')?.value
+    let demoViolations: any[] = []
+    if (rawDemoViolations) {
+      try {
+        demoViolations = JSON.parse(decodeURIComponent(rawDemoViolations))
+      } catch {}
+    }
+
+    return (
+      <DashboardShell role={demoRole} view="violations">
+        <div className="stack">
+          <section className="welcome-band">
+            <div>
+              <p className="eyebrow">قطاع الطب العلاجي</p>
+              <h2>المخالفات</h2>
+              <p>عرض المخالفات المسجلة للوضع التجريبي (المحفوظة محلياً).</p>
+            </div>
+          </section>
+
+          <section className="cards-list">
+            {demoViolations.map((violation) => (
+              <article className="mission-card" key={violation.id}>
+                <div className="card-line">
+                  <strong>{violation.description}</strong>
+                  <span className={`pill ${priorityTone(violation.priority)}`}>
+                    {priorityText(violation.priority)}
+                  </span>
+                </div>
+                <div className="card-line" style={{ marginTop: 2 }}>
+                  <p>{violation.facility_name ?? 'منشأة غير محددة'}</p>
+                  <span className={`pill ${statusTone(violation.status)}`}>
+                    {statusText(violation.status)}
+                  </span>
+                </div>
+                <div className="meta-grid">
+                  <span>
+                    الجهة: {violation.assigned_to_dept || 'غير محددة'}
+                  </span>
+                  {violation.created_at && (
+                    <span>
+                      التاريخ: {new Date(violation.created_at).toLocaleDateString('ar-EG')}
+                    </span>
+                  )}
+                </div>
+              </article>
+            ))}
+
+            {demoViolations.length === 0 && (
+              <div className="empty-state">
+                <h2>لا توجد مخالفات تجريبية مسجلة</h2>
+                <p>قم بالدخول كـ مفتش، ثم قم بتنفيذ مأمورية وسجل مخالفة لتظهر هنا تلقائياً.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      </DashboardShell>
+    )
   }
 
   const {

@@ -98,6 +98,7 @@
 }
 
 .grid select,
+.grid input,
 .grid textarea {
   background: #f8fbfb;
   border: 1px solid #cfdcde;
@@ -110,6 +111,31 @@
 
 .grid textarea {
   resize: vertical;
+}
+
+.violationBox {
+  background: #fbfdfd;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.violationBox > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.violationBox span {
+  color: #006d77;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.violationBox strong {
+  color: #102027;
+  font-size: 15px;
 }
 
 .actions {
@@ -160,3 +186,243 @@
     grid-template-columns: 1fr;
   }
 }
+
+.photoUploadContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.photoLabel {
+  align-items: center;
+  background: #f1f7f7;
+  border: 2px dashed #006d77;
+  border-radius: 8px;
+  color: #006d77;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: bold;
+  gap: 8px;
+  justify-content: center;
+  min-height: 48px;
+  padding: 10px 16px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.photoLabel:hover {
+  background: #e6f1f1;
+}
+
+.photoLabel input[type="file"] {
+  display: none;
+}
+
+.photoPreviewContainer {
+  align-items: center;
+  background: #f8fbfb;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  position: relative;
+}
+
+.photoPreview {
+  border-radius: 6px;
+  height: 54px;
+  object-fit: cover;
+  width: 72px;
+}
+
+.photoInfo {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+}
+
+.photoInfo span {
+  color: #102027;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.photoInfo small {
+  color: #64747d;
+  font-size: 11px;
+}
+
+.removePhotoBtn {
+  align-items: center;
+  background: #fff2f1;
+  border: 0;
+  border-radius: 6px;
+  color: #c2413f;
+  cursor: pointer;
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+  transition: background-color 0.2s;
+}
+
+.removePhotoBtn:hover {
+  background: #ffe3e1;
+}
+
+.compressionLoader {
+  align-items: center;
+  color: #006d77;
+  display: flex;
+  font-size: 13px;
+  font-weight: bold;
+  gap: 8px;
+  padding: 4px;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+  border: 2px solid #e0f0f1;
+  border-radius: 50%;
+  border-top: 2px solid #006d77;
+  height: 16px;
+  width: 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.checklistSection {
+  background: #fbfdfd;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.checklistHeading {
+  color: #006d77;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.checklistSubheading {
+  color: #64747d;
+  font-size: 13px;
+  margin: 4px 0 0;
+}
+
+.checklistGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.checklistSecCard {
+  background: #ffffff;
+  border: 1px solid #dce7e8;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.checklistSecCard h4 {
+  color: #102027;
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+
+.checklistItemsList {
+  display: grid;
+  gap: 12px;
+}
+
+.checklistItemRow {
+  align-items: center;
+  border-bottom: 1px solid #f1f7f7;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  padding-bottom: 10px;
+}
+
+.checklistItemRow:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.itemText {
+  color: #2c3e50;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.6;
+  margin: 0;
+  max-width: min(100%, 560px);
+}
+
+.itemActions {
+  display: flex;
+  gap: 8px;
+}
+
+.radioGroup {
+  background: #eef5f5;
+  border-radius: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.answerBtn {
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #576f7c;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 12px;
+  transition: all 0.2s ease;
+}
+
+.yesActive {
+  background: #eaf8f3;
+  color: #16725a;
+  box-shadow: 0 2px 6px rgba(22, 114, 90, 0.12);
+}
+
+.noActive {
+  background: #fff1f1;
+  color: #a02f2f;
+  box-shadow: 0 2px 6px rgba(160, 47, 47, 0.12);
+}
+
+.naActive {
+  background: #ffffff;
+  color: #7f8c8d;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 600px) {
+  .checklistItemRow {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .radioGroup {
+    width: 100%;
+  }
+
+  .answerBtn {
+    flex: 1;
+    text-align: center;
+  }
+}
+
+

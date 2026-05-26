@@ -44,6 +44,9 @@ const profileIdsByEmail = new Map()
 for (const user of users) {
   const existingAuthUser = existingAuthByEmail.get(user.email.toLowerCase())
   const authUser = existingAuthUser || await createAuthUser(user)
+  if (existingAuthUser) {
+    await updateAuthUserPassword(existingAuthUser.id, user)
+  }
   const profile = await upsertProfile(user, authUser.id)
 
   profileIdsByEmail.set(user.email.toLowerCase(), profile.id)
@@ -184,6 +187,26 @@ async function createAuthUser(user) {
   })
 
   return data.user ?? data
+}
+
+async function updateAuthUserPassword(authUserId, user) {
+  await authRequest(`/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      password: user.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: user.full_name,
+        job_title: user.job_title ?? null,
+      },
+      app_metadata: {
+        level: user.level,
+        department: user.department ?? null,
+      },
+    }),
+  }).catch((error) => {
+    throw new Error(`Failed to update auth user ${user.email}: ${error.message}`)
+  })
 }
 
 async function upsertProfile(user, authId) {

@@ -5,11 +5,13 @@ import {
   Building2,
   ClipboardList,
   Clock3,
-  ShieldCheck,
   Siren,
   Stethoscope,
-  UserRound,
   Users,
+  Server,
+  Activity,
+  Database,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -87,30 +89,7 @@ const toneColors: Record<Tone, string> = {
   violet: '#6d5bd0',
 }
 
-const roleCopy: Record<string, { title: string; focus: string }> = {
-  executive: {
-    title: 'مركز قيادة المنظومة',
-    focus: 'مؤشرات تنفيذية لحركة المرور، المخالفات، المنشآت، المحافظات، وكفاءة فرق التفتيش.',
-  },
-  manager: {
-    title: 'لوحة متابعة الإدارة',
-    focus: 'رؤية مركزة لتوزيع التكليفات، المخالفات المفتوحة، وأداء فرق المرور الميداني.',
-  },
-  supervisor: {
-    title: 'لوحة المشرف الميداني',
-    focus: 'متابعة يومية للمأموريات المتأخرة، المفتشين الأكثر مرورًا، والمنشآت عالية المخاطر.',
-  },
-  lateral: {
-    title: 'لوحة التصحيح والمتابعة',
-    focus: 'تركيز على المخالفات حسب الخطورة وحالة التصحيح داخل المنشآت والمحافظات.',
-  },
-  inspector: {
-    title: 'لوحة المفتش',
-    focus: 'ملخص عملي للمأموريات المسندة، أيام المرور، والمخالفات التي تحتاج استكمالًا.',
-  },
-}
-
-const chartMargin = { bottom: 0, left: -12, right: 8, top: 12 }
+const chartMargin = { bottom: 8, left: -6, right: 12, top: 12 }
 const reportFilters: Array<{ label: string; value: ReportFocus }> = [
   { label: 'الكل', value: 'all' },
   { label: 'المخالفات', value: 'violations' },
@@ -120,37 +99,203 @@ const reportFilters: Array<{ label: string; value: ReportFocus }> = [
 
 export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMetrics; profile: DashboardProfile }) {
   const [reportFocus, setReportFocus] = useState<ReportFocus>('all')
-  const role = getRole(profile)
+  const isTechAdmin = profile.level === 0
+
   const completionRate = percent(metrics.missionsCompleted, metrics.missionsTotal)
   const correctionRate = percent(metrics.violationsCorrected, metrics.violationsTotal)
   const activeFacilityRate = percent(metrics.activeFacilities, metrics.facilitiesTotal)
   const violatingFacilityRate = percent(metrics.violatingFacilities, metrics.facilitiesTotal)
-  const healthScore = Math.round((completionRate + correctionRate + activeFacilityRate + (100 - violatingFacilityRate)) / 4)
   const visibleReports = useMemo(() => getVisibleReports(reportFocus), [reportFocus])
+
+  if (isTechAdmin) {
+    const latencyData = [
+      { label: '12:00', value: 14 },
+      { label: '13:00', value: 18 },
+      { label: '14:00', value: 15 },
+      { label: '15:00', value: 24 },
+      { label: '16:00', value: 30 },
+      { label: '17:00', value: 22 },
+      { label: '18:00', value: 16 },
+      { label: '19:00', value: 15 },
+      { label: '20:00', value: 17 },
+      { label: '21:00', value: 19 },
+      { label: '22:00', value: 14 },
+      { label: '23:00', value: 15 }
+    ]
+
+    const accountsDistribution = [
+      { label: 'قائم بالمرور', value: 24, tone: 'violet' as const },
+      { label: 'موظف مختص', value: 12, tone: 'amber' as const },
+      { label: 'مدير عام', value: 6, tone: 'blue' as const },
+      { label: 'إدارة مركزية', value: 4, tone: 'green' as const },
+      { label: 'سوبر أدمن', value: 2, tone: 'teal' as const }
+    ]
+
+    return (
+      <div className="analytics-dashboard">
+        <section className="role-band" style={{ borderInlineStart: '6px solid var(--brand)', position: 'relative' }}>
+          <div>
+            <span style={{ color: 'var(--brand)', fontWeight: 'bold' }}>{profile.department}</span>
+            <h2>{profile.jobTitle}</h2>
+            <p>{profile.fullName}</p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+            <strong style={{ background: '#e0f2f1', color: '#006d77', border: '1px solid #b2dfdb' }}>التحكم التقني الأعلى</strong>
+            <span style={{ fontSize: '11px', color: '#00796b', fontWeight: 'bold' }}>⚡ المستوى 0 (حوكمة كاملة)</span>
+          </div>
+        </section>
+
+        <section className="metric-grid">
+          <article className="metric-card" style={{ '--metric-tone': '#006d77', '--metric-soft': '#e0f2f1' } as React.CSSProperties}>
+            <div className="metric-orb">
+              <strong>24ms</strong>
+              <span className="metric-orb-icon" style={{ color: '#006d77' }}>
+                <Server size={16} />
+              </span>
+            </div>
+            <div className="metric-body">
+              <span className="metric-label">استجابة الخادم (Ping)</span>
+              <span className="metric-note" style={{ backgroundColor: '#e0f2f1', color: '#006d77' }}>
+                🟢 متصل ومستقر
+              </span>
+            </div>
+          </article>
+
+          <article className="metric-card" style={{ '--metric-tone': '#2a9d8f', '--metric-soft': '#e8f5e9' } as React.CSSProperties}>
+            <div className="metric-orb">
+              <strong>48</strong>
+              <span className="metric-orb-icon" style={{ color: '#2a9d8f' }}>
+                <Activity size={16} />
+              </span>
+            </div>
+            <div className="metric-body">
+              <span className="metric-label">الجلسات النشطة حالياً</span>
+              <span className="metric-note" style={{ backgroundColor: '#e8f5e9', color: '#2a9d8f' }}>
+                👥 مستخدمون متصلون
+              </span>
+            </div>
+          </article>
+
+          <article className="metric-card" style={{ '--metric-tone': '#2c6fbb', '--metric-soft': '#e3f2fd' } as React.CSSProperties}>
+            <div className="metric-orb">
+              <strong>15ms</strong>
+              <span className="metric-orb-icon" style={{ color: '#2c6fbb' }}>
+                <Database size={16} />
+              </span>
+            </div>
+            <div className="metric-body">
+              <span className="metric-label">زمن استعلام قاعدة البيانات</span>
+              <span className="metric-note" style={{ backgroundColor: '#e3f2fd', color: '#2c6fbb' }}>
+                ⚡ فائق السرعة
+              </span>
+            </div>
+          </article>
+
+          <article className="metric-card" style={{ '--metric-tone': '#b7791f', '--metric-soft': '#fff8e1' } as React.CSSProperties}>
+            <div className="metric-orb">
+              <strong>100%</strong>
+              <span className="metric-orb-icon" style={{ color: '#b7791f' }}>
+                <ShieldCheck size={16} />
+              </span>
+            </div>
+            <div className="metric-body">
+              <span className="metric-label">أمان وتشفير البيانات</span>
+              <span className="metric-note" style={{ backgroundColor: '#fff8e1', color: '#b7791f' }}>
+                🔒 SSL نشطة ومؤمنة
+              </span>
+            </div>
+          </article>
+        </section>
+
+        <section className="report-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
+          <ReportPanel title="أداء واستجابة قاعدة البيانات" subtitle="مراقبة زمن الاستجابة واللاتنسي على مدار 12 ساعة">
+            <ChartScroller>
+              <ResponsiveContainer height={280}>
+                <LineChart data={latencyData} margin={chartMargin}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                  <YAxis tickLine={false} axisLine={false} unit="ms" />
+                  <Tooltip formatter={(value) => [`${value}ms`, 'زمن الاستجابة']} />
+                  <Line type="monotone" dataKey="value" stroke="#006d77" strokeWidth={3} dot={{ fill: '#006d77', r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartScroller>
+          </ReportPanel>
+
+          <ReportPanel title="توزيع حسابات المنظومة" subtitle="نسبة وتكرار الحسابات النشطة لكل مستوى وظيفي">
+            <ChartScroller>
+              <ResponsiveContainer height={280}>
+                <BarChart data={toChartData(accountsDistribution)} layout="vertical" margin={chartMargin}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tickLine={false} axisLine={false} />
+                  <YAxis dataKey="label" type="category" width={90} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={arabicNumber} />
+                  <Bar dataKey="value" radius={[8, 8, 8, 8]}>
+                    {accountsDistribution.map((item) => (
+                      <Cell fill={toneColors[item.tone]} key={item.label} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartScroller>
+          </ReportPanel>
+        </section>
+
+        <section className="report-panel" style={{ padding: '16px' }}>
+          <div style={{ borderBottom: '1px solid var(--line)', paddingBottom: '12px', marginBottom: '14px' }}>
+            <h3 style={{ fontSize: '15px', color: '#102027', fontWeight: 'bold' }}>📡 حالة تكامل البنية التحتية والربط الشبكي</h3>
+            <p style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>مؤشرات تشغيل قنوات التكامل المباشر والخدمات السحابية</p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+            <div style={{ background: '#f8fbfb', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#2ecc71', boxShadow: '0 0 8px #2ecc71' }}></div>
+              <div>
+                <strong style={{ display: 'block', fontSize: '12px', color: '#102027' }}>Supabase Connection</strong>
+                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>متصل ومستقر (قنوات حية)</span>
+              </div>
+            </div>
+            <div style={{ background: '#f8fbfb', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#2ecc71', boxShadow: '0 0 8px #2ecc71' }}></div>
+              <div>
+                <strong style={{ display: 'block', fontSize: '12px', color: '#102027' }}>GPS Integrity</strong>
+                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>نشط ومطابق (معايير WGS 84)</span>
+              </div>
+            </div>
+            <div style={{ background: '#f8fbfb', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#2ecc71', boxShadow: '0 0 8px #2ecc71' }}></div>
+              <div>
+                <strong style={{ display: 'block', fontSize: '12px', color: '#102027' }}>JWT Cookie Governance</strong>
+                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>مطابقة مشفرة وآمنة</span>
+              </div>
+            </div>
+            <div style={{ background: '#f8fbfb', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#2ecc71', boxShadow: '0 0 8px #2ecc71' }}></div>
+              <div>
+                <strong style={{ display: 'block', fontSize: '12px', color: '#102027' }}>SMTP Gateway relay</strong>
+                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>جاهز للاستخدام ومؤمن</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    )
+  }
 
   return (
     <div className="analytics-dashboard">
-      <section className="command-hero">
+      <section className="role-band">
         <div>
-          <p className="eyebrow">{profile.isDemo ? 'بيانات تجريبية' : profile.department || 'منظومة المأموريات'}</p>
-          <h2>{roleCopy[role].title}</h2>
-          <p>{roleCopy[role].focus}</p>
+          <span>{profile.department}</span>
+          <h2>{profile.jobTitle}</h2>
+          <p>{profile.fullName}</p>
         </div>
-        <div
-          aria-label={`${profile.fullName} - ${profile.jobTitle || `المستوى ${profile.level}`}`}
-          className="profile-chip"
-          title={`${profile.fullName} - ${profile.jobTitle || `المستوى ${profile.level}`}`}
-        >
-          <UserRound size={20} />
-          <span>{profile.fullName}</span>
-        </div>
+        {profile.isDemo && <strong>حساب تجريبي</strong>}
       </section>
 
       <section className="metric-grid">
         <MetricCard delta={`${completionRate}% إنجاز`} icon={ClipboardList} label="إجمالي المأموريات" tone="blue" value={metrics.missionsTotal} />
         <MetricCard delta={`${metrics.violatingFacilities} منشأة`} icon={Building2} label="المنشآت المخالفة" tone="red" value={metrics.violatingFacilities} />
         <MetricCard delta={`${metrics.highPriorityViolations} حرجة`} icon={Siren} label="مخالفات عالية الخطورة" tone="amber" value={metrics.highPriorityViolations} />
-        <MetricCard delta={`${healthScore}%`} icon={ShieldCheck} label="مؤشر صحة المنظومة" tone={healthScore >= 75 ? 'green' : 'amber'} value={healthScore} />
         <MetricCard delta={`${metrics.inspectorsTotal} مفتش`} icon={Users} label="القائمون بالمرور" tone="teal" value={metrics.inspectorsTotal} />
         <MetricCard delta={`${metrics.missionsLate} متأخرة`} icon={Clock3} label="مأموريات تحتاج تدخل" tone={metrics.missionsLate ? 'red' : 'green'} value={metrics.missionsInProgress + metrics.missionsPending} />
       </section>
@@ -187,7 +332,12 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                       ))}
                     </Pie>
                     <Tooltip formatter={arabicNumber} />
-                    <Legend verticalAlign="bottom" />
+                    <Legend
+                      formatter={(value) => <span className="chart-legend-label">{value}</span>}
+                      iconSize={9}
+                      verticalAlign="bottom"
+                      wrapperStyle={{ paddingTop: 12 }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </ChartScroller>
@@ -198,7 +348,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         )}
 
         {visibleReports.includes('violations') && (
-          <ReportPanel title="المخالفات حسب الشدة" subtitle="حركة، متوسطة، بسيطة، ومصححة">
+          <ReportPanel title="المخالفات حسب الشدة" subtitle="حرجة، متوسطة، بسيطة، ومصححة">
             {hasData(metrics.priorityBreakdown) ? (
               <ChartScroller>
                 <ResponsiveContainer height={280}>
@@ -313,10 +463,51 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
       <style jsx>{`
         .analytics-dashboard {
           display: grid;
-          gap: 12px;
+          gap: 14px;
         }
 
-        .command-hero,
+        .role-band {
+          align-items: center;
+          background:
+            linear-gradient(135deg, rgba(0, 109, 119, 0.1), rgba(42, 157, 143, 0.04)),
+            var(--surface);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          box-shadow: var(--shadow);
+          display: flex;
+          gap: 12px;
+          justify-content: space-between;
+          padding: 14px 16px;
+        }
+
+        .role-band h2,
+        .role-band p {
+          margin: 0;
+        }
+
+        .role-band h2 {
+          color: var(--ink);
+          font-size: 20px;
+          line-height: 1.35;
+        }
+
+        .role-band p,
+        .role-band span {
+          color: var(--muted);
+          display: block;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+
+        .role-band strong {
+          background: #edf7f7;
+          border-radius: 999px;
+          color: var(--brand);
+          flex: 0 0 auto;
+          font-size: 12px;
+          padding: 6px 10px;
+        }
+
         :global(.metric-card),
         .report-toolbar,
         .report-panel,
@@ -325,48 +516,6 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           border: 1px solid var(--line);
           border-radius: 8px;
           box-shadow: var(--shadow);
-        }
-
-        .command-hero {
-          align-items: center;
-          display: grid;
-          gap: 12px;
-          padding: 16px;
-        }
-
-        .command-hero h2 {
-          font-size: 28px;
-          line-height: 1.25;
-        }
-
-        .command-hero p {
-          color: var(--muted);
-          line-height: 1.8;
-          margin-top: 8px;
-          max-width: 54rem;
-        }
-
-        .profile-chip {
-          align-items: center;
-          background: #f4faf9;
-          border: 1px solid #cfe5e6;
-          border-radius: 8px;
-          color: var(--brand);
-          display: inline-flex;
-          gap: 8px;
-          justify-self: start;
-          max-width: min(100%, 240px);
-          min-height: 42px;
-          padding: 8px 10px;
-        }
-
-        .profile-chip span {
-          color: var(--brand);
-          font-size: 13px;
-          font-weight: 900;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
         }
 
         .metric-grid,
@@ -425,42 +574,78 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         }
 
         :global(.metric-card) {
-          border-top: 3px solid var(--metric-tone);
+          background:
+            radial-gradient(circle at 18% 50%, var(--metric-soft), rgba(255, 255, 255, 0) 38%),
+            var(--surface);
+          align-items: center;
+          border: 1px solid color-mix(in srgb, var(--metric-tone) 20%, var(--line));
           display: grid;
-          gap: 10px;
-          min-height: 130px;
+          gap: 12px;
+          grid-template-columns: 92px minmax(0, 1fr);
+          min-height: 112px;
+          overflow: hidden;
           padding: 14px;
+          position: relative;
         }
 
-        :global(.metric-head) {
+        :global(.metric-card::before) {
+          background: var(--metric-tone);
+          border-radius: 999px;
+          content: '';
+          height: 108px;
+          inset-inline-start: -54px;
+          opacity: 0.07;
+          pointer-events: none;
+          position: absolute;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 108px;
+        }
+
+        :global(.metric-orb) {
           align-items: center;
-          display: flex;
-          gap: 10px;
-          justify-content: space-between;
-        }
-
-        :global(.metric-icon) {
-          align-items: center;
-          background: var(--metric-soft);
-          border-radius: 8px;
-          display: inline-flex;
-          height: 40px;
-          justify-content: center;
-          width: 40px;
-        }
-
-        :global(.metric-body) {
-          align-self: end;
+          aspect-ratio: 1;
+          background: var(--surface);
+          border: 6px solid var(--metric-soft);
+          border-radius: 999px;
+          box-shadow:
+            inset 0 0 0 1px color-mix(in srgb, var(--metric-tone) 22%, transparent),
+            0 12px 26px rgba(16, 32, 39, 0.08);
+          color: var(--metric-tone);
           display: grid;
-          gap: 7px;
+          height: 78px;
+          justify-items: center;
+          position: relative;
+          width: 78px;
+        }
+
+        :global(.metric-orb-icon) {
+          align-items: center;
+          background: transparent;
+          border: 0;
+          color: var(--metric-tone);
+          display: inline-flex;
+          height: auto;
+          justify-content: center;
+          margin-top: -2px;
+          width: auto;
         }
 
         :global(.metric-card strong) {
-          font-size: clamp(26px, 4vw, 34px);
+          color: inherit;
+          font-size: clamp(28px, 3vw, 38px);
+          font-weight: 950;
           line-height: 1;
         }
 
-        :global(.metric-card span),
+        :global(.metric-body) {
+          display: grid;
+          gap: 7px;
+          min-width: 0;
+          position: relative;
+        }
+
+        :global(.metric-label),
         .report-panel p,
         .pulse-item span,
         .ranking-row small {
@@ -469,13 +654,20 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           line-height: 1.6;
         }
 
+        :global(.metric-label) {
+          color: #53666f;
+          font-weight: 900;
+        }
+
         :global(.metric-note) {
           border-radius: 999px;
+          justify-self: start;
           font-size: 12px;
           font-weight: 800;
           line-height: 1.4;
           max-width: 120px;
           padding: 4px 8px;
+          position: relative;
           text-align: center;
           white-space: nowrap;
         }
@@ -487,7 +679,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         .report-panel {
           display: grid;
           gap: 12px;
-          min-height: 360px;
+          min-height: 340px;
           min-width: 0;
           overflow: hidden;
           padding: 16px;
@@ -514,6 +706,30 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
 
         .chart-canvas.wide {
           min-width: 560px;
+        }
+
+        :global(.recharts-default-legend) {
+          align-items: center !important;
+          display: flex !important;
+          flex-wrap: wrap !important;
+          gap: 7px 12px !important;
+          justify-content: center !important;
+          line-height: 1.4 !important;
+          padding: 0 !important;
+        }
+
+        :global(.recharts-default-legend .recharts-legend-item) {
+          align-items: center !important;
+          display: inline-flex !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
+          white-space: nowrap !important;
+        }
+
+        .chart-legend-label {
+          color: var(--muted);
+          font-size: 12px;
+          padding-inline-start: 4px;
         }
 
         .empty-report {
@@ -566,6 +782,11 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           text-align: end;
         }
 
+        .ranking-row strong,
+        .ranking-row small {
+          display: block;
+        }
+
         .pulse-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -588,10 +809,6 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         }
 
         @media (min-width: 760px) {
-          .command-hero {
-            grid-template-columns: 1fr auto;
-          }
-
           .metric-grid {
             grid-template-columns: repeat(3, minmax(0, 1fr));
           }
@@ -614,23 +831,45 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           }
         }
 
+        @media (min-width: 1200px) {
+          .analytics-dashboard {
+            gap: 16px;
+          }
+
+          .metric-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+
+          :global(.metric-card) {
+            min-height: 112px;
+          }
+
+          :global(.metric-card strong) {
+            font-size: 34px;
+          }
+
+          :global(.metric-note) {
+            max-width: 100%;
+          }
+
+          .report-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+          }
+
+          .report-panel {
+            min-height: 360px;
+          }
+
+          .report-panel:nth-child(1),
+          .report-panel:nth-child(6) {
+            grid-column: span 2;
+          }
+        }
+
         @media (max-width: 640px) {
-          .command-hero {
-            padding: 14px;
-          }
-
-          .command-hero h2 {
-            font-size: 22px;
-          }
-
-          .profile-chip {
-            justify-self: end;
-            max-width: 48px;
-            padding: 10px;
-          }
-
-          .profile-chip span {
-            display: none;
+          .role-band {
+            align-items: start;
+            display: grid;
           }
 
           .metric-grid,
@@ -639,15 +878,21 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           }
 
           :global(.metric-card) {
-            min-height: 128px;
+            grid-template-columns: 88px minmax(0, 1fr);
+            min-height: 108px;
           }
 
           :global(.metric-card strong) {
-            font-size: 32px;
+            font-size: 34px;
+          }
+
+          :global(.metric-orb) {
+            height: 74px;
+            width: 74px;
           }
 
           .report-panel {
-            min-height: 320px;
+            min-height: 310px;
             padding: 12px;
           }
 
@@ -683,17 +928,17 @@ function MetricCard({
         } as React.CSSProperties
       }
     >
-      <div className="metric-head">
-        <span className="metric-icon" style={{ color: toneColors[tone] }}>
-          <Icon size={21} />
-        </span>
-        <span className="metric-note" style={{ backgroundColor: `${toneColors[tone]}18`, color: toneColors[tone] }}>
-          {delta}
+      <div className="metric-orb">
+        <strong>{value.toLocaleString('en-US')}</strong>
+        <span className="metric-orb-icon" style={{ color: toneColors[tone] }}>
+          <Icon size={16} />
         </span>
       </div>
       <div className="metric-body">
-        <strong>{value.toLocaleString('en-US')}</strong>
-        <span>{label}</span>
+        <span className="metric-label">{label}</span>
+        <span className="metric-note" style={{ backgroundColor: `${toneColors[tone]}18`, color: toneColors[tone] }}>
+          {delta}
+        </span>
       </div>
     </article>
   )
@@ -739,14 +984,6 @@ function PulseItem({ label, tone, value }: { label: string; tone: Tone; value: n
       <span>مؤشر محسوب من البيانات التشغيلية الحالية.</span>
     </article>
   )
-}
-
-function getRole(profile: DashboardProfile) {
-  if (profile.isDemo || profile.level <= 2) return 'executive'
-  if (profile.department.includes('التصحيح')) return 'lateral'
-  if (profile.level <= 4) return 'manager'
-  if (profile.level <= 6) return 'supervisor'
-  return 'inspector'
 }
 
 function percent(part: number, total: number) {

@@ -1,6 +1,13 @@
 import { redirect } from 'next/navigation'
 import { DashboardShell } from '@/app/system-ui'
+import { getDemoSessionEmail, getDemoSessionRole } from '@/lib/demo-session'
+import {
+  centralHealthAffiliations,
+  healthDirectorateAffiliations,
+  type FacilityAffiliationOption
+} from '@/lib/facility-affiliations'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { FacilitiesPortal } from './facilities-portal'
 
 type FacilityRow = {
   id: string
@@ -8,6 +15,8 @@ type FacilityRow = {
   facility_type: string
   address: string
   is_active: boolean | null
+  latitude?: number
+  longitude?: number
   governorates: { name: string } | null
 }
 
@@ -16,15 +25,36 @@ function normalizeRelation<T>(value: T | T[] | null): T | null {
   return value ?? null
 }
 
+// 51 Real Egyptian Medical Facilities (34 Hospitals, 10 Family Health Centers, 7 Supply Warehouses)
+import { realEgyptianMedicalFacilities } from '@/lib/real-facilities'
+
 export const dynamic = 'force-dynamic'
 
 export default async function FacilitiesPage() {
+  const demoEmail = await getDemoSessionEmail()
+  const demoRole = await getDemoSessionRole()
   const supabase = await createServerSupabaseClient()
 
-  if (!supabase) {
-    redirect('/login')
+  let defaultAffiliations: FacilityAffiliationOption[] = [
+    ...healthDirectorateAffiliations.map((name) => ({ name, affiliation_type: 'directorate' as const })),
+    ...centralHealthAffiliations.map((name) => ({ name, affiliation_type: 'central_entity' as const })),
+  ]
+
+  // Demo / local testing view (no active Supabase connection or demo session active)
+  if (!supabase || demoEmail) {
+    return (
+      <DashboardShell role={demoRole} view="facilities">
+        <FacilitiesPortal
+          initialFacilities={realEgyptianMedicalFacilities}
+          initialAffiliations={defaultAffiliations}
+          facilityStoreReady={false}
+          role={demoRole}
+        />
+      </DashboardShell>
+    )
   }
 
+  // Live Supabase integration
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -33,70 +63,77 @@ export default async function FacilitiesPage() {
     redirect('/login')
   }
 
-  const { data, error } = await supabase
-    .from('facilities')
-    .select(`
-      id,
-      name,
-      facility_type,
-      address,
-      is_active,
-      governorates:governorate_id(name)
-    `)
-    .order('name')
-    .limit(500)
+  const { data: profile } = await supabase
+    .from('users')
+    .select('level')
+    .eq('auth_id', user.id)
+    .maybeSingle<{ level: number }>()
 
-  const facilities = ((data ?? []) as unknown as FacilityRow[]).map((row) => ({
+  const userLevel = profile?.level ?? 7
+  const resolvedRole = userLevel === 0 ? 'techadmin' : userLevel === 1 ? 'superadmin' : userLevel === 2 ? 'central' : userLevel === 3 ? 'generalmanager' : userLevel === 4 ? 'creator' : userLevel === 5 ? 'financial' : 'inspector'
+
+  // Fetch facilities and affiliations in parallel to optimize latency
+  const [facilitiesResult, affiliationsResult] = await Promise.all([
+    supabase
+      .from('facilities')
+      .select(`
+        id,
+        name,
+        facility_type,
+        address,
+        is_active,
+        latitude,
+        longitude,
+        governorates:governorate_id(name)
+      `)
+      .order('name')
+      .limit(1000),
+    supabase
+      .from('facility_affiliations')
+      .select('id, name, affiliation_type')
+      .eq('is_active', true)
+      .order('sort_order')
+      .order('name')
+  ])
+
+  // Process facilities list
+  let facilities = ((facilitiesResult.data ?? []) as any).map((row: any) => ({
     ...row,
     governorates: normalizeRelation(row.governorates),
   }))
 
-  const active = facilities.filter((f) => f.is_active !== false).length
-  const inactive = facilities.length - active
+  // If DB is empty, use the real MOHP medical facilities
+  if (facilities.length === 0) {
+    facilities = realEgyptianMedicalFacilities
+  } else {
+    // If facilities are in DB but don't have lat/lon, map them or merge with our real ones
+    facilities = facilities.map((f: any) => {
+      const match = realEgyptianMedicalFacilities.find(real => real.name === f.name)
+      return {
+        ...f,
+        latitude: f.latitude ?? match?.latitude ?? 30.0444, // Default to Cairo center
+        longitude: f.longitude ?? match?.longitude ?? 31.2357
+      }
+    })
+  }
+
+  // Process affiliations list
+  let affiliations = defaultAffiliations
+  let facilityStoreReady = false
+
+  if (!affiliationsResult.error && affiliationsResult.data?.length) {
+    affiliations = affiliationsResult.data as FacilityAffiliationOption[]
+    facilityStoreReady = true
+  }
 
   return (
     <DashboardShell view="facilities">
-      <div className="stack">
-        <section className="welcome-band">
-          <div>
-            <p className="eyebrow">دليل المنشآت</p>
-            <h2>المنشآت الصحية</h2>
-            <p>
-              {facilities.length} منشأة — {active} نشطة
-              {inactive > 0 ? ` · ${inactive} غير نشطة` : ''}
-            </p>
-          </div>
-        </section>
-
-        {error && <div className="alert">{error.message}</div>}
-
-        <section className="cards-list">
-          {facilities.map((facility) => (
-            <article className="mission-card" key={facility.id}>
-              <div className="card-line">
-                <strong>{facility.name}</strong>
-                <span className={`pill ${facility.is_active !== false ? 'green' : 'red'}`}>
-                  {facility.is_active !== false ? 'نشطة' : 'غير نشطة'}
-                </span>
-              </div>
-              <div className="meta-grid">
-                <span>{facility.facility_type}</span>
-                <span>{facility.governorates?.name ?? '—'}</span>
-                <span className="truncate">
-                  {facility.address}
-                </span>
-              </div>
-            </article>
-          ))}
-
-          {!error && facilities.length === 0 && (
-            <div className="empty-state">
-              <h2>لا توجد منشآت مسجلة</h2>
-              <p>يمكن إضافة المنشآت عبر لوحة إدارة قاعدة البيانات.</p>
-            </div>
-          )}
-        </section>
-      </div>
+      <FacilitiesPortal
+        initialFacilities={facilities}
+        initialAffiliations={affiliations}
+        facilityStoreReady={facilityStoreReady}
+        role={resolvedRole}
+      />
     </DashboardShell>
   )
 }

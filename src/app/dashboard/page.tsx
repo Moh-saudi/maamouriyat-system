@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { DashboardShell } from '../system-ui'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { getDemoSessionRole, type DemoRole } from '@/lib/demo-session'
 import { AnalyticsDashboard, type ChartItem, type DashboardMetrics, type DashboardProfile, type RankingItem } from './analytics-dashboard'
 
 type MissionRow = {
@@ -44,12 +45,14 @@ type GovernorateRow = {
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
+  const demoRole = await getDemoSessionRole()
   const supabase = await createServerSupabaseClient()
 
-  if (!supabase) {
+  if (!supabase || demoRole) {
+    const demoDashboard = getDemoDashboard(demoRole ?? 'superadmin')
     return (
-      <DashboardShell view="dashboard">
-        <AnalyticsDashboard metrics={demoMetrics} profile={demoProfile} />
+      <DashboardShell role={demoRole ?? 'superadmin'} view="dashboard">
+        <AnalyticsDashboard metrics={demoDashboard.metrics} profile={demoDashboard.profile} />
       </DashboardShell>
     )
   }
@@ -167,7 +170,7 @@ function buildMetrics({
     ],
     monthlyTrend: buildMonthlyTrend(missions),
     priorityBreakdown: [
-      { label: 'حركة / حرجة', value: highPriority, tone: 'red' },
+      { label: 'حرجة', value: highPriority, tone: 'red' },
       { label: 'متوسطة', value: mediumPriority, tone: 'amber' },
       { label: 'بسيطة', value: lowPriority, tone: 'blue' },
       { label: 'تم التصحيح', value: correctedViolations, tone: 'green' },
@@ -431,7 +434,7 @@ const demoMetrics: DashboardMetrics = {
     { label: 'مايو', value: 33, tone: 'teal' },
   ],
   priorityBreakdown: [
-    { label: 'حركة / حرجة', value: 7, tone: 'red' },
+    { label: 'حرجة', value: 7, tone: 'red' },
     { label: 'متوسطة', value: 22, tone: 'amber' },
     { label: 'بسيطة', value: 21, tone: 'blue' },
     { label: 'تم التصحيح', value: 31, tone: 'green' },
@@ -456,4 +459,196 @@ const demoMetrics: DashboardMetrics = {
     { label: 'عالية الخطورة', value: 7, tone: 'amber' },
     { label: 'تم التصحيح', value: 31, tone: 'green' },
   ],
+}
+
+function getDemoDashboard(role: DemoRole): { metrics: DashboardMetrics; profile: DashboardProfile } {
+  const dashboards: Record<DemoRole, { metrics: DashboardMetrics; profile: DashboardProfile }> = {
+    superadmin: {
+      profile: demoProfile,
+      metrics: demoMetrics,
+    },
+    techadmin: {
+      profile: {
+        department: 'الإدارة العامة لنظم المعلومات والتحول الرقمي',
+        fullName: 'المهندس أحمد الدمرداش',
+        isDemo: true,
+        jobTitle: 'مدير عام النظم والتحول الرقمي',
+        level: 0,
+      },
+      metrics: {
+        ...demoMetrics,
+        activeFacilities: 842,
+        facilitiesTotal: 890,
+        highPriorityViolations: 7,
+        inspectorsTotal: 36,
+        missionsCompleted: 124,
+        missionsInProgress: 18,
+        missionsLate: 5,
+        missionsPending: 14,
+        missionsTotal: 161,
+        usersTotal: 48,
+        violatingFacilities: 42,
+        violationsCorrected: 31,
+        violationsOpen: 19,
+        violationsTotal: 50,
+      },
+    },
+    central: {
+      profile: {
+        department: 'الإدارة المركزية للطب العلاجي',
+        fullName: 'رئيس إدارة مركزية',
+        isDemo: true,
+        jobTitle: 'رئيس الإدارة المركزية للطب العلاجي',
+        level: 2,
+      },
+      metrics: {
+        ...demoMetrics,
+        highPriorityViolations: 4,
+        inspectorsTotal: 18,
+        missionsCompleted: 82,
+        missionsInProgress: 21,
+        missionsLate: 3,
+        missionsPending: 9,
+        missionsTotal: 115,
+        violatingFacilities: 24,
+        violationsOpen: 12,
+        missionStatus: [
+          { label: 'مكتملة', value: 82, tone: 'green' },
+          { label: 'قيد التنفيذ', value: 21, tone: 'blue' },
+          { label: 'بانتظار الاعتماد', value: 9, tone: 'amber' },
+          { label: 'متأخرة', value: 3, tone: 'red' },
+        ],
+        topInspectors: demoMetrics.topInspectors.slice(0, 4),
+      },
+    },
+    generalmanager: {
+      profile: {
+        department: 'التفتيش والمتابعة',
+        fullName: 'مدير عام الإدارة',
+        isDemo: true,
+        jobTitle: 'مدير عام المستشفيات',
+        level: 3,
+      },
+      metrics: {
+        ...demoMetrics,
+        highPriorityViolations: 2,
+        inspectorsTotal: 7,
+        missionsCompleted: 29,
+        missionsInProgress: 11,
+        missionsLate: 2,
+        missionsPending: 6,
+        missionsTotal: 48,
+        violatingFacilities: 10,
+        violationsOpen: 6,
+        governorateVisits: [
+          { label: 'القاهرة', value: 14, tone: 'teal' },
+          { label: 'الجيزة', value: 11, tone: 'blue' },
+          { label: 'القليوبية', value: 7, tone: 'amber' },
+        ],
+        topInspectors: demoMetrics.topInspectors.slice(1, 5),
+      },
+    },
+    creator: {
+      profile: {
+        department: 'قسم التشغيل والتكليف',
+        fullName: 'موظف مختص',
+        isDemo: true,
+        jobTitle: 'مختص تكليف المأموريات والموظفين',
+        level: 4,
+      },
+      metrics: {
+        ...demoMetrics,
+        activeFacilities: 120,
+        facilitiesTotal: 150,
+        highPriorityViolations: 3,
+        inspectorsTotal: 4,
+        missionsCompleted: 45,
+        missionsInProgress: 5,
+        missionsLate: 1,
+        missionsPending: 10,
+        missionsTotal: 61,
+        violatingFacilities: 12,
+        violationsCorrected: 20,
+        violationsOpen: 8,
+        violationsTotal: 28,
+        missionStatus: [
+          { label: 'مكتملة', value: 45, tone: 'green' },
+          { label: 'قيد التنفيذ', value: 5, tone: 'blue' },
+          { label: 'بانتظار الاعتماد', value: 10, tone: 'amber' },
+          { label: 'متأخرة', value: 1, tone: 'red' },
+        ],
+        topInspectors: [{ detail: 'تكليف وتسكين', label: 'موظف مختص', value: 61 }],
+      },
+    },
+    financial: {
+      profile: {
+        department: 'الإدارة الشؤون المالية والإدارية',
+        fullName: 'مراجع مالي',
+        isDemo: true,
+        jobTitle: 'مراجع التقارير المالية والبدلات',
+        level: 5,
+      },
+      metrics: {
+        ...demoMetrics,
+        activeFacilities: 350,
+        facilitiesTotal: 380,
+        highPriorityViolations: 0,
+        inspectorsTotal: 0,
+        missionsCompleted: 110,
+        missionsInProgress: 8,
+        missionsLate: 0,
+        missionsPending: 2,
+        missionsTotal: 120,
+        violatingFacilities: 0,
+        violationsCorrected: 0,
+        violationsOpen: 0,
+        violationsTotal: 0,
+        missionStatus: [
+          { label: 'مكتملة وصالحة للصرف', value: 110, tone: 'green' },
+          { label: 'قيد التنفيذ والمراجعة', value: 8, tone: 'blue' },
+          { label: 'مبيت مستحق البدلات', value: 34, tone: 'amber' },
+          { label: 'حجز فندقي مؤكد', value: 12, tone: 'teal' },
+        ],
+        topInspectors: [{ detail: 'مراجعة الميزانية', label: 'مراجع مالي', value: 110 }],
+      },
+    },
+    inspector: {
+      profile: {
+        department: 'إدارة التفتيش الميداني',
+        fullName: 'القائم بالمرور',
+        isDemo: true,
+        jobTitle: 'مفتش صحي ميداني',
+        level: 7,
+      },
+      metrics: {
+        ...demoMetrics,
+        activeFacilities: 18,
+        facilitiesTotal: 22,
+        highPriorityViolations: 1,
+        inspectorsTotal: 1,
+        missionsCompleted: 6,
+        missionsInProgress: 3,
+        missionsLate: 1,
+        missionsPending: 2,
+        missionsTotal: 12,
+        violatingFacilities: 4,
+        violationsCorrected: 5,
+        violationsOpen: 3,
+        violationsTotal: 8,
+        governorateVisits: [
+          { label: 'القاهرة', value: 5, tone: 'teal' },
+          { label: 'الجيزة', value: 4, tone: 'blue' },
+        ],
+        missionStatus: [
+          { label: 'مكتملة', value: 6, tone: 'green' },
+          { label: 'قيد التنفيذ', value: 3, tone: 'blue' },
+          { label: 'بانتظار الاعتماد', value: 2, tone: 'amber' },
+          { label: 'متأخرة', value: 1, tone: 'red' },
+        ],
+        topInspectors: [{ detail: 'مأمورياتك الحالية', label: 'القائم بالمرور', value: 12 }],
+      },
+    },
+  }
+
+  return dashboards[role]
 }
