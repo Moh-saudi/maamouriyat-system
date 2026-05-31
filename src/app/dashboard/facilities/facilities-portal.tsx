@@ -103,22 +103,121 @@ function renderUnitIcon(iconName: string, size = 18, color = 'currentColor') {
       return <Building2 size={size} style={{ color }} />
   }
 }
+export type UserRow = {
+  id: string
+  full_name: string
+  job_title: string | null
+  level: number
+  department: string | null
+  is_active: boolean | null
+  email?: string | null
+  phone?: string | null
+  facility_id?: string | null
+  financial_code?: string | null
+}
+
 export function FacilitiesPortal({
   initialFacilities,
   initialAffiliations,
   facilityStoreReady,
-  role = 'superadmin'
+  role = 'superadmin',
+  initialUsers = []
 }: {
   initialFacilities: FacilityItem[]
   initialAffiliations: FacilityAffiliationOption[]
   facilityStoreReady: boolean
   role?: string | null
+  initialUsers?: UserRow[]
 }) {
   const supabase = createBrowserSupabaseClient()
   const isWritable = role === 'superadmin' || role === 'techadmin'
+  const canCreateMissionAssignment = role !== 'financial' && role !== 'inspector'
   const [activeTab, setActiveTab] = useState<'directory' | 'affiliations' | 'ministry_structure'>('directory')
   const [selectedUnitId, setSelectedUnitId] = useState<string>('therapeutic-sector')
   const [unitSearchQuery, setUnitSearchQuery] = useState('')
+
+  // Helper to find child units recursively
+  const getUnitAndChildrenIds = (unitId: string): string[] => {
+    const ids = [unitId]
+    const children = ministryUnits.filter(u => u.parent === unitId)
+    for (const child of children) {
+      ids.push(...getUnitAndChildrenIds(child.id))
+    }
+    return ids
+  }
+
+  // Robust check if user belongs to unit
+  const isUserInUnit = (user: UserRow, unitName: string): boolean => {
+    if (!user.department) return false
+    const cleanDept = user.department.trim().toLowerCase()
+    const cleanUnit = unitName.trim().toLowerCase()
+    
+    return (
+      cleanDept === cleanUnit ||
+      cleanDept.includes(cleanUnit) ||
+      cleanUnit.includes(cleanDept) ||
+      cleanDept.replace(/^ديوان عام وزارة الصحة - /, '').replace(/^ديوان عام الوزارة - /, '') === cleanUnit.replace(/^ديوان عام وزارة الصحة - /, '').replace(/^ديوان عام الوزارة - /, '')
+    )
+  }
+
+  // Active Unit calculation
+  const activeUnit = useMemo(() => {
+    return ministryUnits.find(u => u.id === selectedUnitId) || ministryUnits[0]
+  }, [selectedUnitId])
+
+  // Resolve director dynamically for active unit
+  const resolvedDirector = useMemo(() => {
+    if (!initialUsers || initialUsers.length === 0) return 'لم يتم تعيين مدير حالياً'
+    
+    // Find users directly in this unit's department
+    const deptUsers = initialUsers.filter(u => isUserInUnit(u, activeUnit.name))
+    
+    // Filter to only include actual leaders/managers (prevent regular inspectors/pharmacists from being directors)
+    const leaders = deptUsers.filter(u => 
+      u.level <= 3 || 
+      u.job_title?.includes('مدير') || 
+      u.job_title?.includes('رئيس') || 
+      u.job_title?.includes('مشرف') || 
+      u.job_title?.includes('وكيل')
+    )
+
+    // Sort by level (highest rank first) and job_title relevance
+    const sorted = [...leaders].sort((a, b) => {
+      const aIsManager = a.job_title?.includes('مدير') || a.job_title?.includes('رئيس') ? 1 : 0
+      const bIsManager = b.job_title?.includes('مدير') || b.job_title?.includes('رئيس') ? 1 : 0
+      if (aIsManager !== bIsManager) return bIsManager - aIsManager
+      return a.level - b.level
+    })
+    
+    const manager = sorted[0]
+    if (manager) {
+      return `${manager.full_name} (${manager.job_title || 'مدير الإدارة'})`
+    }
+    
+    // Sector-wide fallback for top-level sector head (must be a leader)
+    if (activeUnit.id === 'therapeutic-sector') {
+      const sectorHead = initialUsers.find(u => 
+        (u.level === 2 || u.job_title?.includes('رئيس قطاع')) && 
+        (u.level <= 3 || u.job_title?.includes('رئيس') || u.job_title?.includes('مدير'))
+      )
+      if (sectorHead) return `${sectorHead.full_name} (${sectorHead.job_title || 'رئيس القطاع'})`
+    }
+    
+    return 'شاغر - قيد التعيين حالياً'
+  }, [activeUnit, initialUsers])
+
+  // Resolve staff/inspectors count recursively (department + sub-departments)
+  const resolvedStaffCount = useMemo(() => {
+    if (!initialUsers || initialUsers.length === 0) return 0
+    
+    const childUnitIds = getUnitAndChildrenIds(activeUnit.id)
+    const childUnits = ministryUnits.filter(u => childUnitIds.includes(u.id))
+    const unitNames = childUnits.map(u => u.name)
+    
+    return initialUsers.filter(u => 
+      unitNames.some(name => isUserInUnit(u, name))
+    ).length
+  }, [activeUnit, initialUsers])
 
   // Facilities state
   const [facilities, setFacilities] = useState<FacilityItem[]>(initialFacilities)
@@ -670,7 +769,7 @@ export function FacilitiesPortal({
         return
       }
     } else {
-      // Demo Mode / Session fallback
+      // Session fallback when DB is unavailable
       setAffiliations((current) => [...current, { name: nextName, affiliation_type: affType }])
     }
 
@@ -739,7 +838,7 @@ export function FacilitiesPortal({
             </span>
           </div>
           <p style={{ margin: 0, fontSize: '12px', color: '#546e7a' }}>
-            تصفح دليل المستشفيات والمراكز والمخازن الطبية، وقم بتهيئة جهات التبعية الإدارية والرقابية للوزارة.
+            تصفح دليل المستشفيات والمراكز والمخازن الطبية، وقم بتهيئة جهات التبعية الإدارية والحوكمة للوزارة.
           </p>
         </div>
       </section>
@@ -1754,7 +1853,7 @@ export function FacilitiesPortal({
                     الهيكل التنظيمي المعتمد لقطاع الطب العلاجي (ديوان عام وزارة الصحة)
                   </strong>
                   <small style={{ color: '#546e7a', display: 'block', marginTop: '4px' }}>
-                    تصفح المستويات الوظيفية والإدارية لديوان عام الوزارة، وشكل فرق التكليفات الميدانية للرقابة.
+                    تصفح المستويات الوظيفية والإدارية لديوان عام الوزارة، وشكل فرق التكليفات الميدانية للحوكمة.
                   </small>
                 </div>
 
@@ -1801,7 +1900,7 @@ export function FacilitiesPortal({
                   overflowY: 'auto'
                 }}>
                   <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#37474f', display: 'block', borderBottom: '1px solid #eef2f3', paddingBottom: '8px' }}>
-                    شجرة الهيكل الإداري والرقابي للقطاع:
+                    شجرة الهيكل الإداري والحوكمة للقطاع:
                   </span>
 
                   <div style={{ display: 'grid', gap: '8px', position: 'relative', paddingRight: '8px' }}>
@@ -1950,7 +2049,7 @@ export function FacilitiesPortal({
                     {/* Core Tasks */}
                     {activeUnit.coreTasks && activeUnit.coreTasks.length > 0 && (
                       <div>
-                        <span style={{ fontSize: '11px', color: '#78909c', display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>الاختصاصات الرقابية والفنية الرئيسية:</span>
+                        <span style={{ fontSize: '11px', color: '#78909c', display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>الاختصاصات الحوكمة والفنية الرئيسية:</span>
                         <div style={{ display: 'grid', gap: '8px' }}>
                           {activeUnit.coreTasks.map((task, index) => (
                             <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'start', fontSize: '12.5px', color: '#37474f' }}>
@@ -1969,55 +2068,51 @@ export function FacilitiesPortal({
                       borderRadius: '12px',
                       padding: '16px',
                       display: 'flex',
-                      justifyContent: 'space-between',
+                      justifyContent: 'center',
                       alignItems: 'center',
-                      flexWrap: 'wrap',
                       gap: '12px'
                     }}>
-                      <div>
-                        <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>المشرف / المدير المسؤول حالياً:</span>
-                        <strong style={{ fontSize: '13px', color: '#102027', display: 'block', marginTop: '2px' }}>{activeUnit.director}</strong>
-                      </div>
-
-                      <div style={{ textAlign: 'left' }}>
+                      <div style={{ textAlign: 'center' }}>
                         <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>القوى البشرية بالديوان:</span>
-                        <strong style={{ fontSize: '14px', color: '#006d77', fontWeight: 'bold' }}>{activeUnit.staffCount} موظف ومفتش</strong>
+                        <strong style={{ fontSize: '14px', color: '#006d77', fontWeight: 'bold' }}>{resolvedStaffCount} موظف ومفتش بالمنظومة</strong>
                       </div>
                     </div>
                   </div>
 
                   {/* Quick Action assignments */}
-                  <div style={{
-                    borderTop: '1px solid var(--line)',
-                    paddingTop: '16px',
-                    display: 'flex',
-                    gap: '10px'
-                  }}>
-                    <a
-                      href={`/dashboard/missions/new?orgUnit=${encodeURIComponent(activeUnit.name)}`}
-                      style={{
-                        flex: 1,
-                        background: '#006d77',
-                        color: 'white',
-                        border: 0,
-                        borderRadius: '8px',
-                        minHeight: '40px',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        fontSize: '13px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        textDecoration: 'none',
-                        textAlign: 'center',
-                        boxShadow: '0 2px 6px rgba(0,109,119,0.15)'
-                      }}
-                    >
-                      <Plus size={16} />
-                      تكليف مأمورية تفتيشية للإدارة
-                    </a>
-                  </div>
+                  {canCreateMissionAssignment && (
+                    <div style={{
+                      borderTop: '1px solid var(--line)',
+                      paddingTop: '16px',
+                      display: 'flex',
+                      gap: '10px'
+                    }}>
+                      <a
+                        href={`/dashboard/missions/new?orgUnit=${encodeURIComponent(activeUnit.name)}`}
+                        style={{
+                          flex: 1,
+                          background: '#006d77',
+                          color: 'white',
+                          border: 0,
+                          borderRadius: '8px',
+                          minHeight: '40px',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          textDecoration: 'none',
+                          textAlign: 'center',
+                          boxShadow: '0 2px 6px rgba(0,109,119,0.15)'
+                        }}
+                      >
+                        <Plus size={16} />
+                        تكليف مأمورية تفتيشية للإدارة
+                      </a>
+                    </div>
+                  )}
                 </div>
 
               </div>

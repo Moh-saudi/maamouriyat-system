@@ -173,7 +173,7 @@ ON CONFLICT (role) DO UPDATE SET
 -- 6. بذر الكوادر الطبية والمستخدمين لتوافق الحسابات التجريبية (Demo Accounts Linked)
 INSERT INTO users (id, full_name, job_title, level, department, email, phone, financial_code, org_unit_id, is_active) VALUES
 -- حساب سوبر أدمن
-('demo-u1', 'أحمد محمود العشري', 'مدير عام المتابعة والرقابة', 1, 'ديوان عام وزارة الصحة والسكان', 'admin@admin.com', '01012345678', 'FIN-100293', 'therapeutic-sector', TRUE),
+('demo-u1', 'أحمد محمود العشري', 'مدير عام المتابعة والحوكمة', 1, 'ديوان عام وزارة الصحة والسكان', 'admin@admin.com', '01012345678', 'FIN-100293', 'therapeutic-sector', TRUE),
 -- حساب المفتش
 ('demo-u2', 'سارة خالد البشري', 'مفتش منشآت صحية ومكافحة عدوى', 7, 'إدارة مكافحة العدوى', 'inspector@inspector.com', '01122334455', 'FIN-200384', 'central-therapeutic', TRUE),
 -- حساب المشرف

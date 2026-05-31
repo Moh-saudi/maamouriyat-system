@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { normalizeDemoRole, roleDefinitions, type DemoRole, type NavigationKey, getUserNavigation } from './lib/roles'
+import { type UserRole, type NavigationKey, getRoleNavigation, normalizeNavigationKeys } from './lib/roles'
 
 const routePrefixes: Record<NavigationKey, string> = {
   dashboard: '/dashboard',
@@ -18,12 +18,6 @@ export async function middleware(req: NextRequest) {
   const supabasePublishableKey =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
   const isLoginPage = req.nextUrl.pathname === '/login'
-  const demoCookieValue = req.cookies.get('maamouriyat_demo_session')?.value
-  const demoRole = normalizeDemoRole(demoCookieValue)
-  const hasDemoSession = Boolean(demoRole)
-
-  const dynamicPermissionsRaw = req.cookies.get('maamouriyat_dynamic_permissions')?.value
-  const userPermissionsRaw = req.cookies.get('maamouriyat_user_permissions')?.value
 
   const hasSupabaseCreds = Boolean(
     supabaseUrl &&
@@ -32,40 +26,17 @@ export async function middleware(req: NextRequest) {
       !supabaseUrl.includes('your-project')
   )
 
-  // Real-time server logging for Vercel/Node environment diagnostics
+  // Real-time server logging
   console.log(
-    `[MOHP Middleware] Path: ${req.nextUrl.pathname} | Cookie: ${demoCookieValue || 'None'} | ResolvedRole: ${demoRole || 'None'} | HasDemo: ${hasDemoSession} | HasSupabase: ${hasSupabaseCreds}`
+    `[MOHP Middleware] Path: ${req.nextUrl.pathname} | HasSupabase: ${hasSupabaseCreds}`
   )
 
-  if (demoRole && !isLoginPage) {
-    const demoEmail = `${demoRole}@${demoRole}.com`
-    if (!canUserOpenPath(demoEmail, demoRole, req.nextUrl.pathname, dynamicPermissionsRaw, userPermissionsRaw)) {
-      console.log(`[MOHP Middleware] Access Denied: redirecting Role ${demoRole} from ${req.nextUrl.pathname} to /dashboard`)
-      const redirectUrl = req.nextUrl.clone()
-      redirectUrl.pathname = '/dashboard'
-      return NextResponse.redirect(redirectUrl)
-    }
-
-    // Direct bypass for active sandbox sessions to access dashboard routes
-    if (req.nextUrl.pathname.startsWith('/dashboard')) {
-      console.log(`[MOHP Middleware] Bypassing database check: permitting Role ${demoRole} to path ${req.nextUrl.pathname}`)
-      return NextResponse.next({ request: req })
-    }
-  }
-
   if (!hasSupabaseCreds) {
-    if (hasDemoSession) {
-      console.log(`[MOHP Middleware] Permit offline-bypass: allowing ${req.nextUrl.pathname} due to active sandbox session`)
-      return NextResponse.next({ request: req })
-    }
-
     if (!isLoginPage) {
-      console.log(`[MOHP Middleware] Redirecting to /login (Supabase unconfigured & no sandbox session found)`)
       const redirectUrl = req.nextUrl.clone()
       redirectUrl.pathname = '/login'
       return NextResponse.redirect(redirectUrl)
     }
-
     return NextResponse.next({ request: req })
   }
 
@@ -94,22 +65,55 @@ export async function middleware(req: NextRequest) {
     // network/auth failure → treat as unauthenticated
   }
 
-  if (!user && !hasDemoSession && !isLoginPage) {
+  if (!user && !isLoginPage) {
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/login'
     return NextResponse.redirect(redirectUrl)
   }
 
-  if ((user || hasDemoSession) && isLoginPage) {
+  if (user && isLoginPage) {
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/dashboard'
     return NextResponse.redirect(redirectUrl)
   }
 
   if (user && !isLoginPage) {
-    const userRoleCookie = req.cookies.get('maamouriyat_user_role')?.value as DemoRole | undefined
-    const activeRole = userRoleCookie || 'inspector'
-    if (!canUserOpenPath(user.email || user.id, activeRole, req.nextUrl.pathname, dynamicPermissionsRaw, userPermissionsRaw)) {
+    let activeRole: UserRole = 'inspector'
+    let allowedPagesOverride: NavigationKey[] | null = null
+    try {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('id, level')
+        .eq('auth_id', user.id)
+        .maybeSingle()
+
+      if (profile) {
+        const level = profile.level ?? 7
+        if (level === 0) activeRole = 'techadmin'
+        else if (level === 1) activeRole = 'superadmin'
+        else if (level === 2) activeRole = 'central'
+        else if (level === 3) activeRole = 'generalmanager'
+        else if (level === 4) activeRole = 'creator'
+        else if (level === 5) activeRole = 'financial'
+        else activeRole = 'inspector'
+
+        const { data: userPermission } = await supabase
+          .from('user_permissions')
+          .select('allowed_pages')
+          .eq('user_id', profile.id)
+          .maybeSingle()
+
+        const normalizedOverride = normalizeNavigationKeys(userPermission?.allowed_pages)
+        if (normalizedOverride.length > 0) {
+          allowedPagesOverride = normalizedOverride
+        }
+      }
+    } catch {
+      activeRole = 'inspector'
+    }
+
+    if (!canUserOpenPath(activeRole, req.nextUrl.pathname, allowedPagesOverride)) {
+      console.log(`[MOHP Middleware] ACCESS DENIED: Server-verified role for ${user.email} is ${activeRole}. Redirecting ${req.nextUrl.pathname} to /dashboard`)
       const redirectUrl = req.nextUrl.clone()
       redirectUrl.pathname = '/dashboard'
       return NextResponse.redirect(redirectUrl)
@@ -119,21 +123,18 @@ export async function middleware(req: NextRequest) {
   return supabaseResponse
 }
 
-function canUserOpenPath(
-  emailOrId: string | null | undefined,
-  role: DemoRole,
-  pathname: string,
-  dynamicPermissionsRaw?: string | null,
-  userPermissionsRaw?: string | null
-) {
+function canUserOpenPath(role: UserRole, pathname: string, allowedPagesOverride?: readonly NavigationKey[] | null) {
   if (pathname === '/dashboard') return true
+  if (pathname === '/dashboard/missions/new' || pathname.startsWith('/dashboard/missions/new/')) {
+    return role !== 'financial' && role !== 'inspector'
+  }
 
   const routeKey = Object.entries(routePrefixes)
     .filter(([, prefix]) => prefix !== '/dashboard')
     .find(([, prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[0] as NavigationKey | undefined
 
   if (!routeKey) return true
-  return getUserNavigation(emailOrId, role, dynamicPermissionsRaw, userPermissionsRaw).includes(routeKey)
+  return (allowedPagesOverride ?? getRoleNavigation(role)).includes(routeKey)
 }
 
 export const config = {

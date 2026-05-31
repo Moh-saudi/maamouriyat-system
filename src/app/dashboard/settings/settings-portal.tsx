@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { Plus, Trash2, ShieldCheck, Database, Zap, CheckCircle2, Sliders, RefreshCw, Lock, Check, Users } from 'lucide-react'
 import { type CorrectionUnitOption } from '@/lib/correction-units'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
-import { type DemoRole } from '@/lib/roles'
+import { type UserRole } from '@/lib/roles'
 
 export function SettingsPortal({
   initialUnits,
@@ -23,8 +23,8 @@ export function SettingsPortal({
   const [unitSuccess, setUnitSuccess] = useState('')
   const [unitLoading, setUnitLoading] = useState(false)
 
-  // Employees list & overrides
-  const demoUsersList = [
+  // Fallback users list (shown if DB users not yet loaded)
+  const fallbackUsersList = [
     { id: '1', name: 'المهندس أحمد الدمرداش', email: 'techadmin@mohp.gov.eg', phone: '01012345678', nationalId: '29001010101234', role: 'techadmin', jobTitle: 'مدير عام النظم والتحول الرقمي' },
     { id: '2', name: 'الأستاذ الدكتور خالد عبد الغفار', email: 'superadmin@mohp.gov.eg', phone: '01223456789', nationalId: '26508080105678', role: 'superadmin', jobTitle: 'وزير الصحة والسكان' },
     { id: '3', name: 'د. أحمد عبد الرحمن', email: 'central@mohp.gov.eg', phone: '01134567890', nationalId: '27805120109012', role: 'central', jobTitle: 'رئيس الإدارة المركزية للطب العلاجي' },
@@ -57,7 +57,8 @@ export function SettingsPortal({
             phone: u.phone || 'غير مسجل',
             nationalId: u.financial_code || 'غير مسجل',
             role: u.level === 0 ? 'techadmin' : u.level === 1 ? 'superadmin' : u.level === 2 ? 'central' : u.level === 3 ? 'generalmanager' : u.level === 4 ? 'creator' : u.level === 5 ? 'financial' : 'inspector',
-            jobTitle: u.job_title || 'موظف بالقطاع'
+            jobTitle: u.job_title || 'موظف بالقطاع',
+            isDatabaseUser: true,
           }))
           setDbUsers(mapped)
         }
@@ -66,25 +67,71 @@ export function SettingsPortal({
     fetchUsers()
   }, [])
 
-  // Load user overrides from cookie on mount
+  // Load user overrides from the central database.
   useEffect(() => {
-    const matchPerms = document.cookie
-      .split('; ')
-      .find((item) => item.startsWith('maamouriyat_user_permissions='))
-      ?.split('=')[1]
-    if (matchPerms) {
+    async function loadUserOverrides() {
+      if (!supabase) return
       try {
-        const decoded = decodeURIComponent(matchPerms)
-        const parsed = JSON.parse(decoded)
-        if (parsed && typeof parsed === 'object') {
-          setUserOverrides(parsed)
+        const [{ data: permissions, error: permissionsError }, { data: users, error: usersError }] = await Promise.all([
+          supabase.from('user_permissions').select('user_id, allowed_pages'),
+          supabase.from('users').select('id, email'),
+        ])
+
+        if (permissionsError || usersError) {
+          return
+        }
+
+        const emailById = new Map((users ?? []).map((user) => [user.id, user.email]))
+        const overrides: Record<string, string[]> = {}
+        ;(permissions ?? []).forEach((permission) => {
+          const email = emailById.get(permission.user_id)
+          if (email && Array.isArray(permission.allowed_pages)) {
+            overrides[email.toLowerCase()] = permission.allowed_pages
+          }
+        })
+        setUserOverrides(overrides)
+      } catch {}
+    }
+    loadUserOverrides()
+  }, [supabase])
+
+  // One-time migration from the old browser-local cookie if it exists.
+  useEffect(() => {
+    async function migrateCookieOverrides() {
+      if (!supabase || dbUsers.length === 0) return
+      const matchPerms = document.cookie
+        .split('; ')
+        .find((item) => item.startsWith('maamouriyat_user_permissions='))
+        ?.split('=')[1]
+      if (!matchPerms) return
+
+      try {
+        const parsed = JSON.parse(decodeURIComponent(matchPerms))
+        if (!parsed || typeof parsed !== 'object') return
+
+        const rows = Object.entries(parsed)
+          .map(([email, allowed_pages]) => {
+            const user = dbUsers.find((candidate) => candidate.email.toLowerCase() === email.toLowerCase())
+            return user && Array.isArray(allowed_pages)
+              ? { user_id: user.id, allowed_pages }
+              : null
+          })
+          .filter(Boolean)
+
+        if (rows.length > 0) {
+          const { error } = await supabase.from('user_permissions').upsert(rows as any[], { onConflict: 'user_id' })
+          if (!error) {
+            document.cookie = 'maamouriyat_user_permissions=; path=/; max-age=0; SameSite=Lax'
+            setUserOverrides((current) => ({ ...current, ...(parsed as Record<string, string[]>) }))
+          }
         }
       } catch {}
     }
-  }, [])
+    migrateCookieOverrides()
+  }, [dbUsers, supabase])
 
   const allUsers = useMemo(() => {
-    const list = [...demoUsersList]
+    const list = [...fallbackUsersList]
     dbUsers.forEach(dbU => {
       if (!list.some(u => u.email.toLowerCase() === dbU.email.toLowerCase())) {
         list.push(dbU)
@@ -109,7 +156,7 @@ export function SettingsPortal({
     if (!selectedUser) return
     const userKey = selectedUser.email.toLowerCase()
     setUserOverrides(prev => {
-      const current = prev[userKey] !== undefined ? prev[userKey] : defaultNavs[selectedUser.role as DemoRole] || []
+      const current = prev[userKey] !== undefined ? prev[userKey] : defaultNavs[selectedUser.role as UserRole] || []
       const next = current.includes(pageKey)
         ? current.filter(k => k !== pageKey)
         : [...current, pageKey]
@@ -118,13 +165,24 @@ export function SettingsPortal({
   }
 
   // Save User Overrides
-  const handleSaveUserOverrides = () => {
+  const handleSaveUserOverrides = async () => {
+    if (!selectedUser) return
     setUnitLoading(true)
     setUnitError('')
     setUnitSuccess('')
     try {
-      const serialized = encodeURIComponent(JSON.stringify(userOverrides))
-      document.cookie = `maamouriyat_user_permissions=${serialized}; path=/; max-age=604800; SameSite=Lax`
+      if (!supabase || !selectedUser.isDatabaseUser) {
+        throw new Error('يجب اختيار موظف مسجل فعلياً في قاعدة البيانات.')
+      }
+
+      const userKey = selectedUser.email.toLowerCase()
+      const allowedPages = userOverrides[userKey] ?? defaultNavs[selectedUser.role as UserRole] ?? []
+      const { error } = await supabase
+        .from('user_permissions')
+        .upsert({ user_id: selectedUser.id, allowed_pages: allowedPages }, { onConflict: 'user_id' })
+
+      if (error) throw error
+
       setUnitSuccess(`تم حفظ وتطبيق الصلاحيات المخصصة للموظف (${selectedUser?.name}) بنجاح! سيتم تحديث النظام.`)
       setTimeout(() => {
         window.location.reload()
@@ -137,7 +195,7 @@ export function SettingsPortal({
   }
 
   // Clear Overrides for a user
-  const handleClearUserOverrides = () => {
+  const handleClearUserOverrides = async () => {
     if (!selectedUser) return
     const userKey = selectedUser.email.toLowerCase()
     setUnitLoading(true)
@@ -147,14 +205,17 @@ export function SettingsPortal({
       const copy = { ...userOverrides }
       delete copy[userKey]
       setUserOverrides(copy)
-      const serialized = encodeURIComponent(JSON.stringify(copy))
-      document.cookie = `maamouriyat_user_permissions=${serialized}; path=/; max-age=604800; SameSite=Lax`
+      if (!supabase || !selectedUser.isDatabaseUser) {
+        throw new Error('يجب اختيار موظف مسجل فعلياً في قاعدة البيانات.')
+      }
+      const { error } = await supabase.from('user_permissions').delete().eq('user_id', selectedUser.id)
+      if (error) throw error
       setUnitSuccess(`تمت إعادة ضبط صلاحيات الموظف (${selectedUser?.name}) للقيم الافتراضية بنجاح!`)
       setTimeout(() => {
         window.location.reload()
       }, 1500)
     } catch (err: any) {
-      setUnitError('فشل إعادة ضبط الصلاحيات.')
+      setUnitError('فشل إعادة ضبط الصلاحيات: ' + (err.message || ''))
     } finally {
       setUnitLoading(false)
     }
@@ -162,9 +223,9 @@ export function SettingsPortal({
 
   // Dynamic Permissions Roles & Pages Definition
   const systemRolesList = [
-    { key: 'superadmin', name: 'سوبر أدمن (مدير عام المنظومة)', desc: 'أعلى سلطة إدارية ورقابية، يمتلك الصلاحية الكاملة لتكليف المأموريات واعتماد التقارير وإجراء المراجعات.' },
+    { key: 'superadmin', name: 'سوبر أدمن (مدير عام المنظومة)', desc: 'أعلى سلطة إدارية وحوكمية، يمتلك الصلاحية الكاملة لتكليف المأموريات واعتماد التقارير وإجراء المراجعات.' },
     { key: 'techadmin', name: 'الدعم الفني (مدير الإدارة التقنية)', desc: 'المسؤول التقني عن حوكمة وإدارة البنية الأساسية، إدارة المستخدمين والمنشآت وتصميم قوالب التقييم والتشخيصات الفنية.' },
-    { key: 'central', name: 'رئيس إدارة مركزية', desc: 'صلاحيات رقابية وإشرافية عليا لمتابعة مستويات التغطية الميدانية في المحافظات واعتماد التقارير العامة.' },
+    { key: 'central', name: 'رئيس إدارة مركزية', desc: 'صلاحيات حوكمية وإشرافية عليا لمتابعة مستويات التغطية الميدانية في المحافظات واعتماد التقارير العامة.' },
     { key: 'generalmanager', name: 'مدير عام المستشفيات', desc: 'إشراف عام ومتابعة على مستوى الإدارات الفرعية وتوزيع التكليفات الميدانية ومطابقتها.' },
     { key: 'creator', name: 'موظف مختص بالتكليفات', desc: 'التنفيذ التشغيلي اليومي لجدولة وتسكين المأموريات وتنسيق فرق العمل بالمرور.' },
     { key: 'financial', name: 'مستخدم مالي ومراجع', desc: 'مراجع مالي مركزي لتدقيق بنود الصرف ومصروفات المبيت والبدلات وربطها بالتوقيع الإلكتروني.' },
@@ -204,15 +265,7 @@ export function SettingsPortal({
     setCookieSize(size > 1024 ? `${(size / 1024).toFixed(2)} KB` : `${size} Bytes`)
 
     // Resolve active session
-    const sessionMatch = document.cookie
-      .split('; ')
-      .find((item) => item.startsWith('maamouriyat_demo_session='))
-      ?.split('=')[1]
-    if (sessionMatch) {
-      setActiveSession(decodeURIComponent(sessionMatch))
-    } else {
-      setActiveSession('مستخدم مباشر (Supabase / Live)')
-    }
+    setActiveSession('مستخدم مباشر (Supabase / Live)')
 
     // Read dynamic permissions cookie
     const matchPerms = document.cookie
@@ -409,7 +462,7 @@ export function SettingsPortal({
             </span>
           </div>
           <p style={{ margin: 0, fontSize: '12px', color: '#546e7a' }}>
-            تحكم بالجهات والإدارات الرقابية المسؤولة عن معالجة وتصويب المخالفات المرصودة.
+            تحكم بالجهات والإدارات الحوكمية المسؤولة عن معالجة وتصويب المخالفات المرصودة.
           </p>
         </div>
       </section>
@@ -1021,7 +1074,7 @@ export function SettingsPortal({
                         const userKey = selectedUser.email.toLowerCase()
                         const allowed = userOverrides[userKey] !== undefined
                           ? userOverrides[userKey]
-                          : defaultNavs[selectedUser.role as DemoRole] || []
+                          : defaultNavs[selectedUser.role as UserRole] || []
                         const isChecked = allowed.includes(page.key)
 
                         return (

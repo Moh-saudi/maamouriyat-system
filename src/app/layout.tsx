@@ -1,9 +1,9 @@
-﻿import './globals.css'
+import './globals.css'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'نظام إدارة المأموريات | وزارة الصحة',
-  description: 'لوحة التحكم لنظام إدارة المأموريات الميدانية',
+  title: 'نظام حوكمة المأمورية الميدانية | وزارة الصحة',
+  description: 'لوحة التحكم لنظام حوكمة المأمورية الميدانية',
   icons: {
     icon: '/mohp-logo.png',
     shortcut: '/favicon.ico',

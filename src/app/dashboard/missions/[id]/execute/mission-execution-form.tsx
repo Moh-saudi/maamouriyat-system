@@ -4,10 +4,11 @@ import { useMemo, useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { type CorrectionUnitOption } from '@/lib/correction-units'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
-import { Camera, Trash2 } from 'lucide-react'
+import { Camera, Trash2, Building, Check } from 'lucide-react'
 import imageCompression from 'browser-image-compression'
 import { getChecklistByDepartment } from '@/lib/checklist-data'
 import styles from './execute.module.css'
+import { SearchableAddableSelect } from '@/app/system-ui'
 
 type Facility = {
   id: string
@@ -39,6 +40,8 @@ type Mission = {
   facilities: { name: string } | null
   governorates: { name: string } | null
   started_at?: string | null
+  notes?: string | null
+  scheduled_date?: string | null
 }
 
 // Global list of facility categories for unregistered quick creation
@@ -55,21 +58,30 @@ const FACILITY_CATEGORIES = [
 export function MissionExecutionForm({
   currentUserId,
   currentUserDept,
+  currentUserOrgUnitId,
   correctionUnits,
   facilities,
   governorates,
   mission,
-  demoMode = false,
+  users = [],
+  currentUserLevel = 7,
+  savedResults = [],
+  orgUnits = [],
 }: {
   currentUserId: string
   currentUserDept?: string
+  currentUserOrgUnitId?: string
   correctionUnits: CorrectionUnitOption[]
   facilities: Facility[]
   governorates: Governorate[]
   mission: Mission
-  demoMode?: boolean
+  users?: any[]
+  currentUserLevel?: number
+  savedResults?: any[]
+  orgUnits?: any[]
 }) {
   const router = useRouter()
+  const [bypassLock, setBypassLock] = useState(false)
   const supabase = createBrowserSupabaseClient()
   const [destinationType, setDestinationType] = useState<'facility' | 'governorate'>(
     (mission.destination_type as 'facility' | 'governorate') ?? 'facility',
@@ -79,8 +91,139 @@ export function MissionExecutionForm({
     mission.actual_governorate_id ?? mission.target_governorate_id ?? '',
   )
   const [correctionUnit, setCorrectionUnit] = useState('')
+  const [localCorrectionUnits, setLocalCorrectionUnits] = useState(correctionUnits)
+
+  const handleAddCorrectionUnit = (newName: string) => {
+    const newUnit = { name: newName }
+    setLocalCorrectionUnits(prev => [...prev, newUnit])
+    setCorrectionUnit(newName)
+  }
   const [changeReason, setChangeReason] = useState(mission.change_reason ?? '')
-  const [executionNotes, setExecutionNotes] = useState(mission.execution_notes ?? '')
+
+  // Split execution_notes on load if it contains the divider
+  const [executionNotes, setExecutionNotes] = useState(() => {
+    const raw = mission.execution_notes ?? ''
+    const dividerIndex = raw.indexOf('\n\n---\n\n📋 توصيات المأمورية المعتمدة:\n')
+    if (dividerIndex !== -1) {
+      return raw.substring(0, dividerIndex)
+    }
+    return raw
+  })
+  
+  const [recommendations, setRecommendations] = useState(() => {
+    const raw = mission.execution_notes ?? ''
+    const dividerIndex = raw.indexOf('\n\n---\n\n📋 توصيات المأمورية المعتمدة:\n')
+    if (dividerIndex !== -1) {
+      return raw.substring(dividerIndex + '\n\n---\n\n📋 توصيات المأمورية المعتمدة:\n'.length)
+    }
+    return ''
+  })
+
+  // Mention State Hooks
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionSearch, setMentionSearch] = useState('')
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0)
+  const [mentionCursorPos, setMentionCursorPos] = useState(0)
+
+  // Filter users below current user in hierarchy (level > currentUserLevel)
+  const lowerUsers = useMemo(() => {
+    if (!users) return []
+    return users.filter(
+      (u) =>
+        u.id !== currentUserId &&
+        (currentUserLevel === undefined || currentUserLevel === null || u.level > currentUserLevel)
+    )
+  }, [users, currentUserLevel, currentUserId])
+
+  const filteredUsers = useMemo(() => {
+    if (!mentionOpen) return []
+    const term = mentionSearch.toLowerCase()
+    return lowerUsers.filter((u) => {
+      const fullName = u.full_name || ''
+      const jobTitle = u.job_title || ''
+      const dept = u.department || ''
+      return (
+        fullName.toLowerCase().includes(term) ||
+        jobTitle.toLowerCase().includes(term) ||
+        dept.toLowerCase().includes(term)
+      )
+    })
+  }, [mentionOpen, lowerUsers, mentionSearch])
+
+  const handleRecommendationsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setRecommendations(value)
+
+    const selStart = e.target.selectionStart
+    if (!selStart) return
+
+    // Find the text before the cursor
+    const textBeforeCursor = value.slice(0, selStart)
+    
+    // Find the last word before the cursor
+    const words = textBeforeCursor.split(/[\s\n]/)
+    const lastWord = words[words.length - 1]
+
+    if (lastWord.startsWith('@')) {
+      const searchTerm = lastWord.slice(1)
+      setMentionOpen(true)
+      setMentionSearch(searchTerm)
+      setMentionActiveIndex(0)
+      setMentionCursorPos(selStart)
+    } else {
+      setMentionOpen(false)
+    }
+  }
+
+  const insertMention = (user: any) => {
+    const textarea = document.getElementById('recommendations-textarea') as HTMLTextAreaElement
+    if (!textarea) return
+
+    const value = recommendations
+    const selStart = textarea.selectionStart || mentionCursorPos || 0
+
+    // Find text before the cursor
+    const textBeforeCursor = value.slice(0, selStart)
+    
+    // Find the last word before the cursor (which contains the @)
+    const lastIndex = textBeforeCursor.lastIndexOf('@')
+    
+    if (lastIndex !== -1) {
+      const beforeMention = value.slice(0, lastIndex)
+      const afterMention = value.slice(selStart)
+      const mentionText = `@${user.full_name} `
+      const newValue = beforeMention + mentionText + afterMention
+      
+      setRecommendations(newValue)
+      setMentionOpen(false)
+      
+      setTimeout(() => {
+        textarea.focus()
+        const newCursorPos = lastIndex + mentionText.length
+        textarea.setSelectionRange(newCursorPos, newCursorPos)
+      }, 10)
+    }
+  }
+
+  const handleRecommendationsKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!mentionOpen) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setMentionActiveIndex((prev) => (prev + 1) % filteredUsers.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setMentionActiveIndex((prev) => (prev - 1 + filteredUsers.length) % filteredUsers.length)
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (filteredUsers[mentionActiveIndex]) {
+        insertMention(filteredUsers[mentionActiveIndex])
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setMentionOpen(false)
+    }
+  }
   const [violationDescription, setViolationDescription] = useState('')
   const [violationPriority, setViolationPriority] = useState<'low' | 'medium' | 'high' | 'critical'>('medium')
   const [loading, setLoading] = useState(false)
@@ -303,28 +446,291 @@ export function MissionExecutionForm({
   }, [leafletLoaded, inspectorLat, inspectorLng, actualFacilityId, isUnregisteredFacility])
 
   // Checklist States & Dynamic Resolvers
-  const [answers, setAnswers] = useState<Record<string, { answer: 'yes' | 'no' | 'na'; notes: string }>>({})
+  const [answers, setAnswers] = useState<Record<string, { answer: any; notes: string }>>(() => {
+    const initial: Record<string, { answer: any; notes: string }> = {}
+    if (savedResults && savedResults.length > 0) {
+      savedResults.forEach((res: any) => {
+        let itemId = res.checklist_item_id
+        let notes = res.notes || ''
+        
+        // Handle prefix for static items
+        if (!itemId && notes.startsWith('__static_id__:')) {
+          const delimiterIdx = notes.indexOf('||')
+          if (delimiterIdx !== -1) {
+            itemId = notes.substring('__static_id__:'.length, delimiterIdx)
+            notes = notes.substring(delimiterIdx + 2)
+          }
+        }
+        
+        if (itemId) {
+          initial[itemId] = {
+            answer: res.answer,
+            notes: notes
+          }
+        }
+      })
+    }
+    return initial
+  })
+  const [localCustomChecklists, setLocalCustomChecklists] = useState<any[]>([])
+  const [showChecklistBuilder, setShowChecklistBuilder] = useState(false)
+  const [newChecklistTitle, setNewChecklistTitle] = useState('')
+  const [newChecklistType, setNewChecklistType] = useState('استثنائي')
+  const [newQuestions, setNewQuestions] = useState<Array<{ text: string; type: 'yes_no' | 'dropdown' | 'stars' | 'text'; priority: 'critical' | 'high' | 'medium' | 'low'; correctionDept: string }>>([
+    { text: '', type: 'yes_no', priority: 'high', correctionDept: 'إدارة الصيانة والتشغيل' }
+  ])
+  const [builderSuccess, setBuilderSuccess] = useState('')
+  const [builderError, setBuilderError] = useState('')
 
-  const customChecklists = useMemo(() => {
-    if (typeof window === 'undefined') return []
-    const cookieName = 'maamouriyat_demo_checklists'
-    const cookie = document.cookie
-      .split('; ')
-      .find((item) => item.startsWith(`${cookieName}=`))
-      ?.split('=')[1]
-    if (!cookie) return []
-    try {
-      const parsed = JSON.parse(decodeURIComponent(cookie))
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
+  // Load custom checklists on mount from our secure server API (which contains a robust schema fallback)
+  useEffect(() => {
+    const loadCustomChecklists = async () => {
+      try {
+        const apiRes = await fetch('/api/admin/checklists')
+        if (!apiRes.ok) {
+          console.error('Error fetching checklists from server API')
+          return
+        }
+        const dbChecklists = await apiRes.json()
+
+        if (dbChecklists) {
+          const mapped = dbChecklists.map((chk: any) => {
+            const [dept, type] = (chk.description || '').split('|')
+            const allItems: any[] = []
+            
+            chk.checklist_sections?.forEach((section: any) => {
+              section.checklist_items?.forEach((item: any) => {
+                allItems.push({
+                  id: item.id,
+                  text: item.text,
+                  answer_type: item.answer_type || 'yes_no',
+                  is_required: item.is_required ?? true,
+                  violation_priority: item.violation_priority || 'medium',
+                  correction_dept: item.correction_dept || ''
+                })
+              })
+            })
+
+            return {
+              id: chk.id,
+              name: chk.name,
+              dept_name: dept || 'المرور العام',
+              checklist_type: type || 'دوري',
+              org_unit_id: chk.org_unit_id || null,
+              items: allItems
+            }
+          })
+          setLocalCustomChecklists(mapped)
+        }
+      } catch (e) {
+        console.error('Error loading database checklists:', e)
+      }
+    }
+    loadCustomChecklists()
+  }, [])
+
+  // Memoized filter for allowed organizational units recursively matching user profile
+  const allowedOrgUnits = useMemo(() => {
+    let matchedUnitId = currentUserOrgUnitId
+
+    // Robust Fallback: if org_unit_id is null but department text is set, resolve matching unit by name
+    if (!matchedUnitId && currentUserDept) {
+      const cleanDept = currentUserDept.replace('ديوان عام الوزارة - ', '').trim()
+      const matched = orgUnits.find(u => u.name.includes(cleanDept) || cleanDept.includes(u.name))
+      if (matched) {
+        matchedUnitId = matched.id
+      }
+    }
+
+    if (!matchedUnitId) {
       return []
     }
-  }, [])
+
+    // Filter to own unit + any subordinate child units recursively
+    const ownUnit = orgUnits.find(u => u.id === matchedUnitId)
+    const result = ownUnit ? [ownUnit] : []
+
+    const getSubordinates = (parentId: string) => {
+      const children = orgUnits.filter(u => u.parent_id === parentId)
+      children.forEach(child => {
+        result.push(child)
+        getSubordinates(child.id)
+      })
+    }
+
+    getSubordinates(matchedUnitId)
+    return result
+  }, [orgUnits, currentUserOrgUnitId, currentUserDept])
 
   const checklistSections = useMemo(() => {
     const baseChecklist = getChecklistByDepartment(currentUserDept)
-    return [...customChecklists, ...baseChecklist]
-  }, [currentUserDept, customChecklists])
+    
+    // superadmin and techadmin see all custom checklists
+    if (currentUserLevel === 0 || currentUserLevel === 1) {
+      return [...localCustomChecklists, ...baseChecklist]
+    }
+
+    const allowedIds = new Set(allowedOrgUnits.map((u) => u.id))
+    const filteredCustom = localCustomChecklists.filter((c) => {
+      // 1. Match by org_unit_id if exists
+      if (c.org_unit_id) {
+        return allowedIds.has(c.org_unit_id)
+      }
+
+      // 2. Match general checklists
+      if (!c.dept_name || c.dept_name === 'المرور العام' || c.dept_name === 'عام') {
+        return true
+      }
+
+      // 3. Fallback: Match by department name text comparison
+      const cleanChkDept = c.dept_name.replace('ديوان عام الوزارة - ', '').trim()
+      const matchesName = allowedOrgUnits.some(unit => {
+        const cleanUnitName = unit.name.replace('ديوان عام الوزارة - ', '').trim()
+        return cleanChkDept.includes(cleanUnitName) || cleanUnitName.includes(cleanChkDept)
+      })
+
+      return matchesName
+    })
+
+    return [...filteredCustom, ...baseChecklist]
+  }, [currentUserDept, currentUserLevel, allowedOrgUnits, localCustomChecklists])
+
+  function addBuilderQuestion() {
+    setNewQuestions(prev => [
+      ...prev,
+      { text: '', type: 'yes_no', priority: 'high', correctionDept: 'إدارة الصيانة والتشغيل' }
+    ])
+  }
+
+  function removeBuilderQuestion(index: number) {
+    if (newQuestions.length === 1) return
+    setNewQuestions(prev => prev.filter((_, idx) => idx !== index))
+  }
+
+  function updateBuilderQuestion(index: number, key: string, val: any) {
+    setNewQuestions(prev => prev.map((q, idx) => {
+      if (idx === index) {
+        return { ...q, [key]: val }
+      }
+      return q
+    }))
+  }
+
+  async function handleDeployChecklist() {
+    setBuilderError('')
+    setBuilderSuccess('')
+
+    if (!newChecklistTitle.trim()) {
+      setBuilderError('يرجى كتابة اسم الاستمارة الجديدة.')
+      return
+    }
+
+    const invalidQuestion = newQuestions.some(q => !q.text.trim())
+    if (invalidQuestion) {
+      setBuilderError('يرجى كتابة نص جميع الأسئلة والبنود.')
+      return
+    }
+
+    if (!supabase) {
+      setBuilderError('إعداد Supabase غير مكتمل.')
+      return
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: profile } = await supabase
+        .from('users')
+        .select('id')
+        .eq('auth_id', user?.id)
+        .maybeSingle()
+
+      // 1. Create main checklist entry
+      const { data: newChk, error: chkErr } = await supabase
+        .from('checklists')
+        .insert({
+          name: newChecklistTitle.trim(),
+          facility_type: 'general',
+          description: `${currentUserDept || 'المرور العام'}|${newChecklistType}`,
+          created_by: profile?.id || null,
+          is_active: true
+        })
+        .select('id')
+        .single()
+
+      if (chkErr || !newChk) {
+        setBuilderError(`فشل حفظ الاستمارة في قاعدة البيانات: ${chkErr?.message}`)
+        return
+      }
+
+      // 2. Create checklist section
+      const { data: newSec, error: secErr } = await supabase
+        .from('checklist_sections')
+        .insert({
+          checklist_id: newChk.id,
+          name: newChecklistTitle.trim(),
+          sort_order: 0
+        })
+        .select('id')
+        .single()
+
+      if (secErr || !newSec) {
+        setBuilderError(`فشل حفظ أقسام الاستمارة: ${secErr?.message}`)
+        return
+      }
+
+      // 3. Create items payload
+      const itemsPayload = newQuestions.map((q, idx) => ({
+        checklist_id: newChk.id,
+        section_id: newSec.id,
+        text: q.text.trim(),
+        answer_type: q.type || 'yes_no',
+        is_required: true,
+        violation_priority: q.priority || 'medium',
+        correction_dept: q.correctionDept || currentUserDept || 'المرور العام',
+        sort_order: idx
+      }))
+
+      const { data: insertedItems, error: itemsErr } = await supabase
+        .from('checklist_items')
+        .insert(itemsPayload)
+        .select('id, text, answer_type, violation_priority, correction_dept, is_required')
+
+      if (itemsErr || !insertedItems) {
+        setBuilderError(`فشل حفظ بنود الاستمارة: ${itemsErr?.message || 'تعذر جلب معرفات الأسئلة الحقيقية'}`)
+        return
+      }
+
+      // Update state locally so it renders immediately with real Database UUIDs
+      const newSection = {
+        id: newChk.id,
+        name: newChecklistTitle.trim(),
+        dept_name: currentUserDept || 'المرور العام',
+        checklist_type: newChecklistType,
+        items: insertedItems.map((item: any) => ({
+          id: item.id,
+          text: item.text,
+          answer_type: item.answer_type as any,
+          violation_priority: item.violation_priority as any,
+          correction_dept: item.correction_dept,
+          is_required: item.is_required ?? true
+        }))
+      }
+
+      setLocalCustomChecklists(prev => [newSection, ...prev])
+      setBuilderSuccess('🎉 تم إنشاء استمارة المرور المخصصة واعتمادها فوراً لهذه المأمورية!')
+      
+      setNewChecklistTitle('')
+      setNewChecklistType('استثنائي')
+      setNewQuestions([{ text: '', type: 'yes_no', priority: 'high', correctionDept: 'إدارة الصيانة والتشغيل' }])
+
+      setTimeout(() => {
+        setShowChecklistBuilder(false)
+        setBuilderSuccess('')
+      }, 1500)
+    } catch (err: any) {
+      setBuilderError(`خطأ أثناء النشر: ${err.message || err}`)
+    }
+  }
 
   function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371e3 // Earth radius in metres
@@ -583,133 +989,6 @@ export function MissionExecutionForm({
 
     setLoading(true)
 
-    if (demoMode) {
-      let savedActualFacilityId = actualFacilityId
-      let registeredNewFacilityName = ''
-      
-      if (destinationType === 'facility' && isUnregisteredFacility) {
-        const newFacId = `demo-facility-new-${Date.now()}`
-        registeredNewFacilityName = newFacilityName.trim()
-        
-        const newFacilityObj = {
-          id: newFacId,
-          name: newFacilityName.trim(),
-          facility_type: newFacilityType,
-          address: newFacilityAddress.trim() || 'تم تسجيلها أثناء المرور الميداني',
-          governorate_id: newFacilityGovId,
-          latitude: inspectorLat ?? 30.0444,
-          longitude: inspectorLng ?? 31.2357,
-          is_active: true
-        }
-
-        const facCookieName = 'maamouriyat_demo_facilities'
-        const rawFacs = document.cookie
-          .split('; ')
-          .find((item) => item.startsWith(`${facCookieName}=`))
-          ?.split('=')[1]
-        let existingFacs: any[] = []
-        try {
-          existingFacs = rawFacs ? JSON.parse(decodeURIComponent(rawFacs)) : []
-        } catch {}
-        existingFacs = [newFacilityObj, ...existingFacs]
-        document.cookie = `${facCookieName}=${encodeURIComponent(JSON.stringify(existingFacs))}; path=/; max-age=604800; SameSite=Lax`
-
-        savedActualFacilityId = newFacId
-      }
-
-      const cookieName = 'maamouriyat_demo_missions'
-      const existingCookie = document.cookie
-        .split('; ')
-        .find((item) => item.startsWith(`${cookieName}=`))
-        ?.split('=')[1]
-      let existing: any[] = []
-      try {
-        existing = existingCookie ? JSON.parse(decodeURIComponent(existingCookie)) : []
-      } catch {}
-
-      const foundMissionIndex = existing.findIndex((m) => m.id === mission.id)
-      if (foundMissionIndex !== -1) {
-        const targetFacility = isUnregisteredFacility
-          ? { name: registeredNewFacilityName }
-          : facilities.find((f) => f.id === actualFacilityId)
-        const targetGov = governorates.find((g) => g.id === (isUnregisteredFacility ? newFacilityGovId : actualGovernorateId))
-
-        existing[foundMissionIndex] = {
-          ...existing[foundMissionIndex],
-          status,
-          destinationName: destinationType === 'facility' 
-            ? targetFacility?.name ?? 'منشأة فعلية' 
-            : targetGov?.name ?? 'محافظة فعلية',
-          destinationType,
-          notes: `${existing[foundMissionIndex].notes || ''}\n[تحديث التنفيذ]: ${executionNotes}\nتغيير الوجهة: ${(changed || isUnregisteredFacility) ? 'نعم - ' + (changeReason || `تسجيل وزيارة منشأة جديدة: ${registeredNewFacilityName}`) : 'لا'}`,
-          checkin_lat: inspectorLat,
-          checkin_lng: inspectorLng,
-          gps_verified: gpsVerified
-        }
-
-        document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify(existing))}; path=/; max-age=604800; SameSite=Lax`
-      }
-
-      // If they also logged a mock violation
-      const hasViolation = Boolean(violationDescription.trim())
-      if (hasViolation) {
-        const violationsCookieName = 'maamouriyat_demo_violations'
-        const existingViolationsCookie = document.cookie
-          .split('; ')
-          .find((item) => item.startsWith(`${violationsCookieName}=`))
-          ?.split('=')[1]
-        let existingViolations: any[] = []
-        try {
-          existingViolations = existingViolationsCookie ? JSON.parse(decodeURIComponent(existingViolationsCookie)) : []
-        } catch {}
-
-        const newViolation = {
-          id: `demo-violation-${Date.now()}`,
-          description: violationDescription.trim(),
-          priority: violationPriority,
-          status: 'new',
-          assigned_to_dept: correctionUnit.trim(),
-          facility_name: destinationType === 'facility' 
-            ? (isUnregisteredFacility ? registeredNewFacilityName : (facilities.find((f) => f.id === actualFacilityId)?.name ?? 'منشأة فعلية')) 
-            : 'محافظة فعلية',
-          mission_id: mission.id,
-          created_at: new Date().toISOString()
-        }
-
-        existingViolations = [newViolation, ...existingViolations].slice(0, 50)
-        document.cookie = `${violationsCookieName}=${encodeURIComponent(JSON.stringify(existingViolations))}; path=/; max-age=604800; SameSite=Lax`
-      }
-
-      // Save dynamic checklist results to local cookies for demo mode
-      if (Object.keys(answers).length > 0) {
-        const resultsCookieName = 'maamouriyat_demo_results'
-        const existingResultsCookie = document.cookie
-          .split('; ')
-          .find((item) => item.startsWith(`${resultsCookieName}=`))
-          ?.split('=')[1]
-        let existingResults: any[] = []
-        try {
-          existingResults = existingResultsCookie ? JSON.parse(decodeURIComponent(existingResultsCookie)) : []
-        } catch {}
-
-        const newResults = Object.entries(answers).map(([itemId, val]) => ({
-          mission_id: mission.id,
-          item_id: itemId,
-          answer: val.answer,
-          notes: val.notes || ''
-        }))
-
-        existingResults = [...newResults, ...existingResults.filter((r) => r.mission_id !== mission.id)]
-        document.cookie = `${resultsCookieName}=${encodeURIComponent(JSON.stringify(existingResults))}; path=/; max-age=604800; SameSite=Lax`
-      }
-
-      setLoading(false)
-      setSuccess(status === 'completed' ? 'تم إنهاء المأمورية التجريبية وتوثيق الحضور بنجاح.' : 'تم بدء/تحديث المأمورية التجريبية.')
-      router.push('/dashboard/missions')
-      router.refresh()
-      return
-    }
-
     if (!supabase) {
       setError('إعداد Supabase غير مكتمل.')
       setLoading(false)
@@ -743,6 +1022,10 @@ export function MissionExecutionForm({
       savedActualFacilityId = newFac.id
     }
 
+    const finalExecutionNotes = recommendations.trim()
+      ? `${executionNotes.trim()}\n\n---\n\n📋 توصيات المأمورية المعتمدة:\n${recommendations.trim()}`
+      : executionNotes.trim()
+
     const { error: updateError } = await supabase
       .from('missions')
       .update({
@@ -755,7 +1038,7 @@ export function MissionExecutionForm({
         change_reason: (changed || isUnregisteredFacility) 
           ? (changeReason.trim() || (isUnregisteredFacility ? `تسجيل وزيارة منشأة جديدة ميدانياً: ${newFacilityName}` : 'تغيير وجهة المأمورية')) 
           : null,
-        execution_notes: executionNotes.trim() || null,
+        execution_notes: finalExecutionNotes || null,
         started_at: mission.status === 'assigned' || !mission.started_at ? now : undefined,
         completed_at: status === 'completed' ? now : null,
         status,
@@ -773,6 +1056,22 @@ export function MissionExecutionForm({
       setLoading(false)
       setError(updateError.message)
       return
+    }
+
+    // Handle mention notifications in Live Supabase Mode
+    const parsedMentions = lowerUsers.filter((u) => recommendations.includes(`@${u.full_name}`))
+    if (parsedMentions.length > 0 && supabase) {
+      const notifPayload = parsedMentions.map((u) => ({
+        body: `تم الإشارة إليك في توصيات المأمورية رقم ${mission.serial_number}: "${recommendations.substring(0, 100)}..."`,
+        mission_id: mission.id,
+        title: 'إشارة في توصيات مأمورية',
+        type: 'mention',
+        user_id: u.id,
+      }))
+      const { error: notifErr } = await supabase.from('notifications').insert(notifPayload)
+      if (notifErr) {
+        console.error('Error inserting recommendation notifications:', notifErr)
+      }
     }
 
     const hasViolation = Boolean(violationDescription.trim())
@@ -836,24 +1135,188 @@ export function MissionExecutionForm({
       handleRemovePhoto()
     }
 
-    // Save dynamic checklist results to Supabase table mission_results
+    // Save dynamic checklist results via our secure backend API route to clear old and write fresh results cleanly
     if (Object.keys(answers).length > 0) {
-      const resultsPayload = Object.entries(answers).map(([itemId, val]) => ({
-        mission_id: mission.id,
-        checklist_item_id: itemId.startsWith('item-') ? null : itemId,
-        answer: val.answer,
-        notes: val.notes || null
-      }))
+      const resultsPayload = Object.entries(answers).map(([itemId, val]) => {
+        const isStatic = itemId.startsWith('item-')
+        const checklist_item_id = isStatic ? null : itemId
+        const notes = isStatic 
+          ? `__static_id__:${itemId}||${val.notes || ''}` 
+          : (val.notes || null)
 
-      const { error: resultsError } = await supabase.from('mission_results').insert(resultsPayload)
-      if (resultsError) {
-        console.error('Error saving mission results to Supabase:', resultsError)
+        return {
+          checklist_item_id,
+          answer: val.answer,
+          notes
+        }
+      })
+
+      try {
+        const resultsRes = await fetch('/api/missions/results', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            mission_id: mission.id,
+            results: resultsPayload
+          })
+        })
+
+        if (!resultsRes.ok) {
+          const resultsErr = await resultsRes.json().catch(() => ({}))
+          console.error('Error saving mission results via API:', resultsErr.error)
+        }
+      } catch (err) {
+        console.error('Network error saving mission results:', err)
       }
     }
 
     setLoading(false)
     setSuccess(status === 'completed' ? 'تم إنهاء المأمورية وتوثيق الحضور جغرافياً.' : 'تم بدء/تحديث المأمورية.')
     router.refresh()
+  }
+
+  const expectedEndDate = useMemo(() => {
+    if (mission.notes) {
+      const matches = mission.notes.match(/تاريخ الانتهاء المتوقع:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/g);
+      if (matches && matches.length > 0) {
+        const lastMatch = matches[matches.length - 1];
+        return lastMatch.replace(/تاريخ الانتهاء المتوقع:\s*/, '').trim();
+      }
+    }
+    return mission.scheduled_date || '';
+  }, [mission.notes, mission.scheduled_date])
+
+  const targetStartDate = mission.scheduled_date || '';
+
+  const parseLocalDate = (dateStr: string) => {
+    if (!dateStr) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  const sDate = parseLocalDate(targetStartDate);
+  const eDate = parseLocalDate(expectedEndDate);
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+
+  const isBefore = sDate ? todayDate < sDate : false;
+  const isAfter = eDate ? todayDate > eDate : false;
+  const isLocked = isBefore || isAfter;
+
+  if (isLocked && currentUserLevel === 7 && !bypassLock) {
+    return (
+      <div style={{
+        background: 'white',
+        border: '1px solid #ffcdd2',
+        borderRadius: '16px',
+        padding: '40px 24px',
+        textAlign: 'center',
+        maxWidth: '600px',
+        margin: '40px auto',
+        boxShadow: '0 10px 30px rgba(198, 40, 40, 0.05)',
+        direction: 'rtl'
+      }}>
+        <div style={{
+          width: '80px',
+          height: '80px',
+          background: '#ffebee',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          margin: '0 auto 20px',
+          color: '#c62828',
+          fontSize: '36px',
+          border: '2px solid #ffcdd2'
+        }}>
+          🔒
+        </div>
+        <h2 style={{
+          color: '#b71c1c',
+          fontSize: '22px',
+          fontWeight: '800',
+          marginBottom: '12px'
+        }}>
+          تنبيه أمني وصلاحية: المأمورية مغلقة للتنفيذ
+        </h2>
+        <p style={{
+          color: '#546e7a',
+          fontSize: '14.5px',
+          lineHeight: '1.6',
+          marginBottom: '24px'
+        }}>
+          عذراً، لقد تم حظر فتح استمارة المرور لهذه المأمورية رقم <strong style={{ color: '#102027' }}>({mission.serial_number})</strong> نظراً لأن تاريخ اليوم يقع خارج النطاق الزمني المصرح به رسمياً للتنفيذ الميداني.
+        </p>
+
+        <div style={{
+          background: '#f7f9fa',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          border: '1px solid #cfd8dc',
+          display: 'grid',
+          gap: '10px',
+          textAlign: 'right',
+          marginBottom: '24px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '13px', color: '#78909c' }}>تاريخ التحرك والبدء:</span>
+            <strong style={{ fontSize: '14px', color: '#37474f', direction: 'ltr' }}>{targetStartDate}</strong>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '13px', color: '#78909c' }}>تاريخ الانتهاء المعتمد (الفعلي):</span>
+            <strong style={{ fontSize: '14px', color: '#e53935', direction: 'ltr' }}>{expectedEndDate}</strong>
+          </div>
+          <div style={{ height: '1px', background: '#cfd8dc', margin: '4px 0' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '13.5px', color: '#006d77', fontWeight: 'bold' }}>تاريخ اليوم بالخلفية:</span>
+            <strong style={{ fontSize: '14px', color: '#006d77', direction: 'ltr', fontWeight: '800' }}>
+              {new Date().toLocaleDateString('en-CA')}
+            </strong>
+          </div>
+        </div>
+
+        <div style={{
+          background: '#fff8e1',
+          border: '1px solid #ffe082',
+          borderRadius: '8px',
+          padding: '12px 16px',
+          fontSize: '13px',
+          color: '#b78103',
+          textAlign: 'right',
+          lineHeight: '1.5',
+          display: 'flex',
+          gap: '10px',
+          alignItems: 'flex-start',
+          marginBottom: '24px'
+        }}>
+          <span style={{ fontSize: '18px', marginTop: '-2px' }}>💡</span>
+          <div>
+            <strong>نظام الحوكمة والمطابقة الذكية:</strong> يرتبط تفعيل استمارات المرور وقفلها تلقائياً بالتواريخ المدرجة بقرار التكليف الصادر. لا يسمح للقائم بالمرور (المفتش) بتخطي الصلاحية التاريخية لحماية نزاهة ودقة الجداول الزمنية للزيارات.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => router.push('/dashboard/missions')}
+            style={{
+              background: '#37474f',
+              color: 'white',
+              border: 0,
+              borderRadius: '8px',
+              padding: '10px 20px',
+              fontSize: '13.5px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}
+          >
+            ← العودة لجدول المأموريات
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -961,7 +1424,7 @@ export function MissionExecutionForm({
                     : 'تم التقاط إحداثيات موقعك بنجاح. سيتم توثيق هذه الإحداثيات رسمياً لإدراج المنشأة الجديدة في مكانك الحالي.'
                 )}
                 {gpsStatus === 'warn' && (
-                  `يبعد موقعك الحالي مسافة ${gpsDistance} متر عن الإحداثيات الرسمية للمستشفى. سيتم حفظ هذا التباين للتوثيق والرقابة الإدارية.`
+                  `يبعد موقعك الحالي مسافة ${gpsDistance} متر عن الإحداثيات الرسمية للمستشفى. سيتم حفظ هذا التباين للتوثيق والحوكمة الإدارية.`
                 )}
                 {gpsStatus === 'error' && 'تعذر قراءة الـ GPS. يرجى التأكد من تشغيل الموقع الجغرافي بهاتفك ومنح المتصفح صلاحية الوصول لإثبات الزيارة.'}
               </p>
@@ -1140,16 +1603,359 @@ export function MissionExecutionForm({
           ملاحظات التنفيذ
           <textarea value={executionNotes} onChange={(event) => setExecutionNotes(event.target.value)} rows={4} />
         </label>
+
+        <div style={{ position: 'relative', display: 'grid', gap: '7px' }} className={styles.wide}>
+          <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#42555d', fontSize: '14px', fontWeight: 'bold' }}>
+            <span>📋 توصيات وقرارات المأمورية الميدانية</span>
+            <span style={{ fontSize: '11.5px', color: '#006d77', background: '#e0f2f1', padding: '2px 8px', borderRadius: '12px', fontWeight: 'normal' }}>
+              💡 اكتب @ للإشارة لمسؤول بالهيكل الإداري وإشعاره فوراً
+            </span>
+          </label>
+          
+          <div style={{ position: 'relative' }}>
+            <textarea
+              id="recommendations-textarea"
+              value={recommendations}
+              onChange={handleRecommendationsChange}
+              onKeyDown={handleRecommendationsKeyDown}
+              rows={4}
+              placeholder="مثال: يرجى التنبيه على @د. أحمد عبد الرحمن لتوفير المستلزمات الطبية اللازمة لقسم الطوارئ فوراً..."
+              style={{ width: '100%', background: '#f8fbfb', border: '1px solid #cfdcde', borderRadius: '8px', color: '#102027', font: 'inherit', padding: '10px 12px', resize: 'vertical', minHeight: '88px' }}
+            />
+            
+            {mentionOpen && filteredUsers.length > 0 && (
+              <div style={{
+                position: 'absolute',
+                bottom: '100%',
+                right: '0',
+                left: '0',
+                zIndex: 50,
+                marginBottom: '6px',
+                maxHeight: '220px',
+                overflowY: 'auto',
+                background: 'rgba(255, 255, 255, 0.98)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid #006d77',
+                borderRadius: '8px',
+                boxShadow: '0 4px 20px rgba(0, 109, 119, 0.15)',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: '4px'
+              }}>
+                <div style={{
+                  padding: '6px 10px',
+                  fontSize: '11px',
+                  color: '#546e7a',
+                  borderBottom: '1px solid #e0f0f1',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <span>مسؤولين متاحين للإشعار (مستويات أقل إدارياً):</span>
+                  <span>اضغط Tab/Enter أو انقر للاختيار</span>
+                </div>
+                {filteredUsers.map((u, index) => {
+                  const isActive = index === mentionActiveIndex
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => insertMention(u)}
+                      onMouseEnter={() => setMentionActiveIndex(index)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 12px',
+                        border: 0,
+                        borderRadius: '6px',
+                        background: isActive ? '#006d77' : 'transparent',
+                        color: isActive ? 'white' : '#102027',
+                        cursor: 'pointer',
+                        textAlign: 'right',
+                        width: '100%',
+                        transition: 'all 0.1s ease',
+                        gap: '8px',
+                        font: 'inherit'
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', flex: 1 }}>
+                        <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{u.full_name}</span>
+                        <span style={{ fontSize: '11px', color: isActive ? '#b2dfdb' : '#64747d', marginTop: '2px' }}>
+                          {u.job_title} • {u.department || 'إدارة غير محددة'}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: '10px',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: isActive ? 'rgba(255,255,255,0.2)' : '#e0f2f1',
+                        color: isActive ? '#006d77' : '#006d77',
+                        fontWeight: 'bold'
+                      }}>
+                        مستوى {u.level}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+            
+            {mentionOpen && filteredUsers.length === 0 && (
+              <div style={{
+                position: 'absolute',
+                bottom: '100%',
+                right: '0',
+                left: '0',
+                zIndex: 50,
+                marginBottom: '6px',
+                background: 'white',
+                border: '1px solid #cfdcde',
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                padding: '12px',
+                color: '#78909c',
+                fontSize: '12.5px',
+                textAlign: 'center'
+              }}>
+                🔍 لم يتم العثور على مسؤولين متوافقين بالمستويات الأدنى...
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Dynamic Specialization Checklist */}
-      {checklistSections && checklistSections.length > 0 && (
-        <section className={styles.checklistSection}>
+      <section className={styles.checklistSection}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid #e0f0f0', paddingBottom: '12px', marginBottom: '16px' }}>
           <div>
             <span className={styles.checklistHeading}>قائمة بنود التفتيش التخصصية والمخصصة ({currentUserDept || 'المرور العام'})</span>
             <p className={styles.checklistSubheading}>يرجى الإجابة وتوثيق بنود الالتزام وتوليد المخالفات تلقائياً عند عدم المطابقة</p>
           </div>
-          
+          <button
+            type="button"
+            onClick={() => setShowChecklistBuilder(!showChecklistBuilder)}
+            style={{
+              background: showChecklistBuilder ? '#eceff1' : 'linear-gradient(135deg, #006d77 0%, #004d54 100%)',
+              color: showChecklistBuilder ? '#37474f' : 'white',
+              border: '1px solid ' + (showChecklistBuilder ? '#cfdcde' : 'transparent'),
+              borderRadius: '8px',
+              padding: '8px 16px',
+              fontSize: '12.5px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s',
+              boxShadow: showChecklistBuilder ? 'none' : '0 2px 6px rgba(0,109,119,0.12)'
+            }}
+          >
+            {showChecklistBuilder ? '✕ إغلاق منشئ الاستمارات' : '➕ إنشاء استمارة مرور مخصصة فوراً'}
+          </button>
+        </div>
+
+        {/* Dynamic Checklist Builder Container */}
+        {showChecklistBuilder && (
+          <div style={{
+            background: 'linear-gradient(180deg, #fdfefe 0%, #f8fbfb 100%)',
+            border: '2px dashed #006d77',
+            borderRadius: '16px',
+            padding: '20px',
+            marginBottom: '20px',
+            display: 'grid',
+            gap: '16px',
+            boxShadow: '0 4px 15px rgba(0,109,119,0.04)',
+            animation: 'fadeIn 0.2s'
+          }}>
+            <h4 style={{ margin: 0, fontSize: '15px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #e0f0f0', paddingBottom: '8px' }}>
+              🛠️ منشئ استمارات المرور الميدانية التفاعلي السريع (On-the-go Builder)
+            </h4>
+
+            {builderError && (
+              <div style={{ background: '#fff3f3', border: '1px solid #ffcdd2', borderRadius: '6px', color: '#c62828', padding: '10px 14px', fontSize: '12.5px', fontWeight: 'bold' }}>
+                {builderError}
+              </div>
+            )}
+            {builderSuccess && (
+              <div style={{ background: '#eaf8f3', border: '1px solid #ccebe6', borderRadius: '6px', color: '#16725a', padding: '10px 14px', fontSize: '12.5px', fontWeight: 'bold' }}>
+                {builderSuccess}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
+                اسم استمارة المرور الجديدة *
+                <input
+                  type="text"
+                  placeholder="مثال: تقييم النظافة والسلامة بقسم الطوارئ..."
+                  value={newChecklistTitle}
+                  onChange={(e) => setNewChecklistTitle(e.target.value)}
+                  style={{ minHeight: '40px', borderRadius: '6px', border: '1px solid #cfdcde', padding: '0 10px', fontSize: '13px', outline: 'none' }}
+                />
+              </label>
+
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
+                نوع استمارة المرور / التصنيف
+                <select
+                  value={newChecklistType}
+                  onChange={(e) => setNewChecklistType(e.target.value)}
+                  style={{ minHeight: '40px', borderRadius: '6px', border: '1px solid #cfdcde', padding: '0 10px', fontSize: '13px', background: 'white', outline: 'none' }}
+                >
+                  <option value="دوري">دوري عادي</option>
+                  <option value="مفاجئ">مرور مفاجئ</option>
+                  <option value="استثنائي">استثنائي طارئ</option>
+                  <option value="توجيهي">توجيهي محوكم</option>
+                </select>
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gap: '12px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#006d77' }}>أسئلة وبنود التقييم الفني:</span>
+              
+              {newQuestions.map((q, idx) => (
+                <div key={idx} style={{
+                  background: 'white',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '10px',
+                  padding: '14px',
+                  display: 'grid',
+                  gap: '12px',
+                  position: 'relative'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#546e7a' }}>البند / السؤال رقم {idx + 1}</span>
+                    {newQuestions.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeBuilderQuestion(idx)}
+                        style={{ background: 'transparent', border: 0, color: '#d32f2f', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold' }}
+                      >
+                        ✕ إزالة البند
+                      </button>
+                    )}
+                  </div>
+
+                  <textarea
+                    placeholder="اكتب السؤال بوضوح، مثال: هل أجهزة التعقيم تعمل بشكل سليم ويتم توثيق قراءات الضغط؟..."
+                    value={q.text}
+                    onChange={(e) => updateBuilderQuestion(idx, 'text', e.target.value)}
+                    rows={2}
+                    style={{ width: '100%', borderRadius: '6px', border: '1px solid #cfdcde', padding: '8px 10px', fontSize: '13px', outline: 'none', resize: 'vertical' }}
+                  />
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>
+                      نوع الإجابة المطلوبة
+                      <select
+                        value={q.type}
+                        onChange={(e) => updateBuilderQuestion(idx, 'type', e.target.value)}
+                        style={{ minHeight: '34px', borderRadius: '4px', border: '1px solid #cfdcde', fontSize: '12px', background: 'white', outline: 'none' }}
+                      >
+                        <option value="yes_no">ملتزم / غير ملتزم / لا ينطبق</option>
+                        <option value="dropdown">قائمة اختيار مخصصة</option>
+                        <option value="stars">تقييم بالنجوم (1 إلى 5 نجوم)</option>
+                        <option value="text">ملاحظات نصية حرة</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>
+                      مستوى الخطورة عند المخالفة
+                      <select
+                        value={q.priority}
+                        onChange={(e) => updateBuilderQuestion(idx, 'priority', e.target.value)}
+                        style={{ minHeight: '34px', borderRadius: '4px', border: '1px solid #cfdcde', fontSize: '12px', background: 'white', outline: 'none' }}
+                      >
+                        <option value="low">بسيطة (مهلة تصحيح 30 يوم)</option>
+                        <option value="medium">متوسطة (مهلة تصحيح 7 أيام)</option>
+                        <option value="high">عالية (مهلة تصحيح 3 أيام)</option>
+                        <option value="critical">حرجة (تنبيه فوري 24 ساعة)</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>
+                      الإدارة المعنية بالتصحيح
+                      <select
+                        value={q.correctionDept}
+                        onChange={(e) => updateBuilderQuestion(idx, 'correctionDept', e.target.value)}
+                        style={{ minHeight: '34px', borderRadius: '4px', border: '1px solid #cfdcde', fontSize: '12px', background: 'white', outline: 'none' }}
+                      >
+                        <option value="إدارة الصيانة والتشغيل">إدارة الصيانة والتشغيل</option>
+                        <option value="إدارة مكافحة العدوى">إدارة مكافحة العدوى</option>
+                        <option value="إدارة التفتيش الصيدلي">إدارة التفتيش الصيدلي</option>
+                        <option value="إدارة الجودة والسلامة">إدارة الجودة والسلامة</option>
+                        <option value="إدارة التمريض">إدارة التمريض</option>
+                        <option value="أخرى / جهات غير مصنفة">أخرى / جهات غير مصنفة</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                type="button"
+                onClick={addBuilderQuestion}
+                style={{
+                  background: '#eef6f6',
+                  color: 'var(--brand)',
+                  border: '1px dashed var(--brand)',
+                  borderRadius: '8px',
+                  minHeight: '38px',
+                  fontWeight: 'bold',
+                  fontSize: '12.5px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s'
+                }}
+              >
+                ➕ إضافة بند / سؤال تقييمي جديد
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px', borderTop: '1px solid #e0f0f0', paddingTop: '12px' }}>
+              <button
+                type="button"
+                onClick={() => setShowChecklistBuilder(false)}
+                style={{ background: '#eceff1', border: 0, borderRadius: '6px', padding: '8px 16px', fontSize: '12.5px', fontWeight: 'bold', color: '#37474f', cursor: 'pointer' }}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleDeployChecklist}
+                style={{ background: 'linear-gradient(135deg, #006d77 0%, #004d54 100%)', border: 0, borderRadius: '6px', padding: '8px 24px', fontSize: '12.5px', fontWeight: 'bold', color: 'white', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,109,119,0.15)' }}
+              >
+                💾 اعتماد ونشر الاستمارة الجارية فورا
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* If no checklists exist at all and builder is closed */}
+        {checklistSections.length === 0 && !showChecklistBuilder && (
+          <div style={{
+            background: '#f8fbfb',
+            border: '1px dashed #006d77',
+            borderRadius: '12px',
+            padding: '30px 20px',
+            textAlign: 'center',
+            color: '#546e7a',
+            display: 'grid',
+            gap: '12px',
+            justifyItems: 'center',
+            marginBottom: '20px'
+          }}>
+            <strong style={{ fontSize: '14.5px', color: '#102027' }}>لا توجد استمارات مرور جاهزة لتخصصك الجاري ({currentUserDept || 'المرور العام'})</strong>
+            <p style={{ margin: 0, fontSize: '12.5px', maxWidth: '400px', lineHeight: '1.6' }}>
+              حسابك لا يحتوي على بنود تفتيش معتمدة لهذا التخصص حالياً. يمكنك النقر على زر "➕ إنشاء استمارة مرور مخصصة فوراً" بالأعلى لتصميم وإنشاء استمارة مرور مخصصة ومطابقة فوراً لهذه المأمورية!
+            </p>
+          </div>
+        )}
+
+        {checklistSections.length > 0 && (
           <div className={styles.checklistGrid}>
             {checklistSections.map((section: any) => (
               <div key={section.id} className={styles.checklistSecCard} style={{ background: 'white', border: '1px solid #cfdcde', borderRadius: '12px', padding: '16px', display: 'grid', gap: '14px', marginBottom: '14px' }}>
@@ -1218,9 +2024,9 @@ export function MissionExecutionForm({
                               }}
                               style={{ width: '100%', minHeight: '38px', borderRadius: '6px', border: '1px solid #cfdcde', padding: '0 8px', fontSize: '13px', background: 'white', outline: 'none' }}
                             >
-                              <option value="">-- اختر الإجابة --</option>
-                              {optionsList.map((opt: string) => (
-                                <option key={opt} value={opt}>{opt}</option>
+                              <option value="">اختر التقييم...</option>
+                              {optionsList.map((opt: string, oIdx: number) => (
+                                <option key={oIdx} value={opt}>{opt}</option>
                               ))}
                             </select>
                           )}
@@ -1362,6 +2168,40 @@ export function MissionExecutionForm({
                               })}
                             </div>
                           )}
+                          {/* Permanent Notes Field for Every Question */}
+                          <div style={{ marginTop: '12px', borderTop: '1px dashed #cfdcde', paddingTop: '10px', display: 'grid', gap: '4px' }}>
+                            <label style={{ display: 'block', fontSize: '11.5px', color: '#006d77', fontWeight: 'bold', textAlign: 'right' }}>
+                              📝 ملاحظات المفتش وتوصيات البند الجاري:
+                            </label>
+                            <input
+                              type="text"
+                              value={answers[item.id]?.notes || ''}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                setAnswers((current) => ({
+                                  ...current,
+                                  [item.id]: {
+                                    answer: current[item.id]?.answer || '',
+                                    notes: val
+                                  }
+                                }))
+                              }}
+                              placeholder="اكتب ملاحظاتك، تفاصيل رصد المخالفة، أو أي توصيات تخص هذا البند..."
+                              style={{
+                                width: '100%',
+                                minHeight: '34px',
+                                borderRadius: '6px',
+                                border: '1px solid #cfdcde',
+                                padding: '0 10px',
+                                fontSize: '12.5px',
+                                background: 'white',
+                                outline: 'none',
+                                color: '#37474f',
+                                direction: 'rtl',
+                                textAlign: 'right'
+                              }}
+                            />
+                          </div>
 
                         </div>
                       </div>
@@ -1371,8 +2211,8 @@ export function MissionExecutionForm({
               </div>
             ))}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       <section className={styles.violationBox}>
         <div>
@@ -1450,19 +2290,18 @@ export function MissionExecutionForm({
             </select>
           </label>
 
-          <label>
-            الإدارة المختصة بالتصحيح
-            <input
-              list="correction-units"
-              onChange={(event) => setCorrectionUnit(event.target.value)}
-              placeholder="مثال: إدارة الصيدلة والمستلزمات"
+          <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
+            الإدارة المختصة بالتصحيح *
+            <SearchableAddableSelect
+              options={localCorrectionUnits.map((unit) => ({
+                value: unit.name,
+                label: unit.name
+              }))}
               value={correctionUnit}
+              onChange={(val) => setCorrectionUnit(val)}
+              placeholder="اختر أو ابحث عن الإدارة للتصحيح..."
+              onAdd={handleAddCorrectionUnit}
             />
-            <datalist id="correction-units">
-              {correctionUnits.map((unit) => (
-                <option key={unit.id ?? unit.name} value={unit.name} />
-              ))}
-            </datalist>
           </label>
         </div>
       </section>

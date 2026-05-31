@@ -1,5 +1,3 @@
-export const demoPassword = '123456'
-
 export const roleDefinitions = {
   superadmin: {
     department: 'ديوان عام وزارة الصحة والسكان',
@@ -59,131 +57,40 @@ export const roleDefinitions = {
   },
 } as const
 
-export type DemoRole = keyof typeof roleDefinitions
-export type NavigationKey = (typeof roleDefinitions)[DemoRole]['navigation'][number]
+export type UserRole = keyof typeof roleDefinitions
+export type NavigationKey = (typeof roleDefinitions)[UserRole]['navigation'][number]
 
-export const demoEmailToRoleMap: Record<string, DemoRole> = {
-  'admin@admin.com': 'superadmin',
-  'superadmin@mohp.gov.eg': 'superadmin',
-  'techadmin@mohp.gov.eg': 'techadmin',
-  'techadmin@admin.com': 'techadmin',
-  'director@director.com': 'central',
-  'central@mohp.gov.eg': 'central',
-  'supervisor@supervisor.com': 'generalmanager',
-  'generalmanager@mohp.gov.eg': 'generalmanager',
-  'creator@mohp.gov.eg': 'creator',
-  'financial@mohp.gov.eg': 'financial',
-  'inspector@inspector.com': 'inspector',
-  'inspector@mohp.gov.eg': 'inspector',
-  'corrections@corrections.com': 'inspector',
+export const allNavigationKeys: readonly NavigationKey[] = [
+  'dashboard',
+  'missions',
+  'violations',
+  'facilities',
+  'users',
+  'settings',
+  'checklists',
+]
+
+/** Convert a numeric user level from Supabase to a role key */
+export function levelToRole(level: number): UserRole {
+  if (level === 0) return 'techadmin'
+  if (level === 1) return 'superadmin'
+  if (level === 2) return 'central'
+  if (level === 3) return 'generalmanager'
+  if (level === 4) return 'creator'
+  if (level === 5) return 'financial'
+  return 'inspector'
 }
 
-export const demoRoleAliases: Record<string, DemoRole> = {
-  admin: 'superadmin',
-  superadmin: 'superadmin',
-  techadmin: 'techadmin',
-  director: 'central',
-  central: 'central',
-  supervisor: 'generalmanager',
-  generalmanager: 'generalmanager',
-  creator: 'creator',
-  financial: 'financial',
-  inspector: 'inspector',
-  corrections: 'inspector',
+export function getRoleDefinition(role: UserRole | null | undefined) {
+  return roleDefinitions[role ?? 'inspector']
 }
 
-export const demoAccounts = Array.from(new Set([
-  ...Object.keys(demoEmailToRoleMap),
-  ...Object.values(roleDefinitions).map((role) => role.email)
-]))
-
-export const demoSessionRoles = Object.keys(roleDefinitions) as DemoRole[]
-
-export function normalizeDemoRole(value?: string | null): DemoRole | null {
-  if (!value) return null
-  const normalized = decodeURIComponent(value).trim().toLowerCase()
-  
-  if (demoEmailToRoleMap[normalized]) {
-    return demoEmailToRoleMap[normalized]
-  }
-  
-  if (demoSessionRoles.includes(normalized as DemoRole)) {
-    return normalized as DemoRole
-  }
-  
-  if (demoRoleAliases[normalized]) {
-    return demoRoleAliases[normalized]
-  }
-  
-  const prefix = normalized.includes('@') ? normalized.split('@')[0] : normalized
-  
-  if (demoRoleAliases[prefix]) {
-    return demoRoleAliases[prefix]
-  }
-  
-  if (demoSessionRoles.includes(prefix as DemoRole)) {
-    return prefix as DemoRole
-  }
-
-  return null
-}
-
-export function isDemoAccount(email: string) {
-  return (demoAccounts as readonly string[]).includes(email.trim().toLowerCase())
-}
-
-export function getRoleDefinition(role: DemoRole | null | undefined) {
-  return roleDefinitions[role ?? 'superadmin']
-}
-
-export function getRoleNavigation(role: DemoRole, dynamicPermissionsRaw?: string | null): readonly NavigationKey[] {
-  if (dynamicPermissionsRaw) {
-    try {
-      const decoded = dynamicPermissionsRaw.includes('%') ? decodeURIComponent(dynamicPermissionsRaw) : dynamicPermissionsRaw
-      const parsed = JSON.parse(decoded)
-      if (parsed && parsed[role] && Array.isArray(parsed[role])) {
-        return parsed[role] as readonly NavigationKey[]
-      }
-    } catch {}
-  }
+export function getRoleNavigation(role: UserRole): readonly NavigationKey[] {
   return roleDefinitions[role].navigation
 }
 
-export function getUserNavigation(
-  emailOrId: string | null | undefined,
-  role: DemoRole,
-  dynamicPermissionsRaw?: string | null,
-  userPermissionsRaw?: string | null
-): readonly NavigationKey[] {
-  if (emailOrId && userPermissionsRaw) {
-    try {
-      const decoded = userPermissionsRaw.includes('%') ? decodeURIComponent(userPermissionsRaw) : userPermissionsRaw
-      const parsed = JSON.parse(decoded)
-      const userKey = emailOrId.trim().toLowerCase()
-      
-      const resolvedRole = normalizeDemoRole(userKey) || role
-      
-      if (parsed) {
-        // 1. Match literal key (e.g. email)
-        if (parsed[userKey] && Array.isArray(parsed[userKey])) {
-          return parsed[userKey] as readonly NavigationKey[]
-        }
-        
-        // 2. Match resolved role key (e.g. 'superadmin', 'techadmin')
-        if (parsed[resolvedRole] && Array.isArray(parsed[resolvedRole])) {
-          return parsed[resolvedRole] as readonly NavigationKey[]
-        }
-        
-        // 3. Match any key that maps to the same resolved role
-        const matchedKey = Object.keys(parsed).find(
-          (k) => normalizeDemoRole(k) === resolvedRole
-        )
-        if (matchedKey && Array.isArray(parsed[matchedKey])) {
-          return parsed[matchedKey] as readonly NavigationKey[]
-        }
-      }
-    } catch {}
-  }
-  return getRoleNavigation(role, dynamicPermissionsRaw)
+export function normalizeNavigationKeys(pages: string[] | null | undefined): NavigationKey[] {
+  if (!Array.isArray(pages)) return []
+  const allowed = new Set(pages)
+  return allNavigationKeys.filter((key) => allowed.has(key))
 }
-

@@ -1,10 +1,10 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2, LayoutGrid, List, Copy, Check, FileSpreadsheet, Edit2 } from 'lucide-react'
+import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2, LayoutGrid, List, Copy, Check, FileSpreadsheet, Edit2, Key } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
-import { normalizeDemoRole } from '@/lib/roles'
+
 
 type UserRow = {
   id: string
@@ -17,6 +17,12 @@ type UserRow = {
   phone?: string | null
   facility_id?: string | null
   financial_code?: string | null
+  org_unit_id?: string | null
+  created_at?: string | null
+  real_assigned_count?: number
+  real_completed_count?: number
+  real_created_count?: number
+  real_approved_count?: number
 }
 
 type FacilityOption = {
@@ -167,12 +173,10 @@ function UserAvatar({ name, level }: { name: string; level: number }) {
 
 export function UserPortal({
   initialUsers,
-  demoMode = false,
   facilities = [],
   currentUserLevel = 7,
 }: {
   initialUsers: UserRow[]
-  demoMode?: boolean
   facilities?: FacilityOption[]
   currentUserLevel?: number
 }) {
@@ -183,13 +187,19 @@ export function UserPortal({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [selectedDetailUser, setSelectedDetailUser] = useState<UserRow | null>(null)
 
-  const handleImpersonateUser = (userEmail: string) => {
-    if (!userEmail) return;
-    const resolvedRole = normalizeDemoRole(userEmail) || 'inspector'
-    document.cookie = `maamouriyat_demo_session=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
-    document.cookie = `maamouriyat_user_role=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
-    window.location.href = '/dashboard'
-  }
+  const [orgUnits, setOrgUnits] = useState<any[]>([])
+
+  useEffect(() => {
+    async function loadOrgUnits() {
+      if (!supabase) return
+      const { data } = await supabase
+        .from('organizational_units')
+        .select('id, name')
+        .order('sort_order', { ascending: true })
+      if (data) setOrgUnits(data)
+    }
+    loadOrgUnits()
+  }, [supabase])
 
   const handleExportToExcel = () => {
     // CSV columns headers
@@ -252,6 +262,7 @@ export function UserPortal({
   const [editLevel, setEditLevel] = useState(7)
   const [editDepartment, setEditDepartment] = useState('')
   const [editFacilityId, setEditFacilityId] = useState('')
+  const [editOrgUnitId, setEditOrgUnitId] = useState('')
   const [editEmail, setEditEmail] = useState('')
   const [editPhone, setEditPhone] = useState('')
   const [editFinancialCode, setEditFinancialCode] = useState('')
@@ -264,6 +275,7 @@ export function UserPortal({
     setEditLevel(u.level)
     setEditDepartment(u.department || '')
     setEditFacilityId(u.facility_id || '')
+    setEditOrgUnitId(u.org_unit_id || '')
     setEditEmail(u.email || '')
     setEditPhone(u.phone || '')
     setEditFinancialCode(u.financial_code || '')
@@ -297,30 +309,6 @@ export function UserPortal({
     const selectedFac = facilities.find(f => f.id === editFacilityId)
     const finalDepartment = selectedFac ? selectedFac.name : editDepartment || 'ديوان عام الوزارة'
 
-    if (demoMode) {
-      const updatedUser: UserRow = {
-        ...editingUser,
-        full_name: name,
-        job_title: job || 'مفتش ميداني',
-        level: editLevel,
-        department: finalDepartment,
-        is_active: editIsActive,
-        email: userEmail,
-        phone: userPhone || null,
-        facility_id: editFacilityId || null,
-        financial_code: finCode || null,
-      }
-
-      const cookieName = 'maamouriyat_demo_users'
-      const updatedList = users.map(u => u.id === editingUser.id ? updatedUser : u)
-      document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify(updatedList))}; path=/; max-age=604800; SameSite=Lax`
-
-      setUsers(updatedList)
-      setSuccess('تم تحديث بيانات وصلاحيات الموظف بنجاح في وضع المحاكاة.')
-      resetEditForm()
-      return
-    }
-
     if (!supabase) {
       setError('إعداد قاعدة بيانات Supabase غير متوفر حالياً.')
       setLoading(false)
@@ -334,6 +322,7 @@ export function UserPortal({
         level: editLevel,
         department: finalDepartment,
         facility_id: editFacilityId || null,
+        org_unit_id: editOrgUnitId || null,
         email: userEmail,
         phone: userPhone || null,
         financial_code: finCode || null,
@@ -344,7 +333,7 @@ export function UserPortal({
         .from('users')
         .update(payload)
         .eq('id', editingUser.id)
-        .select('id, full_name, job_title, level, department, is_active, email, phone, facility_id, financial_code')
+        .select('id, full_name, job_title, level, department, is_active, email, phone, facility_id, financial_code, org_unit_id')
         .single()
 
       if (updateError) {
@@ -372,6 +361,7 @@ export function UserPortal({
     setEditLevel(7)
     setEditDepartment('')
     setEditFacilityId('')
+    setEditOrgUnitId('')
     setEditEmail('')
     setEditPhone('')
     setEditFinancialCode('')
@@ -390,6 +380,7 @@ export function UserPortal({
   const [level, setLevel] = useState(7)
   const [department, setDepartment] = useState('')
   const [facilityId, setFacilityId] = useState('')
+  const [orgUnitId, setOrgUnitId] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [financialCode, setFinancialCode] = useState('')
@@ -399,6 +390,16 @@ export function UserPortal({
   const [success, setSuccess] = useState('')
 
   const activeCount = useMemo(() => users.filter((u) => u.is_active !== false).length, [users])
+
+  const counts = useMemo(() => {
+    const visibleUsers = users.filter((u) => u.level >= currentUserLevel);
+    return {
+      all: visibleUsers.length,
+      admins: visibleUsers.filter((u) => u.level <= 3).length,
+      inspectors: visibleUsers.filter((u) => u.level === 7).length,
+      staff: visibleUsers.filter((u) => u.level === 4 || u.level === 5).length,
+    }
+  }, [users, currentUserLevel])
 
   // Filtered & Searched staff members list
   const filteredUsers = useMemo(() => {
@@ -450,39 +451,7 @@ export function UserPortal({
     const selectedFac = facilities.find(f => f.id === facilityId)
     const finalDepartment = selectedFac ? selectedFac.name : department || 'ديوان عام الوزارة'
 
-    if (demoMode) {
-      const newUser: UserRow = {
-        id: `demo-user-${Date.now()}`,
-        full_name: name,
-        job_title: job || 'مفتش ميداني',
-        level,
-        department: finalDepartment,
-        is_active: true,
-        email: userEmail,
-        phone: userPhone || null,
-        facility_id: facilityId || null,
-        financial_code: finCode || null,
-      }
 
-      // Save to cookie
-      const cookieName = 'maamouriyat_demo_users'
-      const existingCookie = document.cookie
-        .split('; ')
-        .find((item) => item.startsWith(`${cookieName}=`))
-        ?.split('=')[1]
-      let existing: UserRow[] = []
-      try {
-        existing = existingCookie ? JSON.parse(decodeURIComponent(existingCookie)) : []
-      } catch {}
-
-      const next = [newUser, ...existing]
-      document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify(next))}; path=/; max-age=604800; SameSite=Lax`
-
-      setUsers((current) => [newUser, ...current])
-      setSuccess('تم تسجيل الموظف الجديد وحفظه بنجاح بالدورة التدريبية.')
-      resetForm()
-      return
-    }
 
     if (!supabase) {
       setError('إعداد قاعدة بيانات Supabase غير متوفر حالياً.')
@@ -491,33 +460,35 @@ export function UserPortal({
     }
 
     try {
-      const payload = {
-        full_name: name,
-        job_title: job || null,
-        level,
-        department: finalDepartment,
-        facility_id: facilityId || null,
-        email: userEmail,
-        phone: userPhone || null,
-        financial_code: finCode || null,
-        is_active: true,
-      }
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: userEmail,
+          full_name: name,
+          job_title: job || null,
+          level,
+          department: finalDepartment,
+          phone: userPhone || null,
+          financial_code: finCode || null,
+          facility_id: facilityId || null,
+          org_unit_id: orgUnitId || null
+        })
+      })
 
-      const { data, error: insertError } = await supabase
-        .from('users')
-        .insert(payload)
-        .select('id, full_name, job_title, level, department, is_active, email, phone, facility_id, financial_code')
-        .single()
+      const result = await response.json()
 
-      if (insertError) {
-        setError(insertError.message)
+      if (!response.ok || result.error) {
+        setError(result.error || 'فشل في ترحيل وإنشاء حساب الموظف الجديد في المخدم.')
         setLoading(false)
         return
       }
 
-      if (data) {
-        setUsers((current) => [data as UserRow, ...current])
-        setSuccess('تم ترحيل الموظف الجديد وتسكينه على قاعدة البيانات الحية بنجاح.')
+      if (result.data) {
+        setUsers((current) => [result.data as UserRow, ...current])
+        setSuccess('تم ترحيل الموظف الجديد وإنشاء حسابه الفعلي للمصادقة بنجاح.')
         resetForm()
       }
     } catch (err: any) {
@@ -533,15 +504,6 @@ export function UserPortal({
       setError('')
       setSuccess('')
 
-      if (demoMode) {
-        const cookieName = 'maamouriyat_demo_users'
-        const next = users.filter(u => u.id !== userId)
-        document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify(next))}; path=/; max-age=604800; SameSite=Lax`
-        setUsers(next)
-        setSuccess('تم حذف الموظف بنجاح من قائمة المحاكاة.')
-        setLoading(false)
-        return
-      }
 
       if (supabase) {
         try {
@@ -567,12 +529,50 @@ export function UserPortal({
     }
   }
 
+  async function handleResetPassword(userId: string, email: string) {
+    if (!email) {
+      alert('البريد الإلكتروني الخاص بالموظف غير متوفر.')
+      return
+    }
+
+    if (!confirm(`هل أنت متأكد من رغبتك في إعادة تعيين كلمة مرور الموظف ذو البريد (${email}) إلى كلمة المرور الافتراضية "123456" وفرض تغييرها عند تسجيل دخوله القادم؟`)) {
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setSuccess('')
+
+
+    try {
+      const response = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId, email })
+      })
+
+      const data = await response.json()
+      if (!response.ok || data.error) {
+        setError(data.error || 'فشل في إعادة تعيين كلمة المرور.')
+      } else {
+        setSuccess(data.message || 'تم إعادة تعيين كلمة المرور بنجاح.')
+      }
+    } catch (err: any) {
+      setError(err.message || 'حدث خطأ أثناء الاتصال بالخادم الرئيسي.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   function resetForm() {
     setFullName('')
     setJobTitle('')
     setLevel(7)
     setDepartment('')
     setFacilityId('')
+    setOrgUnitId('')
     setEmail('')
     setPhone('')
     setFinancialCode('')
@@ -598,7 +598,7 @@ export function UserPortal({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold', color: '#102027' }}>
-              دليل الموظفين والكوادر الرقابية
+              دليل الموظفين والكوادر المحوكمة
             </h2>
             <span style={{
               fontSize: '11px',
@@ -650,28 +650,28 @@ export function UserPortal({
       <section style={{
         background: 'white',
         border: '1px solid var(--line)',
-        padding: '16px',
+        padding: '12px 16px',
         borderRadius: '16px',
         boxShadow: 'var(--shadow)',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: '16px'
+        gap: '12px'
       }}>
-        {/* Search input */}
-        <div style={{ position: 'relative', flex: '1', minWidth: '260px' }}>
+        {/* Search input - Compact and fixed-width on desktop */}
+        <div style={{ position: 'relative', flex: '0 0 240px', width: '240px' }}>
           <Search size={18} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#78909c' }} />
           <input
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="ابحث عن موظف بالاسم، الإيميل، الكود المالي أو المسمى..."
+            placeholder="ابحث بالاسم، الإيميل، الكود أو المسمى..."
             style={{
               width: '100%',
-              minHeight: '42px',
+              minHeight: '38px',
               border: '1px solid #cfdcde',
               borderRadius: '10px',
               padding: '0 40px 0 12px',
-              fontSize: '13.5px',
+              fontSize: '13px',
               background: '#f8fbfb',
               outline: 'none',
               transition: 'border-color 0.2s',
@@ -688,77 +688,77 @@ export function UserPortal({
           <button
             onClick={() => setFilterTab('all')}
             style={{
-              background: filterTab === 'all' ? 'white' : 'transparent',
-              color: filterTab === 'all' ? 'var(--brand)' : '#546e7a',
+              background: filterTab === 'all' ? 'var(--brand)' : 'transparent',
+              color: filterTab === 'all' ? 'white' : '#546e7a',
               border: 0,
               borderRadius: '8px',
               padding: '8px 16px',
               fontSize: '12.5px',
               fontWeight: 'bold',
               cursor: 'pointer',
-              boxShadow: filterTab === 'all' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+              boxShadow: filterTab === 'all' ? '0 4px 10px rgba(0, 77, 64, 0.2)' : 'none',
               transition: 'all 0.2s'
             }}
             type="button"
           >
-            الكل ({users.length})
+            الكل ({counts.all})
           </button>
           
           <button
             onClick={() => setFilterTab('admins')}
             style={{
-              background: filterTab === 'admins' ? 'white' : 'transparent',
-              color: filterTab === 'admins' ? 'var(--brand)' : '#546e7a',
+              background: filterTab === 'admins' ? '#1976d2' : 'transparent',
+              color: filterTab === 'admins' ? 'white' : '#546e7a',
               border: 0,
               borderRadius: '8px',
               padding: '8px 16px',
               fontSize: '12.5px',
               fontWeight: 'bold',
               cursor: 'pointer',
-              boxShadow: filterTab === 'admins' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+              boxShadow: filterTab === 'admins' ? '0 4px 10px rgba(25, 118, 210, 0.2)' : 'none',
               transition: 'all 0.2s'
             }}
             type="button"
           >
-            الإدارة العليا والمدراء
+            الإدارة العليا والمدراء ({counts.admins})
           </button>
 
           <button
             onClick={() => setFilterTab('inspectors')}
             style={{
-              background: filterTab === 'inspectors' ? 'white' : 'transparent',
-              color: filterTab === 'inspectors' ? 'var(--brand)' : '#546e7a',
+              background: filterTab === 'inspectors' ? '#e67e22' : 'transparent',
+              color: filterTab === 'inspectors' ? 'white' : '#546e7a',
               border: 0,
               borderRadius: '8px',
               padding: '8px 16px',
               fontSize: '12.5px',
               fontWeight: 'bold',
               cursor: 'pointer',
-              boxShadow: filterTab === 'inspectors' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+              boxShadow: filterTab === 'inspectors' ? '0 4px 10px rgba(230, 126, 34, 0.2)' : 'none',
               transition: 'all 0.2s'
             }}
             type="button"
           >
-            القائمون بالمرور (المفتشين)
+            القائمون بالمرور (المفتشين) ({counts.inspectors})
           </button>
 
           <button
             onClick={() => setFilterTab('staff')}
             style={{
-              background: filterTab === 'staff' ? 'white' : 'transparent',
-              color: filterTab === 'staff' ? 'var(--brand)' : '#546e7a',
+              background: filterTab === 'staff' ? '#2ecc71' : 'transparent',
+              color: filterTab === 'staff' ? 'white' : '#546e7a',
               border: 0,
               borderRadius: '8px',
               padding: '8px 16px',
               fontSize: '12.5px',
               fontWeight: 'bold',
               cursor: 'pointer',
-              boxShadow: filterTab === 'staff' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+              boxShadow: filterTab === 'staff' ? '0 4px 10px rgba(46, 204, 113, 0.2)' : 'none',
               transition: 'all 0.2s'
             }}
             type="button"
           >
-            الدعم والتنسيق المالي
+            الدعم والتنسيق المالي ({counts.staff})
           </button>
         </div>
 
@@ -855,12 +855,11 @@ export function UserPortal({
           {filteredUsers.map((u) => {
             const badgeStyle = levelToneColors(u.level)
             
-            // Deterministic statistics and meta information based on user profile
-            const hash = u.full_name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
-            
+            // Real dynamic statistics and join date from database
+            const dateObj = u.created_at ? new Date(u.created_at) : new Date()
             const months = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر']
-            const joinMonth = months[hash % 12]
-            const joinYear = 2024 + (hash % 3)
+            const joinMonth = months[dateObj.getMonth()]
+            const joinYear = dateObj.getFullYear()
             const joinDate = `انضم في ${joinMonth} ${joinYear}`
             
             let systemScope = 'صلاحية محدودة بالمنظومة'
@@ -872,19 +871,19 @@ export function UserPortal({
             else if (u.level === 7) systemScope = 'التنفيذ الميداني ورصد المخالفات الفورية'
 
             let missionStats = ''
+            const assignedCount = u.real_assigned_count || 0
+            const completedCount = u.real_completed_count || 0
+            const createdCount = u.real_created_count || 0
+            const approvedCount = u.real_approved_count || 0
+
             if (u.level === 7) {
-              const activeM = (hash % 3) + 1
-              const compM = (hash % 15) + 5
-              missionStats = `المأموريات الميدانية: ${activeM} جارية | ${compM} مكتملة`
+              missionStats = `المأموريات الميدانية: ${assignedCount} جارية | ${completedCount} مكتملة`
             } else if (u.level === 5) {
-              const audited = (hash % 20) + 10
-              missionStats = `معاملات مالية مدققة: ${audited} مطالبة`
+              missionStats = `معاملات مالية مدققة: ${completedCount} مطالبة`
             } else if (u.level === 4) {
-              const assigned = (hash % 25) + 12
-              missionStats = `مأموريات مجدولة ومكلفة: ${assigned}`
+              missionStats = `مأموريات مجدولة ومكلفة: ${createdCount}`
             } else {
-              const approved = (hash % 35) + 20
-              missionStats = `مأموريات تم اعتمادها: ${approved} خطة`
+              missionStats = `مأموريات تم اعتمادها: ${approvedCount} خطة`
             }
 
             const isVerified = u.is_active !== false
@@ -1089,34 +1088,6 @@ export function UserPortal({
                     </a>
                   )}
 
-                  {currentUserLevel <= 1 && u.email && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleImpersonateUser(u.email!)
-                      }}
-                      style={{
-                        background: '#eef6f6',
-                        color: 'var(--brand)',
-                        border: '1px solid #cfdcde',
-                        borderRadius: '6px',
-                        width: '32px',
-                        height: '32px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        transition: 'background 0.2s',
-                        flexShrink: 0
-                      }}
-                      title="محاكاة الدخول الفوري بهذا الحساب"
-                      type="button"
-                      onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
-                    >
-                      <Shield size={13} style={{ transform: 'rotate(180deg)' }} />
-                    </button>
-                  )}
 
                   {currentUserLevel <= 1 && (
                     <button
@@ -1144,6 +1115,35 @@ export function UserPortal({
                       onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
                     >
                       <Edit2 size={13} />
+                    </button>
+                  )}
+
+                  {currentUserLevel <= 1 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleResetPassword(u.id, u.email || '')
+                      }}
+                      style={{
+                        background: '#fff9e6',
+                        color: '#d4af37',
+                        border: '1px solid #ffe082',
+                        borderRadius: '6px',
+                        width: '32px',
+                        height: '32px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                        flexShrink: 0
+                      }}
+                      title="إعادة تعيين كلمة مرور الموظف (إلى 123456)"
+                      type="button"
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#ffe082'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = '#fff9e6'}
+                    >
+                      <Key size={13} />
                     </button>
                   )}
 
@@ -1350,33 +1350,6 @@ export function UserPortal({
                       {/* Actions */}
                       <td style={{ padding: '12px 20px', textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                          {currentUserLevel <= 1 && u.email && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleImpersonateUser(u.email!)
-                              }}
-                              style={{
-                                background: '#eef6f6',
-                                color: 'var(--brand)',
-                                border: '1px solid #cfdcde',
-                                borderRadius: '6px',
-                                width: '28px',
-                                height: '28px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                transition: 'background 0.2s',
-                              }}
-                              title="محاكاة الدخول الفوري بهذا الحساب"
-                              type="button"
-                              onMouseEnter={(e) => e.currentTarget.style.background = '#e0f2f1'}
-                              onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
-                            >
-                              <Shield size={12} style={{ transform: 'rotate(180deg)' }} />
-                            </button>
-                          )}
                           {currentUserLevel <= 1 && (
                             <button
                               onClick={(e) => {
@@ -1402,6 +1375,34 @@ export function UserPortal({
                               onMouseLeave={(e) => e.currentTarget.style.background = '#eef6f6'}
                             >
                               <Edit2 size={12} />
+                            </button>
+                          )}
+
+                          {currentUserLevel <= 1 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleResetPassword(u.id, u.email || '')
+                              }}
+                              style={{
+                                background: '#fff9e6',
+                                color: '#d4af37',
+                                border: '1px solid #ffe082',
+                                borderRadius: '6px',
+                                width: '28px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                transition: 'background 0.2s',
+                              }}
+                              title="إعادة تعيين كلمة مرور الموظف (إلى 123456)"
+                              type="button"
+                              onMouseEnter={(e) => e.currentTarget.style.background = '#ffe082'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = '#fff9e6'}
+                            >
+                              <Key size={12} />
                             </button>
                           )}
 
@@ -1458,51 +1459,163 @@ export function UserPortal({
 
       {/* Staff Registration Modal overlay */}
       {showAddForm && (
-        <div style={{
+        <div className="staff-registration-overlay" style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(16, 32, 39, 0.55)',
-          backdropFilter: 'blur(4px)',
+          background: 'rgba(10, 24, 31, 0.62)',
+          backdropFilter: 'blur(6px)',
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'center',
-          padding: '16px',
+          padding: '24px 16px',
           zIndex: 999,
           overflowY: 'auto'
         }}>
+          <style jsx>{`
+            .staff-registration-overlay {
+              direction: rtl;
+            }
+
+            .staff-registration-modal {
+              scrollbar-width: thin;
+              scrollbar-color: #b7c9cc transparent;
+            }
+
+            .staff-registration-header {
+              background: #ffffff;
+              position: sticky;
+              top: 0;
+              z-index: 3;
+            }
+
+            .staff-registration-note {
+              margin: 18px 22px 4px;
+            }
+
+            .staff-registration-modal > label,
+            .staff-registration-modal > div:not(.staff-registration-header):not(.staff-registration-note):not(.staff-registration-actions) {
+              margin-inline: 22px;
+            }
+
+            .staff-registration-modal label {
+              color: #263942 !important;
+              font-size: 13px !important;
+              line-height: 1.5;
+            }
+
+            .staff-registration-modal input,
+            .staff-registration-modal select {
+              min-height: 48px !important;
+              border-radius: 10px !important;
+              border-color: #c8d6d9 !important;
+              background: #fbfdfd !important;
+              font-size: 14px !important;
+              transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+            }
+
+            .staff-registration-modal input:focus,
+            .staff-registration-modal select:focus {
+              background: #ffffff !important;
+              border-color: #0f766e !important;
+              box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+            }
+
+            .staff-registration-actions {
+              background: #ffffff;
+              position: sticky;
+              bottom: 0;
+              z-index: 2;
+            }
+
+            @media (max-width: 640px) {
+              .staff-registration-overlay {
+                align-items: stretch !important;
+                padding: 0 !important;
+              }
+
+              .staff-registration-modal {
+                width: 100% !important;
+                max-width: none !important;
+                min-height: 100dvh;
+                max-height: 100dvh !important;
+                border-radius: 0 !important;
+                border: 0 !important;
+              }
+
+              .staff-registration-header {
+                padding: 16px !important;
+                align-items: flex-start !important;
+              }
+
+              .staff-registration-header h3 {
+                font-size: 16px !important;
+                line-height: 1.5 !important;
+              }
+
+              .staff-registration-note {
+                margin: 12px 16px 2px !important;
+                font-size: 12.5px !important;
+              }
+
+              .staff-registration-modal > label,
+              .staff-registration-modal > div:not(.staff-registration-header):not(.staff-registration-note):not(.staff-registration-actions) {
+                margin-inline: 16px !important;
+              }
+
+              .staff-registration-modal > div:not(.staff-registration-header):not(.staff-registration-note):not(.staff-registration-actions) {
+                grid-template-columns: 1fr !important;
+              }
+
+              .staff-registration-actions {
+                display: grid !important;
+                grid-template-columns: 1fr !important;
+                gap: 10px !important;
+                padding: 14px 16px calc(14px + env(safe-area-inset-bottom)) !important;
+              }
+
+              .staff-registration-actions button {
+                width: 100%;
+                min-height: 48px !important;
+              }
+            }
+          `}</style>
           <form
+            className="staff-registration-modal"
             onSubmit={handleAddUser}
             style={{
               background: 'white',
               border: '1px solid var(--line)',
-              borderRadius: '16px',
-              padding: '28px',
-              maxWidth: '540px',
+              borderRadius: '14px',
+              padding: '0 0 18px',
+              maxWidth: '760px',
               width: '100%',
               display: 'grid',
               gap: '16px',
-              boxShadow: '0 8px 32px rgba(16,32,39,0.15)',
-              maxHeight: '90vh',
+              boxShadow: '0 18px 52px rgba(10,24,31,0.24)',
+              maxHeight: '92vh',
               overflowY: 'auto',
               position: 'relative',
               animation: 'modalSlideUp 0.3s ease-out'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #eef6f6', paddingBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#102027', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Plus size={22} style={{ color: 'var(--brand)' }} />
+            <div className="staff-registration-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e7eff1', padding: '20px 22px 16px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.15rem', color: '#102027', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ width: '38px', height: '38px', borderRadius: '10px', background: '#e7f5f1', color: 'var(--brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Plus size={21} />
+                </span>
                 تسجيل وتسكين موظف جديد بالمنظومة
               </h3>
               <button
                 onClick={() => setShowAddForm(false)}
-                style={{ background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center' }}
+                aria-label="إغلاق"
+                style={{ background: '#f3f7f8', border: '1px solid #dde8ea', borderRadius: '999px', width: '38px', height: '38px', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
                 type="button"
               >
-                <X size={22} />
+                <X size={20} />
               </button>
             </div>
 
-            <div style={{ background: '#eef6f6', padding: '12px 14px', borderRadius: '10px', fontSize: '12.5px', color: 'var(--brand)', lineHeight: '1.5', border: '1px solid #c7ebd8' }}>
+            <div className="staff-registration-note" style={{ background: '#eef8f5', padding: '12px 14px', borderRadius: '10px', fontSize: '12.5px', color: '#0e6b60', lineHeight: '1.7', border: '1px solid #c7e9dd' }}>
               سيتم استخدام البريد الإلكتروني المدخل كحساب لتسجيل دخول الكادر، ومن خلاله سيتلقى المفتش الإشعارات الفورية بمأمورياته والتنبيهات المباشرة.
             </div>
 
@@ -1633,6 +1746,40 @@ export function UserPortal({
             </div>
 
             <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+              الإدارة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
+              <select
+                onChange={(event) => {
+                  const unitId = event.target.value
+                  setOrgUnitId(unitId)
+                  const unit = orgUnits.find(u => u.id === unitId)
+                  if (unit) {
+                    setDepartment(unit.name)
+                  } else {
+                    setDepartment('')
+                  }
+                }}
+                required
+                style={{
+                  background: '#f8fbfb',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '8px',
+                  minHeight: '40px',
+                  padding: '0 8px',
+                  fontSize: '13.5px',
+                  outline: 'none'
+                }}
+                value={orgUnitId}
+              >
+                <option value="">-- اختر الإدارة التنظيمية --</option>
+                {orgUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
               الجهة أو المنشأة الطبية التابع لها الموظف الرئيسي *
               <select
                 onChange={(event) => setFacilityId(event.target.value)}
@@ -1657,7 +1804,7 @@ export function UserPortal({
               </select>
             </label>
 
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-start', marginTop: '14px', borderTop: '1px solid #eef6f6', paddingTop: '16px' }}>
+            <div className="staff-registration-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-start', marginTop: '4px', borderTop: '1px solid #eef6f6', padding: '16px 22px 0' }}>
               <button
                 disabled={loading}
                 style={{
@@ -1992,31 +2139,7 @@ export function UserPortal({
                 paddingTop: '20px',
                 marginTop: '10px'
               }}>
-                {currentUserLevel <= 1 && selectedDetailUser.email && (
-                  <button
-                    onClick={() => handleImpersonateUser(selectedDetailUser.email!)}
-                    style={{
-                      flex: 1,
-                      background: 'var(--brand)',
-                      color: 'white',
-                      border: 0,
-                      borderRadius: '8px',
-                      minHeight: '40px',
-                      cursor: 'pointer',
-                      fontWeight: 'bold',
-                      fontSize: '12.5px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      boxShadow: '0 2px 6px rgba(16, 122, 102, 0.15)'
-                    }}
-                    type="button"
-                  >
-                    <Shield size={16} style={{ transform: 'rotate(180deg)' }} />
-                    محاكاة الدخول بهذا الكادر
-                  </button>
-                )}
+
 
                 {currentUserLevel <= 1 && (
                   <button
@@ -2268,6 +2391,40 @@ export function UserPortal({
                 />
               </label>
             </div>
+
+            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+              الإدارة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
+              <select
+                onChange={(event) => {
+                  const unitId = event.target.value
+                  setEditOrgUnitId(unitId)
+                  const unit = orgUnits.find(u => u.id === unitId)
+                  if (unit) {
+                    setEditDepartment(unit.name)
+                  } else {
+                    setEditDepartment('')
+                  }
+                }}
+                required
+                style={{
+                  background: '#f8fbfb',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '8px',
+                  minHeight: '40px',
+                  padding: '0 8px',
+                  fontSize: '13.5px',
+                  outline: 'none'
+                }}
+                value={editOrgUnitId}
+              >
+                <option value="">-- اختر الإدارة التنظيمية --</option>
+                {orgUnits.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
               الجهة أو المنشأة الطبية التابع لها الموظف الرئيسي *

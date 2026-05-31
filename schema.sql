@@ -71,7 +71,7 @@ CREATE INDEX idx_facilities_org_unit ON facilities(org_unit_id);
 -- 4. جدول الكوادر الطبية والمفتشين والموظفين
 CREATE TABLE users (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  auth_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  auth_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT NOT NULL,
   job_title TEXT,
   level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 7), -- 0: techadmin, 1: superadmin, 2: central, 3: generalmanager, 4: creator, 5: financial, 7: inspector
@@ -131,7 +131,7 @@ CREATE TABLE role_permissions (
 );
 
 -- ==========================================
--- الخطوة 2: جداول التكليف والرقابة وجلسات المرور
+-- الخطوة 2: جداول التكليف والحوكمة وجلسات المرور
 -- ==========================================
 
 -- 8. جدول قوائم الفحص الرئيسية (Checklists Templates)
@@ -403,7 +403,10 @@ BEGIN
     7, -- default rank: inspector
     NEW.email
   )
-  ON CONFLICT (auth_id) DO NOTHING;
+  ON CONFLICT (email) DO UPDATE SET
+    auth_id = EXCLUDED.auth_id,
+    full_name = COALESCE(users.full_name, EXCLUDED.full_name),
+    updated_at = NOW();
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation'
 import { DashboardShell } from '@/app/system-ui'
-import { getDemoSessionEmail, getDemoSessionRole } from '@/lib/demo-session'
 import {
   centralHealthAffiliations,
   healthDirectorateAffiliations,
@@ -31,28 +30,16 @@ import { realEgyptianMedicalFacilities } from '@/lib/real-facilities'
 export const dynamic = 'force-dynamic'
 
 export default async function FacilitiesPage() {
-  const demoEmail = await getDemoSessionEmail()
-  const demoRole = await getDemoSessionRole()
   const supabase = await createServerSupabaseClient()
+
+  if (!supabase) {
+    redirect('/login')
+  }
 
   let defaultAffiliations: FacilityAffiliationOption[] = [
     ...healthDirectorateAffiliations.map((name) => ({ name, affiliation_type: 'directorate' as const })),
     ...centralHealthAffiliations.map((name) => ({ name, affiliation_type: 'central_entity' as const })),
   ]
-
-  // Demo / local testing view (no active Supabase connection or demo session active)
-  if (!supabase || demoEmail) {
-    return (
-      <DashboardShell role={demoRole} view="facilities">
-        <FacilitiesPortal
-          initialFacilities={realEgyptianMedicalFacilities}
-          initialAffiliations={defaultAffiliations}
-          facilityStoreReady={false}
-          role={demoRole}
-        />
-      </DashboardShell>
-    )
-  }
 
   // Live Supabase integration
   const {
@@ -72,8 +59,8 @@ export default async function FacilitiesPage() {
   const userLevel = profile?.level ?? 7
   const resolvedRole = userLevel === 0 ? 'techadmin' : userLevel === 1 ? 'superadmin' : userLevel === 2 ? 'central' : userLevel === 3 ? 'generalmanager' : userLevel === 4 ? 'creator' : userLevel === 5 ? 'financial' : 'inspector'
 
-  // Fetch facilities and affiliations in parallel to optimize latency
-  const [facilitiesResult, affiliationsResult] = await Promise.all([
+  // Fetch facilities, affiliations, and users in parallel to optimize latency
+  const [facilitiesResult, affiliationsResult, usersResultRaw] = await Promise.all([
     supabase
       .from('facilities')
       .select(`
@@ -93,7 +80,13 @@ export default async function FacilitiesPage() {
       .select('id, name, affiliation_type')
       .eq('is_active', true)
       .order('sort_order')
-      .order('name')
+      .order('name'),
+    supabase
+      .from('users')
+      .select('id, full_name, job_title, level, department, is_active')
+      .order('level')
+      .order('full_name')
+      .limit(300)
   ])
 
   // Process facilities list
@@ -126,6 +119,8 @@ export default async function FacilitiesPage() {
     facilityStoreReady = true
   }
 
+  const liveUsers = usersResultRaw.data ?? []
+
   return (
     <DashboardShell view="facilities">
       <FacilitiesPortal
@@ -133,6 +128,7 @@ export default async function FacilitiesPage() {
         initialAffiliations={affiliations}
         facilityStoreReady={facilityStoreReady}
         role={resolvedRole}
+        initialUsers={liveUsers}
       />
     </DashboardShell>
   )

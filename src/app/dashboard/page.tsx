@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
-import { DashboardShell } from '../system-ui'
+import { DashboardShell, DashboardScreen } from '../system-ui'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { getDemoSessionRole, type DemoRole } from '@/lib/demo-session'
+// Roles are resolved server-side via levelToRole
 import { AnalyticsDashboard, type ChartItem, type DashboardMetrics, type DashboardProfile, type RankingItem } from './analytics-dashboard'
 
 type MissionRow = {
@@ -14,6 +14,7 @@ type MissionRow = {
   target_facility_id: string | null
   target_governorate_id: string | null
   violation_count: number | null
+  org_unit_id: string | null
 }
 
 type ViolationRow = {
@@ -27,6 +28,7 @@ type FacilityRow = {
   facility_type: string | null
   governorate_id: string | null
   is_active: boolean | null
+  org_unit_id: string | null
 }
 
 type UserRow = {
@@ -35,6 +37,7 @@ type UserRow = {
   job_title: string | null
   level: number | null
   department: string | null
+  org_unit_id: string | null
 }
 
 type GovernorateRow = {
@@ -45,16 +48,10 @@ type GovernorateRow = {
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const demoRole = await getDemoSessionRole()
   const supabase = await createServerSupabaseClient()
 
-  if (!supabase || demoRole) {
-    const demoDashboard = getDemoDashboard(demoRole ?? 'superadmin')
-    return (
-      <DashboardShell role={demoRole ?? 'superadmin'} view="dashboard">
-        <AnalyticsDashboard metrics={demoDashboard.metrics} profile={demoDashboard.profile} />
-      </DashboardShell>
-    )
+  if (!supabase) {
+    redirect('/login')
   }
 
   const {
@@ -67,7 +64,7 @@ export default async function DashboardPage() {
 
   const { data: profileData } = await supabase
     .from('users')
-    .select('full_name, job_title, level, department')
+    .select('id, full_name, job_title, level, department, org_unit_id')
     .eq('auth_id', user.id)
     .maybeSingle<UserRow>()
 
@@ -75,12 +72,12 @@ export default async function DashboardPage() {
     supabase
       .from('missions')
       .select(
-        'status, scheduled_date, completed_at, violation_count, assigned_user_id, target_facility_id, target_governorate_id, actual_facility_id, actual_governorate_id',
+        'status, scheduled_date, completed_at, violation_count, assigned_user_id, target_facility_id, target_governorate_id, actual_facility_id, actual_governorate_id, org_unit_id',
       )
       .limit(1000),
     supabase.from('violations').select('status, priority, facility_id').limit(1000),
-    supabase.from('facilities').select('id, facility_type, is_active, governorate_id').limit(1000),
-    supabase.from('users').select('id, full_name, job_title, level, department').limit(1000),
+    supabase.from('facilities').select('id, facility_type, is_active, governorate_id, org_unit_id').limit(1000),
+    supabase.from('users').select('id, full_name, job_title, level, department, org_unit_id').limit(1000),
     supabase.from('governorates').select('id, name').limit(1000),
   ])
 
@@ -97,7 +94,59 @@ export default async function DashboardPage() {
     level: profileData?.level ?? 7,
   }
 
-  const metrics = buildMetrics({ facilities, governorates, missions, users, violations })
+  // Filter metrics and charts data to reflect only the logged-in user's department/unit.
+  // superadmin (level 1) and techadmin (level 0) see global system metrics.
+  // levels 2, 3, 4, 5 (central, generalmanager, creator, financial) see their department-specific data.
+  const userOrgUnitId = profileData?.org_unit_id
+  const userDeptText = profileData?.department
+  const userLevel = profileData?.level ?? 7
+  const shouldFilterByDept = userLevel > 1 && userLevel <= 5
+
+  const filteredUsers = shouldFilterByDept
+    ? (userOrgUnitId
+        ? users.filter((u) => u.org_unit_id === userOrgUnitId)
+        : (userDeptText
+            ? users.filter((u) => u.department === userDeptText)
+            : users))
+    : users
+
+  const filteredMissions = shouldFilterByDept
+    ? (userOrgUnitId
+        ? missions.filter((m) => m.org_unit_id === userOrgUnitId)
+        : (userDeptText
+            ? missions.filter((m) => {
+                const assignedUser = users.find((u) => u.id === m.assigned_user_id)
+                return assignedUser?.department === userDeptText
+              })
+            : missions))
+    : missions
+
+  const filteredFacilities = shouldFilterByDept
+    ? (userOrgUnitId
+        ? facilities.filter((f) => f.org_unit_id === userOrgUnitId)
+        : facilities)
+    : facilities
+
+  const filteredFacilityIds = new Set(filteredFacilities.map((f) => f.id))
+  const filteredViolations = shouldFilterByDept
+    ? violations.filter((v) => v.facility_id && filteredFacilityIds.has(v.facility_id))
+    : violations
+
+  const metrics = buildMetrics({
+    facilities: filteredFacilities,
+    governorates,
+    missions: filteredMissions,
+    users: filteredUsers,
+    violations: filteredViolations,
+  })
+
+  if (profile.level === 7) {
+    return (
+      <DashboardShell view="dashboard">
+        <DashboardScreen />
+      </DashboardShell>
+    )
+  }
 
   return (
     <DashboardShell view="dashboard">
@@ -380,275 +429,3 @@ function normalizeChartItems(items: ChartItem[], fallback: ChartItem[]) {
   return items.length ? items.slice(0, 5) : fallback
 }
 
-const demoProfile: DashboardProfile = {
-  department: 'بيئة العرض التجريبي',
-  fullName: 'مدير النظام',
-  isDemo: true,
-  jobTitle: 'مدير عام المتابعة',
-  level: 1,
-}
-
-const demoMetrics: DashboardMetrics = {
-  activeFacilities: 842,
-  facilitiesTotal: 890,
-  highPriorityViolations: 7,
-  inspectorsTotal: 36,
-  lowPriorityViolations: 21,
-  mediumPriorityViolations: 22,
-  missionsCompleted: 124,
-  missionsInProgress: 18,
-  missionsLate: 5,
-  missionsPending: 14,
-  missionsTotal: 161,
-  usersTotal: 48,
-  violatingFacilities: 42,
-  violationsCorrected: 31,
-  violationsOpen: 19,
-  violationsTotal: 50,
-  facilityTypes: [
-    { label: 'مستشفيات', value: 420, tone: 'teal' },
-    { label: 'عيادات', value: 260, tone: 'blue' },
-    { label: 'معامل', value: 145, tone: 'green' },
-    { label: 'مراكز', value: 65, tone: 'amber' },
-  ],
-  governorateVisits: [
-    { label: 'القاهرة', value: 38, tone: 'teal' },
-    { label: 'الجيزة', value: 29, tone: 'blue' },
-    { label: 'الإسكندرية', value: 24, tone: 'green' },
-    { label: 'الدقهلية', value: 18, tone: 'amber' },
-    { label: 'الشرقية', value: 16, tone: 'violet' },
-    { label: 'أسيوط', value: 13, tone: 'red' },
-  ],
-  missionStatus: [
-    { label: 'مكتملة', value: 124, tone: 'green' },
-    { label: 'قيد التنفيذ', value: 18, tone: 'blue' },
-    { label: 'بانتظار الاعتماد', value: 14, tone: 'amber' },
-    { label: 'متأخرة', value: 5, tone: 'red' },
-  ],
-  monthlyTrend: [
-    { label: 'ديسمبر', value: 18, tone: 'teal' },
-    { label: 'يناير', value: 23, tone: 'teal' },
-    { label: 'فبراير', value: 27, tone: 'teal' },
-    { label: 'مارس', value: 31, tone: 'teal' },
-    { label: 'أبريل', value: 29, tone: 'teal' },
-    { label: 'مايو', value: 33, tone: 'teal' },
-  ],
-  priorityBreakdown: [
-    { label: 'حرجة', value: 7, tone: 'red' },
-    { label: 'متوسطة', value: 22, tone: 'amber' },
-    { label: 'بسيطة', value: 21, tone: 'blue' },
-    { label: 'تم التصحيح', value: 31, tone: 'green' },
-  ],
-  topInspectors: [
-    { detail: 'تفتيش ومتابعة', label: 'أحمد محمود', value: 18 },
-    { detail: 'تفتيش منشآت', label: 'سارة خالد', value: 15 },
-    { detail: 'مشرف ميداني', label: 'محمد علي', value: 12 },
-    { detail: 'تفتيش جودة', label: 'منى حسن', value: 9 },
-    { detail: 'متابعة تصحيح', label: 'خالد إبراهيم', value: 7 },
-  ],
-  visitDaysByGovernorate: [
-    { label: 'القاهرة', value: 14, tone: 'blue' },
-    { label: 'الجيزة', value: 11, tone: 'teal' },
-    { label: 'الإسكندرية', value: 9, tone: 'amber' },
-    { label: 'الدقهلية', value: 7, tone: 'green' },
-    { label: 'الشرقية', value: 6, tone: 'violet' },
-    { label: 'أسيوط', value: 5, tone: 'red' },
-  ],
-  violationStatus: [
-    { label: 'مفتوحة', value: 19, tone: 'red' },
-    { label: 'عالية الخطورة', value: 7, tone: 'amber' },
-    { label: 'تم التصحيح', value: 31, tone: 'green' },
-  ],
-}
-
-function getDemoDashboard(role: DemoRole): { metrics: DashboardMetrics; profile: DashboardProfile } {
-  const dashboards: Record<DemoRole, { metrics: DashboardMetrics; profile: DashboardProfile }> = {
-    superadmin: {
-      profile: demoProfile,
-      metrics: demoMetrics,
-    },
-    techadmin: {
-      profile: {
-        department: 'الإدارة العامة لنظم المعلومات والتحول الرقمي',
-        fullName: 'المهندس أحمد الدمرداش',
-        isDemo: true,
-        jobTitle: 'مدير عام النظم والتحول الرقمي',
-        level: 0,
-      },
-      metrics: {
-        ...demoMetrics,
-        activeFacilities: 842,
-        facilitiesTotal: 890,
-        highPriorityViolations: 7,
-        inspectorsTotal: 36,
-        missionsCompleted: 124,
-        missionsInProgress: 18,
-        missionsLate: 5,
-        missionsPending: 14,
-        missionsTotal: 161,
-        usersTotal: 48,
-        violatingFacilities: 42,
-        violationsCorrected: 31,
-        violationsOpen: 19,
-        violationsTotal: 50,
-      },
-    },
-    central: {
-      profile: {
-        department: 'الإدارة المركزية للطب العلاجي',
-        fullName: 'رئيس إدارة مركزية',
-        isDemo: true,
-        jobTitle: 'رئيس الإدارة المركزية للطب العلاجي',
-        level: 2,
-      },
-      metrics: {
-        ...demoMetrics,
-        highPriorityViolations: 4,
-        inspectorsTotal: 18,
-        missionsCompleted: 82,
-        missionsInProgress: 21,
-        missionsLate: 3,
-        missionsPending: 9,
-        missionsTotal: 115,
-        violatingFacilities: 24,
-        violationsOpen: 12,
-        missionStatus: [
-          { label: 'مكتملة', value: 82, tone: 'green' },
-          { label: 'قيد التنفيذ', value: 21, tone: 'blue' },
-          { label: 'بانتظار الاعتماد', value: 9, tone: 'amber' },
-          { label: 'متأخرة', value: 3, tone: 'red' },
-        ],
-        topInspectors: demoMetrics.topInspectors.slice(0, 4),
-      },
-    },
-    generalmanager: {
-      profile: {
-        department: 'التفتيش والمتابعة',
-        fullName: 'مدير عام الإدارة',
-        isDemo: true,
-        jobTitle: 'مدير عام المستشفيات',
-        level: 3,
-      },
-      metrics: {
-        ...demoMetrics,
-        highPriorityViolations: 2,
-        inspectorsTotal: 7,
-        missionsCompleted: 29,
-        missionsInProgress: 11,
-        missionsLate: 2,
-        missionsPending: 6,
-        missionsTotal: 48,
-        violatingFacilities: 10,
-        violationsOpen: 6,
-        governorateVisits: [
-          { label: 'القاهرة', value: 14, tone: 'teal' },
-          { label: 'الجيزة', value: 11, tone: 'blue' },
-          { label: 'القليوبية', value: 7, tone: 'amber' },
-        ],
-        topInspectors: demoMetrics.topInspectors.slice(1, 5),
-      },
-    },
-    creator: {
-      profile: {
-        department: 'قسم التشغيل والتكليف',
-        fullName: 'موظف مختص',
-        isDemo: true,
-        jobTitle: 'مختص تكليف المأموريات والموظفين',
-        level: 4,
-      },
-      metrics: {
-        ...demoMetrics,
-        activeFacilities: 120,
-        facilitiesTotal: 150,
-        highPriorityViolations: 3,
-        inspectorsTotal: 4,
-        missionsCompleted: 45,
-        missionsInProgress: 5,
-        missionsLate: 1,
-        missionsPending: 10,
-        missionsTotal: 61,
-        violatingFacilities: 12,
-        violationsCorrected: 20,
-        violationsOpen: 8,
-        violationsTotal: 28,
-        missionStatus: [
-          { label: 'مكتملة', value: 45, tone: 'green' },
-          { label: 'قيد التنفيذ', value: 5, tone: 'blue' },
-          { label: 'بانتظار الاعتماد', value: 10, tone: 'amber' },
-          { label: 'متأخرة', value: 1, tone: 'red' },
-        ],
-        topInspectors: [{ detail: 'تكليف وتسكين', label: 'موظف مختص', value: 61 }],
-      },
-    },
-    financial: {
-      profile: {
-        department: 'الإدارة الشؤون المالية والإدارية',
-        fullName: 'مراجع مالي',
-        isDemo: true,
-        jobTitle: 'مراجع التقارير المالية والبدلات',
-        level: 5,
-      },
-      metrics: {
-        ...demoMetrics,
-        activeFacilities: 350,
-        facilitiesTotal: 380,
-        highPriorityViolations: 0,
-        inspectorsTotal: 0,
-        missionsCompleted: 110,
-        missionsInProgress: 8,
-        missionsLate: 0,
-        missionsPending: 2,
-        missionsTotal: 120,
-        violatingFacilities: 0,
-        violationsCorrected: 0,
-        violationsOpen: 0,
-        violationsTotal: 0,
-        missionStatus: [
-          { label: 'مكتملة وصالحة للصرف', value: 110, tone: 'green' },
-          { label: 'قيد التنفيذ والمراجعة', value: 8, tone: 'blue' },
-          { label: 'مبيت مستحق البدلات', value: 34, tone: 'amber' },
-          { label: 'حجز فندقي مؤكد', value: 12, tone: 'teal' },
-        ],
-        topInspectors: [{ detail: 'مراجعة الميزانية', label: 'مراجع مالي', value: 110 }],
-      },
-    },
-    inspector: {
-      profile: {
-        department: 'إدارة التفتيش الميداني',
-        fullName: 'القائم بالمرور',
-        isDemo: true,
-        jobTitle: 'مفتش صحي ميداني',
-        level: 7,
-      },
-      metrics: {
-        ...demoMetrics,
-        activeFacilities: 18,
-        facilitiesTotal: 22,
-        highPriorityViolations: 1,
-        inspectorsTotal: 1,
-        missionsCompleted: 6,
-        missionsInProgress: 3,
-        missionsLate: 1,
-        missionsPending: 2,
-        missionsTotal: 12,
-        violatingFacilities: 4,
-        violationsCorrected: 5,
-        violationsOpen: 3,
-        violationsTotal: 8,
-        governorateVisits: [
-          { label: 'القاهرة', value: 5, tone: 'teal' },
-          { label: 'الجيزة', value: 4, tone: 'blue' },
-        ],
-        missionStatus: [
-          { label: 'مكتملة', value: 6, tone: 'green' },
-          { label: 'قيد التنفيذ', value: 3, tone: 'blue' },
-          { label: 'بانتظار الاعتماد', value: 2, tone: 'amber' },
-          { label: 'متأخرة', value: 1, tone: 'red' },
-        ],
-        topInspectors: [{ detail: 'مأمورياتك الحالية', label: 'القائم بالمرور', value: 12 }],
-      },
-    },
-  }
-
-  return dashboards[role]
-}

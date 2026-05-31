@@ -38,7 +38,6 @@ export type DashboardProfile = {
   jobTitle: string
   level: number
   department: string
-  isDemo?: boolean
 }
 
 export type DashboardMetrics = {
@@ -133,17 +132,6 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
 
     return (
       <div className="analytics-dashboard">
-        <section className="role-band" style={{ borderInlineStart: '6px solid var(--brand)', position: 'relative' }}>
-          <div>
-            <span style={{ color: 'var(--brand)', fontWeight: 'bold' }}>{profile.department}</span>
-            <h2>{profile.jobTitle}</h2>
-            <p>{profile.fullName}</p>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-            <strong style={{ background: '#e0f2f1', color: '#006d77', border: '1px solid #b2dfdb' }}>التحكم التقني الأعلى</strong>
-            <span style={{ fontSize: '11px', color: '#00796b', fontWeight: 'bold' }}>⚡ المستوى 0 (حوكمة كاملة)</span>
-          </div>
-        </section>
 
         <section className="metric-grid">
           <article className="metric-card" style={{ '--metric-tone': '#006d77', '--metric-soft': '#e0f2f1' } as React.CSSProperties}>
@@ -283,14 +271,6 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
 
   return (
     <div className="analytics-dashboard">
-      <section className="role-band">
-        <div>
-          <span>{profile.department}</span>
-          <h2>{profile.jobTitle}</h2>
-          <p>{profile.fullName}</p>
-        </div>
-        {profile.isDemo && <strong>حساب تجريبي</strong>}
-      </section>
 
       <section className="metric-grid">
         <MetricCard delta={`${completionRate}% إنجاز`} icon={ClipboardList} label="إجمالي المأموريات" tone="blue" value={metrics.missionsTotal} />

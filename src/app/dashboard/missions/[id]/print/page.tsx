@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { cookies } from 'next/headers'
 import { notFound, redirect } from 'next/navigation'
-import { getDemoSessionEmail } from '@/lib/demo-session'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { PrintButton } from './print-button'
 import styles from './print.module.css'
@@ -27,22 +26,6 @@ type MissionPrintRow = {
   facilities: Relation<{ name: string; facility_type: string | null; address: string | null }>
   governorates: Relation<{ name: string }>
   organizational_units: Relation<{ name: string }>
-}
-
-type DemoStoredMission = {
-  destinationName: string
-  destinationType: 'facility' | 'governorate'
-  employeeNames: string
-  endDate: string
-  facilityType?: string | null
-  id: string
-  notes: string
-  orgUnitName: string
-  priority: string
-  scheduledDate: string
-  serialNumber: string
-  status: string
-  visitPurpose: string
 }
 
 function one<T>(value: Relation<T>): T | null {
@@ -74,133 +57,9 @@ function statusText(value: string | null) {
   return value ?? 'غير محددة'
 }
 
-async function getDemoMission(id: string): Promise<DemoStoredMission | null> {
-  const value = (await cookies()).get('maamouriyat_demo_missions')?.value
-  if (!value) return null
-
-  try {
-    const parsed = JSON.parse(decodeURIComponent(value))
-    if (!Array.isArray(parsed)) return null
-    return parsed.find((mission) => mission?.id === id) ?? null
-  } catch {
-    return null
-  }
-}
-
 export default async function MissionPrintPage({ params }: PageProps) {
   const { id } = await params
-  const demoEmail = await getDemoSessionEmail()
   const supabase = await createServerSupabaseClient()
-
-  const signatureCookie = (await cookies()).get(`maamouriyat_demo_signature_${id}`)?.value
-  const signatureImage = signatureCookie ? decodeURIComponent(signatureCookie) : null
-
-  if (demoEmail) {
-    const mission = await getDemoMission(id)
-    if (!mission) {
-      redirect('/dashboard/missions')
-    }
-
-    return (
-      <main className={styles.screen}>
-        <div className={styles.toolbar}>
-          <Link href="/dashboard/missions">العودة للمأموريات</Link>
-          <PrintButton />
-        </div>
-
-        <article className={styles.sheet}>
-          <header className={styles.officialHeader}>
-            <div>
-              <strong>جمهورية مصر العربية</strong>
-              <span>وزارة الصحة والسكان</span>
-              <span>ديوان عام الوزارة</span>
-            </div>
-            <img alt="شعار وزارة الصحة والسكان المصرية" src="/mohp-logo.png" />
-            <div>
-              <strong>نظام إدارة المأموريات</strong>
-              <span>قطاع الطب العلاجي</span>
-              <span>نموذج تكليف رسمي</span>
-            </div>
-          </header>
-
-          <section className={styles.titleBlock}>
-            <p>تكليف مأمورية ميدانية</p>
-            <h1>{mission.serialNumber}</h1>
-          </section>
-
-          <section className={styles.metaStrip}>
-            <div>
-              <span>تاريخ المأمورية</span>
-              <strong>{formatDate(mission.scheduledDate)}</strong>
-            </div>
-            <div>
-              <span>تاريخ الانتهاء المتوقع</span>
-              <strong>{formatDate(mission.endDate)}</strong>
-            </div>
-            <div>
-              <span>الحالة</span>
-              <strong>مكلفة</strong>
-            </div>
-          </section>
-
-          <section className={styles.section}>
-            <h2>بيانات التكليف</h2>
-            <dl className={styles.grid}>
-              <div>
-                <dt>فريق المأمورية</dt>
-                <dd>{mission.employeeNames || 'غير محدد'}</dd>
-              </div>
-              <div>
-                <dt>الإدارة المختصة</dt>
-                <dd>{mission.orgUnitName || 'غير محددة'}</dd>
-              </div>
-              <div>
-                <dt>نوع الوجهة</dt>
-                <dd>{mission.destinationType === 'governorate' ? 'محافظة' : 'منشأة داخل المحافظة'}</dd>
-              </div>
-              <div>
-                <dt>الوجهة</dt>
-                <dd>{mission.destinationName}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className={styles.statement}>
-            <h2>الغرض من المأمورية</h2>
-            <p>{mission.visitPurpose || 'لا يوجد غرض مسجل.'}</p>
-          </section>
-
-          <section className={styles.statement}>
-            <h2>تعليمات وملاحظات التكليف</h2>
-            <p>{mission.notes || 'يلتزم فريق المأمورية بتنفيذ التكليف وتسجيل النتائج على النظام.'}</p>
-          </section>
-
-          <section className={styles.signatures}>
-            <div>
-              <span>فريق المأمورية</span>
-              <strong style={{ fontSize: '13px', marginTop: '6px' }}>{mission.employeeNames}</strong>
-              <span style={{ fontSize: '10px', color: '#2e7d32', fontWeight: 'bold', border: '1px dashed #2e7d32', padding: '2px 4px', borderRadius: '4px', background: '#f1f8e9', margin: '4px auto 0', width: 'fit-content' }}>🛡️ تم التوقيع رقمياً</span>
-            </div>
-            <div>
-              <span>المدير المباشر</span>
-              {signatureImage ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', marginTop: '4px' }}>
-                  <img src={signatureImage} alt="توقيع المدير المعتمد" style={{ height: '36px', maxWidth: '120px', objectFit: 'contain' }} />
-                  <span style={{ fontSize: '9px', color: '#ffb300', fontWeight: 'bold' }}>⭐ معتمد إلكترونياً</span>
-                </div>
-              ) : (
-                <strong>الاسم / التوقيع</strong>
-              )}
-            </div>
-            <div>
-              <span>اعتماد جهة الإصدار</span>
-              <strong>ختم النسر / التوقيع</strong>
-            </div>
-          </section>
-        </article>
-      </main>
-    )
-  }
 
   if (!supabase) {
     redirect('/login')
@@ -213,6 +72,9 @@ export default async function MissionPrintPage({ params }: PageProps) {
   if (!user) {
     redirect('/login')
   }
+
+  const signatureCookie = (await cookies()).get(`maamouriyat_signature_${id}`)?.value
+  const signatureImage = signatureCookie ? decodeURIComponent(signatureCookie) : null
 
   const { data, error } = await supabase
     .from('missions')
@@ -266,7 +128,7 @@ export default async function MissionPrintPage({ params }: PageProps) {
           </div>
           <img alt="شعار وزارة الصحة والسكان المصرية" src="/mohp-logo.png" />
           <div>
-            <strong>نظام إدارة المأموريات</strong>
+            <strong>نظام حوكمة المأمورية الميدانية</strong>
             <span>قطاع الطب العلاجي</span>
             <span>نموذج تكليف رسمي</span>
           </div>
@@ -370,7 +232,7 @@ export default async function MissionPrintPage({ params }: PageProps) {
         </section>
 
         <footer className={styles.footer}>
-          <span>تم إنشاء النموذج من نظام إدارة المأموريات بتاريخ {formatDate(mission.created_at)}</span>
+          <span>تم إنشاء النموذج من نظام حوكمة المأمورية الميدانية بتاريخ {formatDate(mission.created_at)}</span>
           <span>هذا المستند للاستخدام الرسمي داخل منظومة وزارة الصحة والسكان.</span>
         </footer>
       </article>

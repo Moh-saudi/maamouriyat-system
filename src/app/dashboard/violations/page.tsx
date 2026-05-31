@@ -1,48 +1,19 @@
-import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { DashboardShell } from '@/app/system-ui'
-import { getDemoSessionEmail, getDemoSessionRole } from '@/lib/demo-session'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { ViolationsPortal } from './violations-portal'
 
 type ViolationRow = {
   id: string
   description: string
   priority: string | null
   status: string | null
+  assigned_to_dept?: string | null
+  violation_photo_url?: string | null
   correction_deadline: string | null
   created_at: string
   facilities: { name: string } | null
   missions: { id: string; serial_number: string } | null
-}
-
-function priorityText(priority: string | null) {
-  if (priority === 'critical') return 'حرجة'
-  if (priority === 'high') return 'عالية'
-  if (priority === 'medium') return 'متوسطة'
-  if (priority === 'low') return 'بسيطة'
-  return priority ?? 'غير محددة'
-}
-
-function priorityTone(priority: string | null) {
-  if (priority === 'critical' || priority === 'high') return 'red'
-  if (priority === 'medium') return 'amber'
-  return 'blue'
-}
-
-function statusText(status: string | null) {
-  if (status === 'new') return 'جديدة'
-  if (status === 'in_progress') return 'تحت التصحيح'
-  if (status === 'corrected') return 'تم التصحيح'
-  if (status === 'verified') return 'تم التحقق'
-  if (status === 'closed') return 'مغلقة'
-  return status ?? 'غير محدد'
-}
-
-function statusTone(status: string | null) {
-  if (status === 'corrected' || status === 'verified' || status === 'closed') return 'green'
-  if (status === 'in_progress') return 'amber'
-  return 'red'
 }
 
 function normalizeRelation<T>(value: T | T[] | null): T | null {
@@ -53,69 +24,10 @@ function normalizeRelation<T>(value: T | T[] | null): T | null {
 export const dynamic = 'force-dynamic'
 
 export default async function ViolationsPage() {
-  const demoEmail = await getDemoSessionEmail()
-  const demoRole = await getDemoSessionRole()
   const supabase = await createServerSupabaseClient()
 
-  if (!supabase || demoEmail) {
-    const store = await cookies()
-    const rawDemoViolations = store.get('maamouriyat_demo_violations')?.value
-    let demoViolations: any[] = []
-    if (rawDemoViolations) {
-      try {
-        demoViolations = JSON.parse(decodeURIComponent(rawDemoViolations))
-      } catch {}
-    }
-
-    return (
-      <DashboardShell role={demoRole} view="violations">
-        <div className="stack">
-          <section className="welcome-band">
-            <div>
-              <p className="eyebrow">قطاع الطب العلاجي</p>
-              <h2>المخالفات</h2>
-              <p>عرض المخالفات المسجلة للوضع التجريبي (المحفوظة محلياً).</p>
-            </div>
-          </section>
-
-          <section className="cards-list">
-            {demoViolations.map((violation) => (
-              <article className="mission-card" key={violation.id}>
-                <div className="card-line">
-                  <strong>{violation.description}</strong>
-                  <span className={`pill ${priorityTone(violation.priority)}`}>
-                    {priorityText(violation.priority)}
-                  </span>
-                </div>
-                <div className="card-line" style={{ marginTop: 2 }}>
-                  <p>{violation.facility_name ?? 'منشأة غير محددة'}</p>
-                  <span className={`pill ${statusTone(violation.status)}`}>
-                    {statusText(violation.status)}
-                  </span>
-                </div>
-                <div className="meta-grid">
-                  <span>
-                    الجهة: {violation.assigned_to_dept || 'غير محددة'}
-                  </span>
-                  {violation.created_at && (
-                    <span>
-                      التاريخ: {new Date(violation.created_at).toLocaleDateString('ar-EG')}
-                    </span>
-                  )}
-                </div>
-              </article>
-            ))}
-
-            {demoViolations.length === 0 && (
-              <div className="empty-state">
-                <h2>لا توجد مخالفات تجريبية مسجلة</h2>
-                <p>قم بالدخول كـ مفتش، ثم قم بتنفيذ مأمورية وسجل مخالفة لتظهر هنا تلقائياً.</p>
-              </div>
-            )}
-          </section>
-        </div>
-      </DashboardShell>
-    )
+  if (!supabase) {
+    redirect('/login')
   }
 
   const {
@@ -133,6 +45,8 @@ export default async function ViolationsPage() {
       description,
       priority,
       status,
+      assigned_to_dept,
+      violation_photo_url,
       correction_deadline,
       created_at,
       facilities:facility_id(name),
@@ -149,57 +63,20 @@ export default async function ViolationsPage() {
 
   return (
     <DashboardShell view="violations">
-      <div className="stack">
-        <section className="welcome-band">
-          <div>
-            <p className="eyebrow">قطاع الطب العلاجي</p>
-            <h2>المخالفات</h2>
-            <p>عرض المخالفات المسجلة مرتبة من الأحدث، مع حالة التصحيح ومستوى الخطورة.</p>
+      <main style={{ display: 'grid', gap: '20px' }}>
+        <header style={{ borderBottom: '1px solid #cfdcde', paddingBottom: '16px', marginBottom: '10px' }}>
+          <p style={{ margin: 0, fontSize: '13px', color: '#78909c', fontWeight: 'bold' }}>قطاع الطب العلاجي - وزارة الصحة المصرية</p>
+          <h1 style={{ margin: '4px 0 0', fontSize: '26px', color: '#102027', fontWeight: '800' }}>سجل المخالفات وتوجيهات التصحيح الميداني</h1>
+        </header>
+
+        {error && (
+          <div style={{ background: '#ffebee', color: '#c62828', padding: '14px', borderRadius: '12px', marginBottom: '14px', border: '1px solid #ffcdd2' }}>
+            ⚠️ خطأ في الاتصال بقاعدة البيانات: {error.message}. تم تحميل سجل المخالفات الاحتياطي.
           </div>
-        </section>
+        )}
 
-        {error && <div className="alert">{error.message}</div>}
-
-        <section className="cards-list">
-          {violations.map((violation) => (
-            <article className="mission-card" key={violation.id}>
-              <div className="card-line">
-                <strong>{violation.description}</strong>
-                <span className={`pill ${priorityTone(violation.priority)}`}>
-                  {priorityText(violation.priority)}
-                </span>
-              </div>
-              <div className="card-line" style={{ marginTop: 2 }}>
-                <p>{violation.facilities?.name ?? 'منشأة غير محددة'}</p>
-                <span className={`pill ${statusTone(violation.status)}`}>
-                  {statusText(violation.status)}
-                </span>
-              </div>
-              {violation.missions?.serial_number && (
-                <div className="meta-grid">
-                  <span>
-                    <Link href={`/dashboard/missions/${violation.missions.id}/execute`}>
-                      {violation.missions.serial_number}
-                    </Link>
-                  </span>
-                  {violation.correction_deadline && (
-                    <span>
-                      الموعد: {new Date(violation.correction_deadline).toLocaleDateString('ar-EG')}
-                    </span>
-                  )}
-                </div>
-              )}
-            </article>
-          ))}
-
-          {!error && violations.length === 0 && (
-            <div className="empty-state">
-              <h2>لا توجد مخالفات مسجلة</h2>
-              <p>ستظهر المخالفات هنا تلقائياً عند تسجيلها أثناء تنفيذ المأموريات.</p>
-            </div>
-          )}
-        </section>
-      </div>
+        <ViolationsPortal initialViolations={violations} />
+      </main>
     </DashboardShell>
   )
 }

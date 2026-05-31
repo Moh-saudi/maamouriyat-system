@@ -17,9 +17,27 @@ import {
   ChevronLeft,
   FileText,
   BadgeAlert,
-  X
+  X,
+  LayoutGrid,
+  List
 } from 'lucide-react'
 import { realEgyptianMedicalFacilities } from '@/lib/real-facilities'
+import { createBrowserSupabaseClient } from '@/lib/supabase/client'
+import { departmentChecklists } from '@/lib/checklist-data'
+
+export function getMissionEndDate(mission: any): string {
+  const notes = mission.notes || '';
+  const matches = notes.match(/تاريخ الانتهاء المتوقع:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})/g);
+  if (matches && matches.length > 0) {
+    const lastMatch = matches[matches.length - 1];
+    return lastMatch.replace(/تاريخ الانتهاء المتوقع:\s*/, '').trim();
+  }
+
+  if (mission.endDate) return mission.endDate;
+  if (mission.expected_end_date) return mission.expected_end_date;
+  
+  return mission.scheduledDate || mission.scheduled_date || '';
+}
 
 type MissionItem = {
   id: string
@@ -35,6 +53,7 @@ type MissionItem = {
   destinationType: 'facility' | 'governorate'
   facilityType?: string | null
   notes?: string | null
+  assignedUserId?: string
   gpsVerified?: boolean
   checkinLat?: number | null
   checkinLng?: number | null
@@ -49,6 +68,7 @@ export function MissionsPortal({
 }) {
   const router = useRouter()
   const [missions, setMissions] = useState<MissionItem[]>(initialMissions)
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table')
   const [leafletLoaded, setLeafletLoaded] = useState(false)
   const [auditMission, setAuditMission] = useState<MissionItem | null>(null)
 
@@ -59,20 +79,201 @@ export function MissionsPortal({
   const [isDrawing, setIsDrawing] = useState(false)
   const [printTrigger, setPrintTrigger] = useState<string | null>(null)
 
-  // Load signature from cookie when selected mission changes
+  // --- Mission Extension States & Actions ---
+  const [extendingMission, setExtendingMission] = useState<MissionItem | null>(null)
+  const [newEndDate, setNewEndDate] = useState('')
+  const [extensionReason, setExtensionReason] = useState('')
+  const [extendingLoading, setExtendingLoading] = useState(false)
+
+  // --- Dynamic Checklist & Audit Results State ---
+  const [auditResults, setAuditResults] = useState<any[]>([])
+  const [dbChecklists, setDbChecklists] = useState<any[]>([])
+  const [loadingAuditResults, setLoadingAuditResults] = useState(false)
+
+  // Load active checklists on mount to resolve UUIDs to question text dynamically
   useEffect(() => {
+    const fetchChecklists = async () => {
+      try {
+        const res = await fetch('/api/admin/checklists')
+        if (res.ok) {
+          const data = await res.json()
+          setDbChecklists(data || [])
+        }
+      } catch (e) {
+        console.error('Error fetching checklists for audit mapping:', e)
+      }
+    }
+    fetchChecklists()
+  }, [])
+
+  // Fetch real mission_results for auditMission
+  useEffect(() => {
+    if (!auditMission) {
+      setAuditResults([])
+      return
+    }
+
+    const fetchResults = async () => {
+      setLoadingAuditResults(true)
+      try {
+        const res = await fetch(`/api/missions/results?mission_id=${encodeURIComponent(auditMission.id)}`)
+        if (res.ok) {
+          const data = await res.json()
+          setAuditResults(data || [])
+        }
+      } catch (e) {
+        console.error('Error fetching mission results for audit:', e)
+      } finally {
+        setLoadingAuditResults(false)
+      }
+    }
+    fetchResults()
+  }, [auditMission])
+
+  const resolveItemDetails = (itemId: string) => {
+    // 1. Search in static checklists
+    for (const dept of Object.keys(departmentChecklists)) {
+      for (const sec of departmentChecklists[dept]) {
+        const match = sec.items.find((it) => it.id === itemId)
+        if (match) {
+          return {
+            text: match.text,
+            priority: match.violation_priority || 'medium'
+          }
+        }
+      }
+    }
+
+    // 2. Search in db checklists
+    for (const chk of dbChecklists) {
+      for (const sec of chk.checklist_sections || []) {
+        for (const item of sec.checklist_items || []) {
+          if (item.id === itemId) {
+            return {
+              text: item.text,
+              priority: item.violation_priority || 'medium'
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      text: 'بند فحص تخصصي غير محدد',
+      priority: 'medium'
+    }
+  }
+
+  const parsedAuditResults = useMemo(() => {
+    return auditResults.map((res: any) => {
+      let itemId = res.checklist_item_id
+      let notes = res.notes || ''
+      
+      // Parse static signature from notes
+      if (!itemId && notes.startsWith('__static_id__:')) {
+        const delimiterIdx = notes.indexOf('||')
+        if (delimiterIdx !== -1) {
+          itemId = notes.substring('__static_id__:'.length, delimiterIdx)
+          notes = notes.substring(delimiterIdx + 2)
+        }
+      }
+      
+      const details = itemId ? resolveItemDetails(itemId) : { text: 'بند فحص غير محدد', priority: 'medium' }
+      
+      return {
+        id: itemId || `static-${Math.random()}`,
+        text: details.text,
+        priority: details.priority,
+        answer: res.answer,
+        notes: notes
+      }
+    })
+  }, [auditResults, dbChecklists])
+
+  const handleExtendSave = async () => {
+    if (!extendingMission) return
+    if (!newEndDate) {
+      alert('يرجى اختيار تاريخ الانتهاء الجديد.')
+      return
+    }
+    if (!extensionReason.trim()) {
+      alert('يرجى كتابة سبب التمديد.')
+      return
+    }
+
+    setExtendingLoading(true)
+
+    const todayStr = new Date().toLocaleDateString('ar-EG', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    const newDateFormatted = newEndDate
+
+    // Live Supabase Mode
+    const supabase = createBrowserSupabaseClient()
+    if (!supabase) {
+      alert('فشل الاتصال بقاعدة البيانات.')
+      setExtendingLoading(false)
+      return
+    }
+    
+    try {
+      const originalNotes = extendingMission.notes || ''
+      const updatedNotes = `${originalNotes}\n\n[تمديد إداري - ${todayStr}]: تم تمديد المأمورية إلى ${newDateFormatted} بناءً على تكليف: ${extensionReason}\nتاريخ الانتهاء المتوقع: ${newDateFormatted}`
+      
+      const { error: dbErr } = await supabase
+        .from('missions')
+        .update({
+          notes: updatedNotes
+        })
+        .eq('id', extendingMission.id)
+        
+      if (dbErr) {
+        alert(`فشل التحديث بقاعدة البيانات: ${dbErr.message}`)
+        setExtendingLoading(false)
+        return
+      }
+      
+      // Send notification
+      if (extendingMission.assignedUserId) {
+        await supabase.from('notifications').insert({
+          body: `تم تمديد فترة المأمورية رقم ${extendingMission.serialNumber} إلى ${newDateFormatted} بناءً على توجيهات إدارية.`,
+          mission_id: extendingMission.id,
+          title: 'تمديد فترة مأمورية',
+          type: 'mission_extended',
+          user_id: extendingMission.assignedUserId
+        })
+      }
+      
+      // Update state
+      setMissions((current) =>
+        current.map((m) =>
+          m.id === extendingMission.id
+            ? { ...m, notes: updatedNotes, endDate: newDateFormatted }
+            : m
+        )
+      )
+      
+      setExtendingMission(null)
+      setNewEndDate('')
+      setExtensionReason('')
+      setExtendingLoading(false)
+      alert('تم تمديد فترة المأمورية بنجاح!')
+    } catch (e: any) {
+      alert(`حدث خطأ أثناء التمديد: ${e.message || e}`)
+      setExtendingLoading(false)
+    }
+  }
+
+  // Load signature from localStorage when selected mission changes
+  useEffect(() => {
+    if (typeof window === 'undefined') return
     if (!auditMission) {
       setSignatureImage(null)
       return
     }
-    const cookieName = `maamouriyat_demo_signature_${auditMission.id}`
-    const match = document.cookie
-      .split('; ')
-      .find((item) => item.startsWith(`${cookieName}=`))
-      ?.split('=')[1]
+    const storageKey = `maamouriyat_signature_${auditMission.id}`
+    const match = localStorage.getItem(storageKey)
 
     if (match) {
-      setSignatureImage(decodeURIComponent(match))
+      setSignatureImage(match)
     } else {
       setSignatureImage(null)
     }
@@ -91,9 +292,10 @@ export function MissionsPortal({
     }
   }, [printTrigger, auditMission, leafletLoaded])
 
-  function saveDemoSignature(missionId: string, dataUrl: string) {
-    const cookieName = `maamouriyat_demo_signature_${missionId}`
-    document.cookie = `${cookieName}=${encodeURIComponent(dataUrl)}; path=/; max-age=604800; SameSite=Lax`
+  function saveSignatureLocal(missionId: string, dataUrl: string) {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`maamouriyat_signature_${missionId}`, dataUrl)
+    }
   }
 
   // Drawing event handlers for touch/mouse
@@ -151,7 +353,7 @@ export function MissionsPortal({
     setShowSignaturePad(false)
 
     if (auditMission) {
-      saveDemoSignature(auditMission.id, dataUrl)
+      saveSignatureLocal(auditMission.id, dataUrl)
     }
   }
 
@@ -407,6 +609,68 @@ export function MissionsPortal({
     return 'status-default'
   }
 
+  function getDestinationTypeBadge(mission: any) {
+    const name = mission.destinationName || '';
+    const isGov = mission.destinationType === 'governorate';
+    
+    if (isGov) {
+      return {
+        label: '🗺️ زيارة إقليمية للمحافظة',
+        bg: '#fff8e1',
+        color: '#b78103',
+        border: '#ffe082'
+      };
+    }
+    
+    if (name.includes('مخزن') || name.includes('مستودع') || name.includes('تموين')) {
+      return {
+        label: '📦 مخزن تموين وإمداد طبي',
+        bg: '#ffebee',
+        color: '#c62828',
+        border: '#ffcdd2'
+      };
+    }
+    if (name.includes('مركز') || name.includes('وحدة صحية') || name.includes('رعاية أولية') || name.includes('صحة الأسرة')) {
+      return {
+        label: '🩺 مركز رعاية أولية وطب أسرة',
+        bg: '#e8f5e9',
+        color: '#2e7d32',
+        border: '#c8e6c9'
+      };
+    }
+    if (name.includes('تأمين صحي') || name.includes('صيدناوي')) {
+      return {
+        label: '🏥 مستشفى تأمين صحي',
+        bg: '#e1f5fe',
+        color: '#0288d1',
+        border: '#b3e5fc'
+      };
+    }
+    if (name.includes('مجمع') || name.includes('الكرنك') || name.includes('الرعاية الصحية')) {
+      return {
+        label: '💎 هيئة الرعاية الصحية (تأمين شامل)',
+        bg: '#e0f7fa',
+        color: '#006d77',
+        border: '#b2ebf2'
+      };
+    }
+    if (name.includes('تخصصي') || name.includes('معهد ناصر') || name.includes('شرم الشيخ') || name.includes('المنصورة') || name.includes('الشيخ زايد')) {
+      return {
+        label: '⭐ مستشفى تخصصي (أمانة المراكز)',
+        bg: '#f3e5f5',
+        color: '#8e24aa',
+        border: '#e1bee7'
+      };
+    }
+    
+    return {
+      label: '🏥 مستشفى عام / تعليمي',
+      bg: '#e8eaf6',
+      color: '#3f51b5',
+      border: '#c5cae9'
+    };
+  }
+
   return (
     <div className="missions-portal-container" style={{ display: 'grid', gap: '20px', direction: 'rtl', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       
@@ -618,8 +882,76 @@ export function MissionsPortal({
         </div>
       </section>
 
-      {/* 3. PREMIUM GRID OF CARDS */}
-      <section style={{ display: 'grid', gap: '14px' }}>
+      {/* 2.5 RESULTS COUNT & VIEW MODE TOGGLER */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        background: '#f8fbfb',
+        border: '1px solid #cfdcde',
+        borderRadius: '12px',
+        padding: '10px 16px',
+        marginTop: '-10px',
+        flexWrap: 'wrap',
+        gap: '10px'
+      }}>
+        <div style={{ fontSize: '13px', color: '#37474f', fontWeight: 'bold' }}>
+          📋 تم العثور على <span style={{ color: 'var(--brand)' }}>{filteredMissions.length}</span> مأمورية
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {/* Layout View Toggler */}
+          <div style={{ display: 'flex', gap: '4px', background: '#e0ecef', padding: '4px', borderRadius: '10px' }}>
+            <button
+              onClick={() => setViewMode('grid')}
+              style={{
+                background: viewMode === 'grid' ? 'white' : 'transparent',
+                color: viewMode === 'grid' ? 'var(--brand)' : '#546e7a',
+                border: 0,
+                borderRadius: '8px',
+                width: '34px',
+                height: '34px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: viewMode === 'grid' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+                transition: 'all 0.2s'
+              }}
+              title="عرض كشبكة كروت"
+              type="button"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            
+            <button
+              onClick={() => setViewMode('table')}
+              style={{
+                background: viewMode === 'table' ? 'white' : 'transparent',
+                color: viewMode === 'table' ? 'var(--brand)' : '#546e7a',
+                border: 0,
+                borderRadius: '8px',
+                width: '34px',
+                height: '34px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                boxShadow: viewMode === 'table' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+                transition: 'all 0.2s'
+              }}
+              title="عرض كجدول بيانات"
+              type="button"
+            >
+              <List size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. PREMIUM CONTENT VIEW (GRID OR TABLE) */}
+      {viewMode === 'grid' ? (
+        <section style={{ display: 'grid', gap: '14px' }}>
         {filteredMissions.map((mission) => {
           const isUrgent = mission.priority === 'urgent' || mission.priority === 'critical'
           
@@ -750,11 +1082,90 @@ export function MissionsPortal({
                   <div style={{ background: 'white', borderRadius: '8px', padding: '6px', display: 'flex', color: '#006d77', border: '1px solid #e0f0f0' }}>
                     <Calendar size={16} />
                   </div>
-                  <div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                     <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>فترة المأمورية المحددة</span>
-                    <strong style={{ fontSize: '12px', color: '#263238', direction: 'ltr', display: 'inline-block' }}>
-                      {mission.scheduledDate} {mission.endDate !== mission.scheduledDate && `~ ${mission.endDate}`}
-                    </strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: '12.5px', color: '#263238', direction: 'ltr', display: 'inline-block' }}>
+                        {mission.scheduledDate} {mission.endDate !== mission.scheduledDate && `~ ${mission.endDate}`}
+                      </strong>
+                      {(() => {
+                        const targetEndDate = getMissionEndDate(mission);
+                        const targetStartDate = mission.scheduledDate || '';
+                        
+                        const parseLocalDate = (dateStr: string) => {
+                          if (!dateStr) return null;
+                          const [year, month, day] = dateStr.split('-').map(Number);
+                          return new Date(year, month - 1, day);
+                        };
+
+                        const sDate = parseLocalDate(targetStartDate);
+                        const eDate = parseLocalDate(targetEndDate);
+                        const todayDate = new Date();
+                        todayDate.setHours(0, 0, 0, 0);
+
+                        const isBefore = sDate ? todayDate < sDate : false;
+                        const isAfter = eDate ? todayDate > eDate : false;
+
+                        if (mission.status === 'completed') {
+                          return null;
+                        }
+
+                        if (isBefore) {
+                          return (
+                            <span style={{
+                              fontSize: '10px',
+                              background: '#fff8e1',
+                              color: '#b78103',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              fontWeight: 'bold',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              border: '1px solid #ffe082'
+                            }}>
+                              ⌛ تبدأ قريباً ({mission.scheduledDate})
+                            </span>
+                          );
+                        }
+
+                        if (isAfter) {
+                          return (
+                            <span style={{
+                              fontSize: '10px',
+                              background: '#ffebee',
+                              color: '#c62828',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              fontWeight: 'bold',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              border: '1px solid #ffcdd2'
+                            }}>
+                              🔒 منتهية الصلاحية
+                            </span>
+                          );
+                        }
+
+                        return (
+                          <span style={{
+                            fontSize: '10px',
+                            background: '#e8f5e9',
+                            color: '#2e7d32',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontWeight: 'bold',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            border: '1px solid #c8e6c9'
+                          }}>
+                            🟢 نشطة وصالحة للتنفيذ
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -944,32 +1355,111 @@ export function MissionsPortal({
                       🔎 مراجعة التوثيق والنتائج
                       <ChevronLeft size={14} />
                     </button>
-                  ) : (
-                    <Link 
-                      href={`/dashboard/missions/${mission.id}/execute`}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{
-                        minHeight: '36px',
-                        borderRadius: '8px',
-                        background: 'var(--brand)',
-                        border: '0',
-                        color: 'white',
-                        fontSize: '12.5px',
-                        fontWeight: 'bold',
-                        padding: '0 14px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        textDecoration: 'none',
-                        boxShadow: '0 2px 6px rgba(0,109,119,0.15)',
-                        transition: 'all 0.2s'
-                      }}
-                      className="action-btn-hover"
-                    >
-                      تنفيذ الزيارة وإثبات الحضور
-                      <ChevronLeft size={14} />
-                    </Link>
-                  )}
+                  ) : (() => {
+                    const targetEndDate = getMissionEndDate(mission);
+                    const targetStartDate = mission.scheduledDate || '';
+                    
+                    const parseLocalDate = (dateStr: string) => {
+                      if (!dateStr) return null;
+                      const [year, month, day] = dateStr.split('-').map(Number);
+                      return new Date(year, month - 1, day);
+                    };
+
+                    const sDate = parseLocalDate(targetStartDate);
+                    const eDate = parseLocalDate(targetEndDate);
+                    const todayDate = new Date();
+                    todayDate.setHours(0, 0, 0, 0);
+
+                    const isBefore = sDate ? todayDate < sDate : false;
+                    const isAfter = eDate ? todayDate > eDate : false;
+                    const isLocked = isBefore || isAfter;
+
+                    const isInspector = roleName === 'inspector' || roleName === 'corrections';
+                    const canExtend = roleName !== 'inspector' && roleName !== 'corrections';
+
+                    return (
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        {canExtend && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setExtendingMission(mission)
+                              setNewEndDate(targetEndDate)
+                              setExtensionReason('')
+                            }}
+                            style={{
+                              minHeight: '36px',
+                              borderRadius: '8px',
+                              background: '#fff8e1',
+                              border: '1px solid #ffe082',
+                              color: '#b78103',
+                              fontSize: '12.5px',
+                              fontWeight: 'bold',
+                              padding: '0 12px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            className="action-btn-hover"
+                          >
+                            ⌛ تمديد المأمورية
+                          </button>
+                        )}
+
+                        {isLocked && isInspector ? (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              alert(`⚠️ عذراً، لا يمكن تنفيذ المأمورية خارج تاريخ التحرك والانتهاء المحدد لها (من ${targetStartDate} إلى ${targetEndDate}).\n\nيرجى التواصل مع إدارة التفتيش والمتابعة لطلب تمديد فترة المأمورية.`)
+                            }}
+                            style={{
+                              minHeight: '36px',
+                              borderRadius: '8px',
+                              background: '#eceff1',
+                              border: '1px solid #cfd8dc',
+                              color: '#78909c',
+                              fontSize: '12.5px',
+                              fontWeight: 'bold',
+                              padding: '0 14px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              cursor: 'not-allowed',
+                            }}
+                          >
+                            🔒 تنفيذ الزيارة (مغلق)
+                          </button>
+                        ) : (
+                          <Link 
+                            href={`/dashboard/missions/${mission.id}/execute`}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              minHeight: '36px',
+                              borderRadius: '8px',
+                              background: mission.status === 'in_progress' ? '#ffe0b2' : 'var(--brand)',
+                              border: mission.status === 'in_progress' ? '1px solid #ffcc80' : '0',
+                              color: mission.status === 'in_progress' ? '#e65100' : 'white',
+                              fontSize: '12.5px',
+                              fontWeight: 'bold',
+                              padding: '0 14px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              textDecoration: 'none',
+                              boxShadow: '0 2px 6px rgba(0,109,119,0.15)',
+                              transition: 'all 0.2s'
+                            }}
+                            className="action-btn-hover"
+                          >
+                            {mission.status === 'in_progress' ? '📝 استكمال وتعديل استمارة الزيارة' : '⚡ تنفيذ الزيارة وإثبات الحضور'}
+                            <ChevronLeft size={14} />
+                          </Link>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </article>
@@ -992,6 +1482,432 @@ export function MissionsPortal({
           </div>
         )}
       </section>
+      ) : (
+        /* 3. PREMIUM RESPONSIVE RTL TABLE VIEW */
+        <section style={{
+          background: 'white',
+          border: '1px solid #cfdcde',
+          borderRadius: '16px',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.01)',
+          overflow: 'hidden'
+        }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              textAlign: 'right',
+              fontSize: '13px',
+              minWidth: '1000px'
+            }}>
+              <thead>
+                <tr style={{
+                  background: '#f8fbfb',
+                  borderBottom: '1px solid #cfdcde',
+                  color: '#37474f'
+                }}>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>رقم وتفاصيل المأمورية</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>الوجهة الطبية</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>المفتش / فريق العمل</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>نطاق الفترة الزمنية</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>الأولوية والحالة</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold' }}>التوثيق الجغرافي</th>
+                  <th style={{ padding: '16px 20px', fontWeight: 'bold', textAlign: 'center' }}>العمليات</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMissions.map((mission) => {
+                  const isUrgent = mission.priority === 'urgent' || mission.priority === 'critical'
+                  const targetEndDate = getMissionEndDate(mission);
+                  const targetStartDate = mission.scheduledDate || '';
+                  
+                  const parseLocalDate = (dateStr: string) => {
+                    if (!dateStr) return null;
+                    const [year, month, day] = dateStr.split('-').map(Number);
+                    return new Date(year, month - 1, day);
+                  };
+
+                  const sDate = parseLocalDate(targetStartDate);
+                  const eDate = parseLocalDate(targetEndDate);
+                  const todayDate = new Date();
+                  todayDate.setHours(0, 0, 0, 0);
+
+                  const isBefore = sDate ? todayDate < sDate : false;
+                  const isAfter = eDate ? todayDate > eDate : false;
+                  const isLocked = isBefore || isAfter;
+
+                  const isInspector = roleName === 'inspector' || roleName === 'corrections';
+                  const canExtend = roleName !== 'inspector' && roleName !== 'corrections';
+
+                  return (
+                    <tr
+                      key={mission.id}
+                      onClick={() => {
+                        if (mission.status === 'completed') {
+                          setAuditMission(mission)
+                        } else {
+                          router.push(`/dashboard/missions/${mission.id}/execute`)
+                        }
+                      }}
+                      style={{
+                        borderBottom: '1px solid #eef2f3',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f4f8f8'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent'
+                      }}
+                    >
+                      {/* Serial & Purpose */}
+                      <td style={{ padding: '14px 20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ 
+                            fontWeight: '800', 
+                            color: '#006d77', 
+                            background: '#eef6f6', 
+                            padding: '2px 8px', 
+                            borderRadius: '6px',
+                            alignSelf: 'flex-start',
+                            fontSize: '11.5px'
+                          }}>
+                            {mission.serialNumber}
+                          </span>
+                          <span style={{ fontWeight: 'bold', color: '#102027', fontSize: '13px' }}>
+                            {mission.visitPurpose}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Destination */}
+                      {(() => {
+                        const badge = getDestinationTypeBadge(mission);
+                        return (
+                          <td style={{ padding: '14px 20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ 
+                                background: badge.bg, 
+                                color: badge.color, 
+                                borderRadius: '8px', 
+                                padding: '6px', 
+                                display: 'flex',
+                                border: `1px solid ${badge.border}`
+                              }}>
+                                <MapPin size={16} />
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                <strong style={{ color: '#263238' }}>{mission.destinationName}</strong>
+                                <span style={{ 
+                                  fontSize: '10px', 
+                                  color: badge.color, 
+                                  background: badge.bg,
+                                  border: `1px solid ${badge.border}`,
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  fontWeight: 'bold',
+                                  alignSelf: 'flex-start',
+                                  marginTop: '2px'
+                                }}>
+                                  {badge.label}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                        );
+                      })()}
+
+                      {/* Inspector / Dept */}
+                      <td style={{ padding: '14px 20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <strong style={{ color: '#263238' }}>{mission.employeeNames}</strong>
+                          <span style={{ fontSize: '11px', color: '#78909c' }}>{mission.orgUnitName}</span>
+                        </div>
+                      </td>
+
+                      {/* Dates */}
+                      <td style={{ padding: '14px 20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '12px' }}>
+                          <span style={{ color: '#37474f' }}>
+                            📅 البدء: <strong style={{ direction: 'ltr', display: 'inline-block' }}>{targetStartDate}</strong>
+                          </span>
+                          <span style={{ color: isLocked && isInspector ? '#d32f2f' : '#2e7d32' }}>
+                            ⌛ الانتهاء: <strong style={{ direction: 'ltr', display: 'inline-block' }}>{targetEndDate}</strong>
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Priority & Status */}
+                      <td style={{ padding: '14px 20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
+                          <span 
+                            style={{
+                              fontSize: '10.5px',
+                              fontWeight: 'bold',
+                              borderRadius: '6px',
+                              padding: '2px 8px',
+                            }}
+                            className={getPriorityBadgeClass(mission.priority)}
+                          >
+                            {getPriorityLabel(mission.priority)}
+                          </span>
+                          <span 
+                            style={{
+                              borderRadius: '20px',
+                              fontSize: '11px',
+                              fontWeight: 'bold',
+                              padding: '4px 10px',
+                            }}
+                            className={getStatusClass(mission.status)}
+                          >
+                            {getStatusLabel(mission.status)}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Geolocation Verification */}
+                      <td style={{ padding: '14px 20px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                          {mission.status === 'completed' ? (
+                            mission.gpsVerified ? (
+                              <span style={{ 
+                                fontSize: '11px', 
+                                background: '#e8f5e9', 
+                                color: '#2e7d32', 
+                                border: '1px solid #c8e6c9', 
+                                padding: '3px 8px', 
+                                borderRadius: '6px', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: '4px', 
+                                fontWeight: 'bold' 
+                              }}>
+                                🟢 موثق ومطابق
+                              </span>
+                            ) : (
+                              <span style={{ 
+                                fontSize: '11px', 
+                                background: '#fff3e0', 
+                                color: '#d84315', 
+                                border: '1px solid #ffe0b2', 
+                                padding: '3px 8px', 
+                                borderRadius: '6px', 
+                                display: 'inline-flex', 
+                                alignItems: 'center', 
+                                gap: '4px', 
+                                fontWeight: 'bold' 
+                              }}>
+                                ⚠️ خارج النطاق
+                              </span>
+                            )
+                          ) : (
+                            <span style={{ 
+                              fontSize: '11px', 
+                              background: '#eceff1', 
+                              color: '#455a64', 
+                              border: '1px solid #cfd8dc', 
+                              padding: '3px 8px', 
+                              borderRadius: '6px', 
+                              display: 'inline-flex', 
+                              alignItems: 'center', 
+                              gap: '4px', 
+                              fontWeight: 'bold' 
+                            }}>
+                              ⚪ بالانتظار
+                            </span>
+                          )}
+                          
+                          {mission.status === 'completed' && mission.checkinLat && mission.checkinLng && (
+                            <a 
+                              href={`https://maps.google.com/?q=${mission.checkinLat},${mission.checkinLng}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ 
+                                color: '#006d77', 
+                                textDecoration: 'underline', 
+                                fontSize: '11px',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              🗺️ الخريطة ↗
+                            </a>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '14px 20px' }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                          {/* Print Action */}
+                          {mission.status === 'completed' ? (
+                            <button
+                              onClick={() => {
+                                setAuditMission(mission)
+                                setPrintTrigger(Date.now().toString())
+                              }}
+                              style={{
+                                minHeight: '30px',
+                                borderRadius: '6px',
+                                background: '#f0fcf9',
+                                border: '1px solid #ccebe6',
+                                color: '#16725a',
+                                fontSize: '11.5px',
+                                fontWeight: 'bold',
+                                padding: '0 10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              className="action-btn-hover"
+                            >
+                              🖨️ طباعة
+                            </button>
+                          ) : (
+                            <Link
+                              href={`/dashboard/missions/${mission.id}/print`}
+                              style={{
+                                minHeight: '30px',
+                                borderRadius: '6px',
+                                background: '#eceff1',
+                                border: '1px solid #cfd8dc',
+                                color: '#455a64',
+                                fontSize: '11.5px',
+                                fontWeight: 'bold',
+                                padding: '0 10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                textDecoration: 'none',
+                                transition: 'all 0.2s'
+                              }}
+                              className="action-btn-hover"
+                            >
+                              🖨️ التكليف
+                            </Link>
+                          )}
+
+                          {/* Extend Action */}
+                          {canExtend && mission.status !== 'completed' && (
+                            <button
+                              onClick={() => {
+                                setExtendingMission(mission)
+                                setNewEndDate(targetEndDate)
+                                setExtensionReason('')
+                              }}
+                              style={{
+                                minHeight: '30px',
+                                borderRadius: '6px',
+                                background: '#fff8e1',
+                                border: '1px solid #ffe082',
+                                color: '#b78103',
+                                fontSize: '11.5px',
+                                fontWeight: 'bold',
+                                padding: '0 10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              className="action-btn-hover"
+                            >
+                              ⌛ تمديد
+                            </button>
+                          )}
+
+                          {/* Execute or Audit Action */}
+                          {mission.status === 'completed' ? (
+                            <button
+                              onClick={() => setAuditMission(mission)}
+                              style={{
+                                minHeight: '30px',
+                                borderRadius: '6px',
+                                background: '#f0fcf9',
+                                border: '1px solid #ccebe6',
+                                color: '#16725a',
+                                fontSize: '11.5px',
+                                fontWeight: 'bold',
+                                padding: '0 10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              className="action-btn-hover"
+                            >
+                              🔎 مراجعة
+                            </button>
+                          ) : isLocked && isInspector ? (
+                            <button
+                              onClick={() => {
+                                alert(`⚠️ عذراً، لا يمكن تنفيذ المأمورية خارج تاريخ التحرك والانتهاء المحدد لها (من ${targetStartDate} إلى ${targetEndDate}).\n\nيرجى التواصل مع إدارة التفتيش والمتابعة لطلب تمديد فترة المأمورية.`)
+                              }}
+                              style={{
+                                minHeight: '30px',
+                                borderRadius: '6px',
+                                background: '#eceff1',
+                                border: '1px solid #cfd8dc',
+                                color: '#78909c',
+                                fontSize: '11.5px',
+                                fontWeight: 'bold',
+                                padding: '0 10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                cursor: 'not-allowed',
+                              }}
+                            >
+                              🔒 مغلق
+                            </button>
+                          ) : (
+                            <Link
+                              href={`/dashboard/missions/${mission.id}/execute`}
+                              style={{
+                                minHeight: '30px',
+                                borderRadius: '6px',
+                                background: mission.status === 'in_progress' ? '#ffe0b2' : 'var(--brand)',
+                                border: mission.status === 'in_progress' ? '1px solid #ffcc80' : '0',
+                                color: mission.status === 'in_progress' ? '#e65100' : 'white',
+                                fontSize: '11.5px',
+                                fontWeight: 'bold',
+                                padding: '0 10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                textDecoration: 'none',
+                                boxShadow: '0 2px 4px rgba(0,109,119,0.1)',
+                                transition: 'all 0.2s'
+                              }}
+                              className="action-btn-hover"
+                            >
+                              {mission.status === 'in_progress' ? '📝 استكمال' : 'تنفيذ'}
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+
+                {filteredMissions.length === 0 && (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '40px 20px', textAlign: 'center', color: '#78909c' }}>
+                      <strong style={{ fontSize: '14px', color: '#102027', display: 'block', marginBottom: '4px' }}>
+                        لا توجد مأموريات تطابق الفلاتر المحددة
+                      </strong>
+                      يرجى تعديل خيارات البحث أو الفرز للحصول على نتائج، أو إنشاء مأمورية جديدة.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* 4. SUPERVISOR GPS & TECHNICAL AUDIT MODAL */}
       {auditMission && (
@@ -1088,7 +2004,7 @@ export function MissionsPortal({
                   style={{ width: '80px', height: '80px', objectFit: 'contain' }} 
                 />
                 <div style={{ textAlign: 'left', fontSize: '13px', lineHeight: '1.6' }}>
-                  <strong>نظام إدارة المأموريات الرقابية</strong><br />
+                  <strong>نظام حوكمة المأمورية الميدانية</strong><br />
                   <span>وثيقة إثبات المطابقة والتوثيق الجغرافي</span><br />
                   <span>حالة التوثيق: {auditMission.gpsVerified ? '🟢 مطابق وموثق جغرافياً' : '⚠️ تباين جيو-مكاني (خارج النطاق)'}</span><br />
                   <strong>رقم التكليف: {auditMission.serialNumber}</strong>
@@ -1144,28 +2060,72 @@ export function MissionsPortal({
                 {/* 2. Technical Findings Checklists */}
                 <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
                   <h3 style={{ margin: '0 0 14px', fontSize: '14.5px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <FileText size={16} /> تقييم بنود التفتيش الرقابي
+                    <FileText size={16} /> تقييم بنود التفتيش المحوكم والنتائج الفعلية
                   </h3>
                   
-                  {/* Dynamic checklist representation */}
-                  <div style={{ display: 'grid', gap: '8px', fontSize: '12.5px' }}>
-                    <div className="checklist-row">
-                      <span className="checklist-label">📋 مطابقة انضباط الأطقم وجداول النوبتجية:</span>
-                      <strong className="checklist-value" style={{ color: '#2e7d32' }}>ملتزم ✓</strong>
+                  {loadingAuditResults ? (
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', color: '#78909c', fontSize: '12.5px', justifyContent: 'center', padding: '20px 0' }}>
+                      <div className="spinner" style={{ border: '2px solid #e0f0f0', borderTopColor: '#006d77', width: '20px', height: '20px', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      <span>جاري جلب إجابات الاستمارة الفعلية من السيرفر...</span>
                     </div>
-                    <div className="checklist-row">
-                      <span className="checklist-label">📋 التزام معايير مكافحة العدوى والوقاية:</span>
-                      <strong className="checklist-value" style={{ color: '#2e7d32' }}>ملتزم ✓</strong>
+                  ) : parsedAuditResults.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px 10px', color: '#78909c', fontSize: '12.5px', background: '#fafafa', borderRadius: '8px' }}>
+                      ℹ️ لم يتم حفظ أي إجابات تقييمية لهذه المأمورية بعد.
                     </div>
-                    <div className="checklist-row">
-                      <span className="checklist-label">📋 سلامة الأجهزة والشبكات والغازات:</span>
-                      <strong className="checklist-value" style={{ color: '#2e7d32' }}>ملتزم ✓</strong>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '12px', fontSize: '12.5px' }}>
+                      {parsedAuditResults.map((res: any, idx: number) => {
+                        let answerColor = '#2e7d32' // green
+                        let answerText = 'ملتزم ✓'
+                        
+                        if (res.answer === 'no') {
+                          answerColor = '#d32f2f' // red
+                          answerText = 'غير ملتزم ❌'
+                        } else if (res.answer === 'na') {
+                          answerColor = '#78909c' // grey
+                          answerText = 'لا ينطبق'
+                        } else {
+                          // Could be checkbox array, rating, or custom dropdown
+                          answerText = Array.isArray(res.answer) ? res.answer.join(', ') : String(res.answer)
+                          if (answerText.includes('غير') || answerText.includes('لا') || answerText.includes('مخالف')) {
+                            answerColor = '#d32f2f'
+                          } else {
+                            answerColor = '#006d77'
+                          }
+                        }
+
+                        return (
+                          <div key={res.id || idx} style={{ display: 'grid', gap: '4px', borderBottom: idx < parsedAuditResults.length - 1 ? '1px solid #f0f7f7' : 'none', paddingBottom: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                              <span style={{ fontWeight: 'bold', color: '#37474f', textAlign: 'right', flex: 1, lineHeight: '1.4' }}>
+                                📋 {res.text}
+                              </span>
+                              <strong style={{ color: answerColor, flexShrink: 0, fontSize: '12px', direction: 'rtl' }}>
+                                {answerText}
+                              </strong>
+                            </div>
+                            {res.notes && (
+                              <div style={{ 
+                                fontSize: '11px', 
+                                color: '#546e7a', 
+                                background: '#f8fafb', 
+                                padding: '6px 10px', 
+                                borderRadius: '6px', 
+                                borderRight: '2px solid #006d77',
+                                display: 'flex',
+                                gap: '4px',
+                                width: '100%',
+                                boxSizing: 'border-box'
+                              }}>
+                                <strong>📝 ملاحظات البند:</strong>
+                                <span>{res.notes}</span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
-                    <div className="checklist-row">
-                      <span className="checklist-label">📋 جرد وتخزين الأدوية بصيدلية الطوارئ:</span>
-                      <strong className="checklist-value" style={{ color: '#e65100' }}>ملتزم جزئياً ⚠️</strong>
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* 3. Execution Report Notes */}
@@ -1317,7 +2277,7 @@ export function MissionsPortal({
                       {auditMission.gpsVerified ? (
                         'النظام يؤكد تواجد المفتش فعلياً ضمن النطاق المعتمد للمنشأة الصحية (أقل من ٢٠٠ متر) لحظة بدء وإنهاء المأمورية. تم استلام وقبول التقرير.'
                       ) : (
-                        'تنبيه: أرسل المفتش التقرير من موقع جغرافي يبعد مسافة تزيد عن ٢٠٠ متر من إحداثيات المستشفى المسجلة. يتم تسجيل هذا التباين وتوثيق إحداثياته للتحقق الرقابي الإداري.'
+                        'تنبيه: أرسل المفتش التقرير من موقع جغرافي يبعد مسافة تزيد عن ٢٠٠ متر من إحداثيات المستشفى المسجلة. يتم تسجيل هذا التباين وتوثيق إحداثياته للتحقق الإداري المحوكم.'
                       )}
                     </p>
                     
@@ -1439,6 +2399,32 @@ export function MissionsPortal({
                 gap: '12px'
               }}
             >
+              {/* Edit Form & Report Button */}
+              <button 
+                onClick={() => {
+                  setAuditMission(null)
+                  router.push(`/dashboard/missions/${auditMission.id}/execute`)
+                }}
+                style={{
+                  minHeight: '38px',
+                  borderRadius: '8px',
+                  border: '1px solid #ffcc80',
+                  background: '#ffe0b2',
+                  color: '#e65100',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  padding: '0 20px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                className="action-btn-hover"
+              >
+                ✏️ تعديل الاستمارة والتقرير الميداني
+              </button>
+
               <button 
                 onClick={() => window.print()}
                 style={{
@@ -1597,6 +2583,156 @@ export function MissionsPortal({
                     💾 حفظ واعتماد التوقيع
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Administrative Mission Extension Modal */}
+      {extendingMission && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(16, 32, 39, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '20px',
+          direction: 'rtl'
+        }} onClick={() => setExtendingMission(null)}>
+          <div 
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              width: '500px',
+              maxWidth: '100%',
+              boxShadow: '0 12px 36px rgba(0,0,0,0.15)',
+              border: '1px solid #cfdcde',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header style={{
+              background: '#006d77',
+              color: 'white',
+              padding: '16px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              borderBottom: '3px solid var(--brand)'
+            }}>
+              <strong style={{ fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                ⌛ تمديد فترة المأمورية إدارياً
+              </strong>
+              <button 
+                onClick={() => setExtendingMission(null)}
+                style={{ background: 'transparent', border: 0, color: 'white', cursor: 'pointer', fontSize: '18px' }}
+              >✕</button>
+            </header>
+            
+            <div style={{ padding: '20px', display: 'grid', gap: '16px', background: '#fcfdfd' }}>
+              <div style={{
+                background: '#e0f2f1',
+                padding: '10px 14px',
+                borderRadius: '8px',
+                border: '1px solid #b2dfdb',
+                fontSize: '13px',
+                color: '#004d40',
+                lineHeight: '1.4'
+              }}>
+                <strong>مأمورية رقم:</strong> {extendingMission.serialNumber}<br />
+                <strong>الوجهة:</strong> {extendingMission.destinationName}<br />
+                <strong>تاريخ التحرك الأصلي:</strong> {extendingMission.scheduledDate}
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: '#37474f', fontWeight: 'bold', marginBottom: '6px' }}>
+                  تاريخ الانتهاء الجديد المتوقع للمأمورية *
+                </label>
+                <input 
+                  type="date"
+                  value={newEndDate}
+                  onChange={(e) => setNewEndDate(e.target.value)}
+                  min={extendingMission.scheduledDate || undefined}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #cfdcde',
+                    fontSize: '14px',
+                    direction: 'ltr',
+                    textAlign: 'right',
+                    outline: 'none',
+                    transition: 'border-color 0.2s'
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', color: '#37474f', fontWeight: 'bold', marginBottom: '6px' }}>
+                  سند التكليف بالتمديد وسبب التمديد الإداري *
+                </label>
+                <textarea
+                  value={extensionReason}
+                  onChange={(e) => setExtensionReason(e.target.value)}
+                  placeholder="مثال: بناءً على توجيهات السيد رئيس الإدارة المركزية نظراً لعدم استكمال أعمال الجرد بسبب تعطل النظام الإلكتروني..."
+                  rows={4}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #cfdcde',
+                    fontSize: '13px',
+                    outline: 'none',
+                    resize: 'vertical',
+                    lineHeight: '1.5',
+                    transition: 'border-color 0.2s'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+                <button 
+                  onClick={() => setExtendingMission(null)}
+                  style={{
+                    background: 'white',
+                    border: '1px solid #cfdcde',
+                    color: '#546e7a',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                >
+                  إلغاء
+                </button>
+                <button 
+                  onClick={handleExtendSave}
+                  disabled={extendingLoading}
+                  style={{
+                    background: '#006d77',
+                    border: 0,
+                    color: 'white',
+                    borderRadius: '8px',
+                    padding: '8px 20px',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    cursor: extendingLoading ? 'not-allowed' : 'pointer',
+                    opacity: extendingLoading ? 0.7 : 1,
+                    boxShadow: '0 2px 4px rgba(0,109,119,0.15)'
+                  }}
+                >
+                  {extendingLoading ? 'جاري الحفظ والتعميم...' : '💾 اعتماد وتمديد المأمورية'}
+                </button>
               </div>
             </div>
           </div>

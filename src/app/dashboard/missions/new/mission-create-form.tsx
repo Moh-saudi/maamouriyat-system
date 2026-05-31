@@ -19,6 +19,7 @@ import {
   X
 } from 'lucide-react'
 import styles from './new-mission.module.css'
+import { SearchableAddableSelect } from '@/app/system-ui'
 
 type Employee = {
   id: string
@@ -27,6 +28,7 @@ type Employee = {
   level: number
   department: string | null
   org_unit_id?: string | null
+  is_active?: boolean
 }
 
 type OrgUnit = {
@@ -138,13 +140,13 @@ const PURPOSE_TEMPLATES = {
 }
 
 const NOTES_TEMPLATES = [
-  { label: 'التوثيق بالـ GPS', text: 'يرجى توثيق الزيارة بالـ GPS وإعداد التقرير الرقابي فور انتهاء المرور وبحد أقصى ٢٤ ساعة.' },
+  { label: 'التوثيق بالـ GPS', text: 'يرجى توثيق الزيارة بالـ GPS وإعداد التقرير المحوكم فور انتهاء المرور وبحد أقصى ٢٤ ساعة.' },
   { label: 'مطابقة دفاتر الحضور', text: 'يجب مطابقة التزام الأطقم الطبية بجدول النوبتجية ومراجعة الدفاتر الورقية للحضور والانصراف.' },
   { label: 'استبيان رضا المرضى', text: 'التركيز التام على استبيان رضا المرضى بالاستقبال وحل مشكلات قوائم الانتظار للجراحات الحرجة.' },
   { label: 'إخطار الشئون العلاجية', text: 'يُرجى إخطار الإدارة المركزية للشئون العلاجية فوراً برصد أي مخالفات جسيمة تهدد سلامة المرضى.' }
 ]
 
-type DemoStoredMission = {
+type StoredMission = {
   destinationName: string
   destinationType: 'facility' | 'governorate'
   employeeNames: string
@@ -162,14 +164,12 @@ type DemoStoredMission = {
 
 export function MissionCreateForm({
   currentUserId,
-  demoMode = false,
   employees,
   facilities,
   governorates,
   orgUnits,
 }: {
   currentUserId: string
-  demoMode?: boolean
   employees: Employee[]
   facilities: Facility[]
   governorates: Governorate[]
@@ -177,6 +177,23 @@ export function MissionCreateForm({
 }) {
   const router = useRouter()
   const supabase = createBrowserSupabaseClient()
+  
+  const [localOrgUnits, setLocalOrgUnits] = useState(orgUnits)
+  const [localGovernorates, setLocalGovernorates] = useState(governorates)
+
+  const handleAddOrgUnit = (newName: string) => {
+    const newId = `new-unit-${Date.now()}`
+    const newUnit = { id: newId, code: `NEW-${Date.now()}`, name: newName, unit_type: 'قسم', parent_id: null, level: 1 }
+    setLocalOrgUnits(prev => [newUnit, ...prev])
+    update('orgUnitId', newId)
+  }
+
+  const handleAddGovernorate = (newName: string) => {
+    const newId = `new-gov-${Date.now()}`
+    const newGov = { id: newId, name: newName, region: null }
+    setLocalGovernorates(prev => [newGov, ...prev])
+    update('targetGovernorateId', newId)
+  }
   
   // Stepper State
   const [step, setStep] = useState<1 | 2 | 3>(1)
@@ -219,21 +236,33 @@ export function MissionCreateForm({
   const isPastDate = Boolean(form.scheduledDate && form.scheduledDate < today)
   const duration = missionDuration(form.scheduledDate, form.expectedEndDate)
 
-  // Load existing missions to check employee load status
-  const existingMissions: DemoStoredMission[] = useMemo(() => {
-    if (typeof window === 'undefined') return []
-    const cookieName = 'maamouriyat_demo_missions'
-    const value = document.cookie
-      .split('; ')
-      .find((item) => item.startsWith(`${cookieName}=`))
-      ?.split('=')[1]
-    if (!value) return []
-    try {
-      return JSON.parse(decodeURIComponent(value))
-    } catch {
-      return []
+  // Load existing busy inspectors from live database to check conflicts
+  const [busyInspectors, setBusyInspectors] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!supabase || !form.scheduledDate) return
+    
+    const fetchBusyInspectors = async () => {
+      try {
+        const { data } = await supabase
+          .from('missions')
+          .select('id, assigned_user_id')
+          .eq('scheduled_date', form.scheduledDate)
+          .neq('status', 'cancelled')
+
+        if (data) {
+          const userIds: string[] = []
+          data.forEach((m: any) => {
+            if (m.assigned_user_id) userIds.push(m.assigned_user_id)
+          })
+          setBusyInspectors(userIds)
+        }
+      } catch (e) {
+        console.error('Error fetching busy inspectors:', e)
+      }
     }
-  }, [form.scheduledDate])
+    fetchBusyInspectors()
+  }, [supabase, form.scheduledDate])
 
   const selectedEmployees = useMemo(
     () => employees.filter((employee) => form.assignedUserIds.includes(employee.id)),
@@ -284,17 +313,24 @@ export function MissionCreateForm({
     const emp = employees.find(e => e.id === selectedEmployeeId)
     if (!emp) return ''
 
-    // Check if employee is booked on that date in mock cookie
-    const isBusy = existingMissions.some(m => 
-      m.scheduledDate === form.scheduledDate && 
-      m.employeeNames.includes(emp.full_name)
-    )
+    const isBusy = busyInspectors.includes(selectedEmployeeId)
 
     if (isBusy) {
       return `⚠️ تنبيه هام: الموظف ${emp.full_name} لديه مأمورية تفتيشية نشطة أخرى مجدولة بالفعل في تاريخ ${form.scheduledDate}! يمكنك إضافته ولكن يرجى التحقق الجغرافي لتفادي تعارض التكاليف.`
     }
     return ''
-  }, [selectedEmployeeId, form.scheduledDate, existingMissions, employees])
+  }, [selectedEmployeeId, form.scheduledDate, busyInspectors, employees])
+
+  // Inactive Inspector Warning Checker
+  const inactiveInspectorWarning = useMemo(() => {
+    if (!selectedEmployeeId) return ''
+    const emp = employees.find(e => e.id === selectedEmployeeId)
+    if (!emp) return ''
+    if (emp.is_active === false) {
+      return `❌ تنبيه أمني: حساب المفتش (${emp.full_name}) موقف حالياً أو غير نشط في المنظومة. لا يمكن إسناد أي مأموريات تفتيشية له حتى يتم تفعيله من قبل شؤون العاملين.`
+    }
+    return ''
+  }, [selectedEmployeeId, employees])
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => {
@@ -348,6 +384,11 @@ export function MissionCreateForm({
 
   function addEmployee() {
     if (!selectedEmployeeId) return
+    const emp = employees.find(e => e.id === selectedEmployeeId)
+    if (emp && emp.is_active === false) {
+      setError(`❌ عذراً، لا يمكن إضافة المفتش (${emp.full_name}) لفريق المأمورية لأن حسابه موقف حالياً أو غير نشط بقرار إداري.`)
+      return
+    }
     setForm((current) => ({
       ...current,
       assignedUserIds: current.assignedUserIds.includes(selectedEmployeeId)
@@ -411,114 +452,7 @@ export function MissionCreateForm({
 
     const teamSummary = uniqueText(selectedEmployees.map((employee) => employee.full_name))
 
-    if (demoMode) {
-      let selectedFacs = form.destinationType === 'facility'
-        ? facilities.filter(fac => form.targetFacilityIds?.includes(fac.id))
-        : [];
-      
-      if (form.destinationType === 'facility' && selectedFacs.length === 0) {
-        selectedFacs = [selectedFacility].filter(Boolean) as any;
-      }
-      
-      const newMissions: DemoStoredMission[] = [];
-      const newNotifs: any[] = [];
-      const count = form.destinationType === 'facility' ? selectedFacs.length : 1;
-      
-      for (let i = 0; i < count; i++) {
-        const fac = form.destinationType === 'facility' ? selectedFacs[i] : null;
-        const currentSerial = `MIS-2026-05-${(Date.now() + i).toString().slice(-5)}`;
-        
-        const missionNoteParts = [
-          form.notes.trim(),
-          teamSummary ? `فريق المأمورية: ${teamSummary}` : '',
-          `تاريخ الانتهاء المتوقع: ${form.expectedEndDate}`,
-          duration ? `مدة المأمورية: ${duration.days} يوم / ${duration.nights} ليلة` : '',
-          `مبيت: ${form.requiresOvernight ? 'نعم' : 'لا'}`,
-          `حجز فندق: ${form.requiresHotelBooking ? 'نعم' : 'لا'}`,
-          isPastDate && form.allowPastDate ? 'تم تأكيد المأمورية بتاريخ سابق.' : '',
-        ].filter(Boolean);
 
-        const newMission: DemoStoredMission = {
-          destinationName: form.destinationType === 'facility'
-            ? fac?.name ?? 'منشأة غير محددة'
-            : selectedGovernorate?.name ?? 'محافظة غير محددة',
-          destinationType: form.destinationType,
-          employeeNames: teamSummary,
-          endDate: form.expectedEndDate,
-          facilityType: fac?.facility_type,
-          id: `demo-${currentSerial}`,
-          notes: missionNoteParts.join('\n'),
-          orgUnitName: selectedOrgUnit?.name ?? 'إدارة التفتيش والمتابعة',
-          priority: form.priority,
-          scheduledDate: form.scheduledDate,
-          serialNumber: currentSerial,
-          status: 'assigned',
-          visitPurpose: form.visitPurpose.trim(),
-        };
-        
-        newMissions.push(newMission);
-        
-        newNotifs.push(
-          {
-            href: '/dashboard/missions',
-            meta: 'الآن',
-            text: `تم تكليفك بمأمورية تفتيشية جديدة رقم ${currentSerial} إلى ${form.destinationType === 'facility' ? fac?.name : selectedGovernorate?.name} بتاريخ ${form.scheduledDate}.`,
-            title: 'تكليف مأمورية جديد',
-            tone: 'blue',
-            is_read: false
-          },
-          {
-            href: '/dashboard/missions',
-            meta: 'الآن',
-            text: `تم إرسال مأمورية تفتيشية جديدة رقم ${currentSerial} لفريق العمل للتنفيذ.`,
-            title: 'مأمورية قيد المتابعة',
-            tone: 'amber',
-            is_read: false
-          }
-        );
-      }
-
-      // Save to cookie using existing helper
-      const existingCookie = document.cookie
-        .split('; ')
-        .find((item) => item.startsWith('maamouriyat_demo_missions='))
-        ?.split('=')[1]
-      let existing: DemoStoredMission[] = []
-      try {
-        existing = existingCookie ? (JSON.parse(decodeURIComponent(existingCookie)) as DemoStoredMission[]) : []
-      } catch {
-        existing = []
-      }
-      
-      const next = [...newMissions, ...existing].slice(0, 30)
-      document.cookie = `maamouriyat_demo_missions=${encodeURIComponent(JSON.stringify(next))}; path=/; max-age=604800; SameSite=Lax`
-
-      // Dynamic local notifications in cookies for real-time bell badge simulation
-      const notifCookieName = 'maamouriyat_demo_notifications'
-      const existingNotifCookie = document.cookie
-        .split('; ')
-        .find((item) => item.startsWith(`${notifCookieName}=`))
-        ?.split('=')[1]
-      let existingNotifs: any[] = []
-      try {
-        existingNotifs = existingNotifCookie ? JSON.parse(decodeURIComponent(existingNotifCookie)) : []
-      } catch {}
-
-      existingNotifs = [...newNotifs, ...existingNotifs].slice(0, 20)
-      document.cookie = `${notifCookieName}=${encodeURIComponent(JSON.stringify(existingNotifs))}; path=/; max-age=604800; SameSite=Lax`
-
-      if (count > 1) {
-        setSuccess(`تم تكليف عدد ${count} مأموريات تجريبية بنجاح!`)
-      } else {
-        setSuccess(`تم تكليف المأمورية التجريبية بنجاح برقم تسلسلي: ${newMissions[0].serialNumber}`)
-      }
-      
-      setForm(initialState)
-      setStep(1)
-      router.push('/dashboard/missions')
-      router.refresh()
-      return
-    }
 
     if (!supabase) {
       setError('إعداد قاعدة البيانات Supabase غير مكتمل.')
@@ -586,7 +520,25 @@ export function MissionCreateForm({
         status: 'assigned',
       }
 
-      const { data: missionData, error: insertError } = await supabase.from('missions').insert(payload).select('id').single()
+      let missionData = null
+      let insertError = null
+
+      const firstTry = await supabase.from('missions').insert(payload).select('id').single()
+      missionData = firstTry.data
+      insertError = firstTry.error
+
+      if (insertError && (insertError.code === '42703' || insertError.code === 'PGRST204' || insertError.message?.includes('expected_duration_days') || insertError.message?.includes('expected_nights') || insertError.message?.includes('requires_overnight') || insertError.message?.includes('requires_hotel_booking'))) {
+        console.warn('[Missions Create] Falling back to standard schema without planning/duration columns:', insertError.message)
+        const fallbackPayload = { ...payload }
+        delete (fallbackPayload as any).expected_duration_days
+        delete (fallbackPayload as any).expected_nights
+        delete (fallbackPayload as any).requires_overnight
+        delete (fallbackPayload as any).requires_hotel_booking
+
+        const retryTry = await supabase.from('missions').insert(fallbackPayload).select('id').single()
+        missionData = retryTry.data
+        insertError = retryTry.error
+      }
 
       if (insertError) {
         setLoading(false)
@@ -596,17 +548,20 @@ export function MissionCreateForm({
 
       // Insert team members if any
       if (missionData?.id && form.assignedUserIds.length) {
-        await supabase.from('mission_assignees').insert(
+        const { error: assigneesErr } = await supabase.from('mission_assignees').insert(
           form.assignedUserIds.map((userId, index) => ({
             is_primary: index === 0,
             mission_id: missionData.id,
             user_id: userId,
           })),
         )
+        if (assigneesErr) {
+          console.warn('[Conflict Resolution] mission_assignees table is not present in Supabase:', assigneesErr.message)
+        }
 
         await supabase.from('notifications').insert(
           form.assignedUserIds.map((userId) => ({
-            body: `تم تكليفك بمأمورية رقابة وتفتيش جديدة رقم ${serialData} بتاريخ ${form.scheduledDate}. يرجى تأكيد حضورك وموقعك بالـ GPS فور بدء الزيارة.`,
+            body: `تم تكليفك بمأمورية حوكمة وتفتيش جديدة رقم ${serialData} بتاريخ ${form.scheduledDate}. يرجى تأكيد حضورك وموقعك بالـ GPS فور بدء الزيارة.`,
             mission_id: missionData.id,
             title: 'تكليف مأمورية جديد',
             type: 'mission_assigned',
@@ -780,50 +735,32 @@ export function MissionCreateForm({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
               {/* Org Unit */}
               <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
-                الإدارة الرقابية المختصة بالتكليف *
-                <select 
-                  value={form.orgUnitId} 
-                  onChange={(event) => update('orgUnitId', event.target.value)} 
-                  required
-                  style={{
-                    minHeight: '44px',
-                    borderRadius: '8px',
-                    border: form.orgUnitId ? '1px solid #cfdcde' : '2px solid #ffb74d',
-                    padding: '0 10px',
-                    fontSize: '13px',
-                    background: 'white',
-                    outline: 'none'
-                  }}
-                >
-                  <option value="">اختر الإدارة أولاً</option>
-                  {orgUnits.map((unit) => (
-                    <option key={unit.id} value={unit.id}>
-                      {'-'.repeat(Math.max(0, unit.level))} {unit.name}
-                    </option>
-                  ))}
-                </select>
+                الإدارة المحوكمة المختصة بالتكليف *
+                <SearchableAddableSelect
+                  options={localOrgUnits.map((unit) => ({
+                    value: unit.id,
+                    label: `${'-'.repeat(Math.max(0, unit.level))} ${unit.name}`
+                  }))}
+                  value={form.orgUnitId}
+                  onChange={(val) => update('orgUnitId', val)}
+                  placeholder="اختر أو ابحث عن الإدارة..."
+                  onAdd={handleAddOrgUnit}
+                />
               </label>
 
               {/* Priority */}
               <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
                 درجة أولوية المأمورية *
-                <select 
-                  value={form.priority} 
-                  onChange={(event) => update('priority', event.target.value as FormState['priority'])}
-                  style={{
-                    minHeight: '44px',
-                    borderRadius: '8px',
-                    border: '1px solid #cfdcde',
-                    padding: '0 10px',
-                    fontSize: '13px',
-                    background: 'white',
-                    outline: 'none'
-                  }}
-                >
-                  <option value="normal">عادية</option>
-                  <option value="high">مرتفعة (متابعة خاصة)</option>
-                  <option value="urgent">عاجلة جداً (قرار وزاري طارئ)</option>
-                </select>
+                <SearchableAddableSelect
+                  options={[
+                    { value: 'normal', label: 'عادية' },
+                    { value: 'high', label: 'مرتفعة (متابعة خاصة)' },
+                    { value: 'urgent', label: 'عاجلة جداً (قرار وزاري طارئ)' }
+                  ]}
+                  value={form.priority}
+                  onChange={(val) => update('priority', val as FormState['priority'])}
+                  placeholder="اختر درجة الأولوية..."
+                />
               </label>
             </div>
 
@@ -957,6 +894,25 @@ export function MissionCreateForm({
               </div>
             )}
 
+            {/* Inactive Inspector Warning Alert */}
+            {inactiveInspectorWarning && (
+              <div style={{
+                background: '#fff3f3',
+                border: '1px solid #ffcdd2',
+                borderRadius: '8px',
+                color: '#c62828',
+                padding: '12px',
+                fontSize: '12.5px',
+                lineHeight: '1.5',
+                display: 'flex',
+                gap: '8px',
+                boxShadow: '0 2px 8px rgba(198,40,40,0.04)'
+              }}>
+                <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                <span>{inactiveInspectorWarning}</span>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gap: '8px' }}>
               <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>اختيار وتكليف مفتش من الإدارة المحددة:</span>
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -978,8 +934,8 @@ export function MissionCreateForm({
                 >
                   <option value="">اختر الموظف...</option>
                   {employeeOptions.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.full_name} - {employee.job_title ?? employee.department ?? `مستوى ${employee.level}`}
+                    <option key={employee.id} value={employee.id} style={{ color: employee.is_active === false ? '#c62828' : 'inherit', fontWeight: employee.is_active === false ? 'bold' : 'normal' }}>
+                      {employee.full_name} {employee.is_active === false ? '🔴 (حساب موقوف / غير نشط)' : '🟢'} - {employee.job_title ?? employee.department ?? `مستوى ${employee.level}`}
                     </option>
                   ))}
                 </select>
@@ -1131,25 +1087,16 @@ export function MissionCreateForm({
               {/* Target Governorate */}
               <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
                 المحافظة المستهدفة بالزيارة *
-                <select 
-                  value={form.targetGovernorateId} 
-                  onChange={(event) => update('targetGovernorateId', event.target.value)} 
-                  required
-                  style={{
-                    minHeight: '44px',
-                    borderRadius: '8px',
-                    border: form.targetGovernorateId ? '1px solid #cfdcde' : '2px solid #ffb74d',
-                    padding: '0 10px',
-                    fontSize: '13px',
-                    background: 'white',
-                    outline: 'none'
-                  }}
-                >
-                  <option value="">اختر المحافظة</option>
-                  {governorates.map((gov) => (
-                    <option key={gov.id} value={gov.id}>{gov.name}</option>
-                  ))}
-                </select>
+                <SearchableAddableSelect
+                  options={localGovernorates.map((gov) => ({
+                    value: gov.id,
+                    label: gov.name
+                  }))}
+                  value={form.targetGovernorateId}
+                  onChange={(val) => update('targetGovernorateId', val)}
+                  placeholder="اختر أو ابحث عن محافظة..."
+                  onAdd={handleAddGovernorate}
+                />
               </label>
 
               {/* Target Facility - Searchable select fuzzy search */}
@@ -1288,7 +1235,7 @@ export function MissionCreateForm({
             {/* Visit Purpose */}
             <div style={{ display: 'grid', gap: '6px' }}>
               <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
-                الغرض التفصيلي والتوجيه الرقابي للزيارة *
+                الغرض التفصيلي والتوجيه المحوكم للزيارة *
                 <textarea
                   value={form.visitPurpose}
                   onChange={(event) => update('visitPurpose', event.target.value)}

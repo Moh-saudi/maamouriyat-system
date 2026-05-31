@@ -4,15 +4,12 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  demoAccounts,
-  demoPassword,
   getRoleDefinition,
-  normalizeDemoRole,
   roleDefinitions,
-  type DemoRole,
+  type UserRole,
   type NavigationKey,
   getRoleNavigation,
-  getUserNavigation,
+  normalizeNavigationKeys,
 } from '@/lib/roles'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import {
@@ -153,7 +150,7 @@ export function DashboardShell({
   view = 'dashboard',
 }: {
   children: React.ReactNode
-  role?: DemoRole | null
+  role?: UserRole | null
   view?: Exclude<View, 'login'>
 }) {
   return (
@@ -167,26 +164,25 @@ function LoginScreen() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [showDemoAccounts, setShowDemoAccounts] = useState(false)
+
+  useEffect(() => {
+    const rememberedEmail = window.localStorage.getItem('maamouriyat_remembered_email')
+    if (rememberedEmail) {
+      setEmail(rememberedEmail)
+      setRememberMe(true)
+    }
+  }, [])
 
   async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
 
-    // Check for local demo login first to avoid making a failing Supabase API request
-    if (isDemoLogin(email, password)) {
-      const resolvedRole = normalizeDemoRole(email) || 'inspector'
-      document.cookie = `maamouriyat_demo_session=${resolvedRole}; path=/; max-age=86400; SameSite=Lax`
-      router.push('/dashboard')
-      router.refresh()
-      return
-    }
-
     if (!supabase) {
-      router.push('/dashboard')
+      setError('قاعدة البيانات غير متوفرة حالياً')
       return
     }
 
@@ -199,6 +195,18 @@ function LoginScreen() {
       return
     }
 
+    if (rememberMe) {
+      window.localStorage.setItem('maamouriyat_remembered_email', email.trim())
+    } else {
+      window.localStorage.removeItem('maamouriyat_remembered_email')
+    }
+
+    // Store the access token in sessionStorage so the forced-password-change
+    // modal can use it even before the new-page supabase instance hydrates.
+    if (result.data.session?.access_token) {
+      sessionStorage.setItem('mohp_pending_token', result.data.session.access_token)
+    }
+
     router.push('/dashboard')
   }
 
@@ -208,7 +216,7 @@ function LoginScreen() {
       <section className="login-hero">
         <MinistryLogo size="hero" />
         <p className="eyebrow">وزارة الصحة والسكان</p>
-        <h1>نظام إدارة المأموريات</h1>
+        <h1>نظام حوكمة المأمورية الميدانية</h1>
         <p className="hero-copy">متابعة ميدانية أسرع، قرارات أوضح، وتجربة موبايل جاهزة لفترة الاختبار.</p>
       </section>
 
@@ -257,70 +265,14 @@ function LoginScreen() {
           </span>
         </label>
 
-        {/* Collapsible Simulation Demo Accounts - Hidden by default for professional security look */}
-        <div style={{ marginTop: '4px', marginBottom: '8px', minWidth: 0, width: '100%' }}>
-          <button
-            type="button"
-            onClick={() => setShowDemoAccounts(prev => !prev)}
-            style={{
-              background: 'transparent',
-              border: 0,
-              color: 'var(--brand)',
-              fontSize: '12.5px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 0',
-              textDecoration: 'underline',
-              outline: 'none'
-            }}
-          >
-            <span>{showDemoAccounts ? '⬇️ إخفاء حسابات العرض التجريبي للمحاكاة' : '⚙️ عرض خيارات المحاكاة وحسابات العرض التجريبي'}</span>
-          </button>
-
-          {showDemoAccounts && (
-            <div style={{
-              background: '#f8fbfb',
-              border: '1px solid #cfdcde',
-              borderRadius: '8px',
-              padding: '12px',
-              marginTop: '6px',
-              boxSizing: 'border-box',
-              width: '100%',
-              minWidth: 0
-            }}>
-              <p style={{ margin: '0 0 10px 0', fontSize: '10.5px', color: '#546e7a', lineHeight: '1.5', textAlign: 'right' }}>
-                💡 <strong>بيئة المحاكاة والاختبار:</strong> هذه الحسابات مخصصة حصرياً لمعاينة وتجربة كافة صلاحيات وأدوار النظام بكلمة مرور موحدة: <code style={{ background: '#eef6f6', padding: '2px 6px', borderRadius: '4px', color: 'var(--brand)', fontWeight: 'bold' }}>{demoPassword}</code>. يمكن إلغاء وحظر هذه اللوحة بالكامل في بيئة الإنتاج السحابية والاعتماد على التسجيل الحقيقي المؤمن.
-              </p>
-              <div className="demo-accounts" aria-label="حسابات تجريبية" style={{ margin: 0, display: 'flex', flexWrap: 'wrap', gap: '4px', maxHeight: '180px', overflowY: 'auto' }}>
-                {demoAccounts.map((account) => (
-                  <button
-                    key={account}
-                    onClick={() => {
-                      setEmail(account)
-                      setPassword(demoPassword)
-                    }}
-                    type="button"
-                    style={{
-                      fontSize: '11px',
-                      padding: '4px 8px',
-                      background: '#ffffff',
-                      border: '1px solid #cfdcde',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      transition: 'background 0.2s',
-                      color: '#37474f'
-                    }}
-                  >
-                    {account}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        <label className="remember-row">
+          <input
+            checked={rememberMe}
+            onChange={(event) => setRememberMe(event.target.checked)}
+            type="checkbox"
+          />
+          <span>تذكرني</span>
+        </label>
 
         <button className="primary-action" disabled={loading} type="submit">
           {loading ? 'جاري الدخول...' : 'تسجيل الدخول'}
@@ -330,37 +282,64 @@ function LoginScreen() {
   )
 }
 
-function AppShell({ children, initialRole, view }: { children: React.ReactNode; initialRole?: DemoRole | null; view: View }) {
+function AppShell({ children, initialRole, view }: { children: React.ReactNode; initialRole?: UserRole | null; view: View }) {
   const router = useRouter()
-  const [currentRole, setCurrentRole] = useState<DemoRole | null>(initialRole ?? null)
+  const [currentRole, setCurrentRole] = useState<UserRole | null>(initialRole ?? null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  
+  // Real database-backed user profile states
+  const [profileName, setProfileName] = useState<string | null>(null)
+  const [profileJobTitle, setProfileJobTitle] = useState<string | null>(null)
+  const [profileDepartment, setProfileDepartment] = useState<string | null>(null)
+  const [navigationOverride, setNavigationOverride] = useState<NavigationKey[] | null>(null)
+
   const roleInfo = getRoleDefinition(currentRole)
+  const shellAllowedNavigation = navigationOverride ?? getRoleNavigation(currentRole ?? 'inspector')
+  const bottomNavigationKeys = shellAllowedNavigation.filter((key) =>
+    ['dashboard', 'missions', 'violations', 'checklists'].includes(key),
+  )
   const [notificationsList, setNotificationsList] = useState<any[]>([])
+  const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [passwordChangedSuccess, setPasswordChangedSuccess] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   useEffect(() => {
     async function resolveUserEmail() {
-      const demoRole = readDemoRoleFromCookie()
-      if (demoRole) {
-        setUserEmail(`${demoRole}@${demoRole}.com`)
-        return
-      }
       if (supabase) {
         try {
           const { data: { user } } = await supabase.auth.getUser()
           if (user) {
             setUserEmail(user.email ?? user.id)
+            if (user.user_metadata?.must_change_password !== false) {
+              setMustChangePassword(true)
+            }
             const { data: profileData } = await supabase
               .from('users')
-              .select('level')
+              .select('id, level, full_name, job_title, department')
               .eq('auth_id', user.id)
               .maybeSingle()
             if (profileData) {
+              setProfileName(profileData.full_name)
+              setProfileJobTitle(profileData.job_title)
+              setProfileDepartment(profileData.department)
+
               const level = profileData.level ?? 7
               const role = level === 0 ? 'techadmin' : level === 1 ? 'superadmin' : level === 2 ? 'central' : level === 3 ? 'generalmanager' : level === 4 ? 'creator' : level === 5 ? 'financial' : 'inspector'
               document.cookie = `maamouriyat_user_role=${role}; path=/; max-age=86400; SameSite=Lax`
+              setCurrentRole(role)
+
+              const { data: userPermission } = await supabase
+                .from('user_permissions')
+                .select('allowed_pages')
+                .eq('user_id', profileData.id)
+                .maybeSingle()
+
+              const normalizedOverride = normalizeNavigationKeys(userPermission?.allowed_pages)
+              setNavigationOverride(normalizedOverride.length > 0 ? normalizedOverride : null)
             }
           }
         } catch {}
@@ -370,50 +349,11 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
   }, [currentRole])
 
   useEffect(() => {
-    setCurrentRole(readDemoRoleFromCookie() ?? initialRole ?? null)
+    setCurrentRole(readUserRoleFromCookie() ?? initialRole ?? null)
   }, [initialRole])
 
   useEffect(() => {
     async function loadNotifications() {
-      // 1. Demo Mode Cookie Feed
-      const isDemo = readDemoRoleFromCookie()
-      if (isDemo) {
-        const cookieName = 'maamouriyat_demo_notifications'
-        const existingCookie = document.cookie
-          .split('; ')
-          .find((item) => item.startsWith(`${cookieName}=`))
-          ?.split('=')[1]
-        let list = []
-        if (existingCookie) {
-          try {
-            list = JSON.parse(decodeURIComponent(existingCookie))
-          } catch {}
-        } else {
-          list = [
-            {
-              href: '/dashboard/missions',
-              meta: 'منذ 10 دقائق',
-              text: 'توجد مأموريات قيد التنفيذ تحتاج متابعة اليوم.',
-              title: 'متابعة المأموريات',
-              tone: 'blue',
-              is_read: false
-            },
-            {
-              href: '/dashboard/violations',
-              meta: 'منذ 35 دقيقة',
-              text: 'تم تسجيل مخالفة عالية الخطورة وتحتاج إجراء تصحيحي.',
-              title: 'مخالفة عالية الخطورة',
-              tone: 'red',
-              is_read: false
-            }
-          ]
-          document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify(list))}; path=/; max-age=604800; SameSite=Lax`
-        }
-        setNotificationsList(list)
-        return
-      }
-
-      // 2. Production Live Mode (Supabase)
       if (supabase) {
         try {
           const { data: { user } } = await supabase.auth.getUser()
@@ -448,14 +388,6 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
   }, [currentRole])
 
   async function handleClearNotifications() {
-    const isDemo = readDemoRoleFromCookie()
-    if (isDemo) {
-      const cookieName = 'maamouriyat_demo_notifications'
-      document.cookie = `${cookieName}=; path=/; max-age=0; SameSite=Lax`
-      setNotificationsList([])
-      return
-    }
-
     if (supabase) {
       try {
         const { data: { user } } = await supabase.auth.getUser()
@@ -478,10 +410,18 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
     setMenuOpen(false)
 
     if (supabase) {
-      await supabase.auth.signOut()
+      await supabase.auth.signOut().catch(() => {})
     }
 
-    document.cookie = 'maamouriyat_demo_session=; path=/; max-age=0; SameSite=Lax'
+    // Purge all user session and permissions cookies upon logout
+    document.cookie = 'maamouriyat_user_role=; path=/; max-age=0; SameSite=Lax'
+    document.cookie = 'maamouriyat_dynamic_permissions=; path=/; max-age=0; SameSite=Lax'
+    document.cookie = 'maamouriyat_user_permissions=; path=/; max-age=0; SameSite=Lax'
+
+    // Clean pending token
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('mohp_pending_token')
+    }
 
     router.replace('/login')
     router.refresh()
@@ -494,60 +434,31 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
         <div className="desktop-brand">
           <MinistryLogo size="menu" />
           <div>
-            <strong>نظام المأموريات</strong>
+            <strong>نظام حوكمة المأمورية الميدانية</strong>
             <span>وزارة الصحة والسكان</span>
           </div>
         </div>
-        <Navigation role={currentRole} userEmail={userEmail} />
+        <Navigation allowedKeysOverride={navigationOverride} role={currentRole} />
       </aside>
 
       <header className="topbar">
-        <button aria-label="فتح القائمة" className="icon-button" onClick={() => setMenuOpen(true)}>
+        {/* === Mobile hamburger — hidden on desktop === */}
+        <button aria-label="فتح القائمة" className="icon-button topbar-menu-btn" onClick={() => setMenuOpen(true)}>
           <Menu size={20} />
         </button>
+
+        {/* === Brand + page title === */}
         <div className="topbar-title">
           <MinistryLogo size="header" />
-          <div>
-            <p className="eyebrow">وزارة الصحة والسكان</p>
-            <h1>{pageTitle(view)}</h1>
-            <span className="topbar-role">{roleInfo.jobTitle}</span>
+          <div className="topbar-text">
+            <p className="topbar-org">وزارة الصحة والسكان</p>
+            <h1 className="topbar-page">{pageTitle(view)}</h1>
           </div>
         </div>
+
+        {/* === Right-side actions === */}
         <div className="topbar-actions">
-          <div className="user-menu-wrap">
-          <button
-            aria-expanded={userMenuOpen}
-            className="user-menu-button"
-            onClick={() => setUserMenuOpen((isOpen) => !isOpen)}
-            type="button"
-            title={roleInfo.name}
-          >
-            <User size={18} />
-            <span>{roleInfo.name}</span>
-          </button>
-          {userMenuOpen && (
-            <>
-              <button
-                aria-label="إغلاق بيانات المستخدم"
-                className="user-menu-scrim"
-                onClick={() => setUserMenuOpen(false)}
-                type="button"
-              />
-              <div className="user-menu-panel">
-                <strong>{roleInfo.name}</strong>
-                <span>{roleInfo.jobTitle}</span>
-                <button onClick={handleLogout} type="button">
-                  <LogOut size={17} />
-                  تسجيل الخروج
-                </button>
-              </div>
-            </>
-          )}
-          </div>
-          <button className="logout-button" onClick={handleLogout} title="تسجيل الخروج" type="button">
-            <LogOut size={18} />
-            <span>خروج</span>
-          </button>
+          {/* Notifications */}
           <div className="notification-wrap">
             <button
               aria-expanded={notificationsOpen}
@@ -575,6 +486,186 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
               </>
             )}
           </div>
+
+          {/* User chip */}
+          <div className="user-menu-wrap">
+            <button
+              aria-expanded={userMenuOpen}
+              className="user-chip-btn"
+              onClick={() => setUserMenuOpen((isOpen) => !isOpen)}
+              type="button"
+              title={profileJobTitle || roleInfo.jobTitle}
+              style={{
+                background: '#edf7f7',
+                border: '1px solid #cfe5e6',
+                borderRadius: '50px',
+                padding: '4px 10px 4px 6px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                minHeight: '40px',
+                maxWidth: '240px',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <span className="user-chip-avatar" style={{
+                background: 'linear-gradient(135deg, #0077b6 0%, #00b4d8 100%)',
+                boxShadow: '0 2px 8px rgba(0, 180, 216, 0.3)',
+                width: '30px',
+                height: '30px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontWeight: 'bold',
+                fontSize: '12px'
+              }}>
+                {(profileName || roleInfo.name || 'ص').charAt(0)}
+              </span>
+              <span className="user-chip-info" style={{ display: 'grid', textAlign: 'right' }}>
+                <span className="user-chip-name" style={{ fontSize: '13px', fontWeight: '900', color: 'var(--ink)' }}>
+                  {profileName || roleInfo.name}
+                </span>
+                <span className="user-chip-role" style={{ fontSize: '10px', fontWeight: '700', color: 'var(--brand)' }}>
+                  {profileJobTitle || roleInfo.jobTitle}
+                </span>
+              </span>
+            </button>
+            {userMenuOpen && (
+              <>
+                <button
+                  aria-label="إغلاق بيانات المستخدم"
+                  className="user-menu-scrim"
+                  onClick={() => setUserMenuOpen(false)}
+                  type="button"
+                />
+                <div className="user-menu-panel" style={{
+                  background: 'rgba(255, 255, 255, 0.98)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(0, 109, 119, 0.15)',
+                  borderRadius: '16px',
+                  boxShadow: '0 10px 30px rgba(0, 109, 119, 0.12)',
+                  minWidth: '280px',
+                  padding: '20px',
+                  position: 'absolute',
+                  top: '56px',
+                  left: '0',
+                  zIndex: 60,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  alignItems: 'center',
+                  textAlign: 'center'
+                }}>
+                  {/* Elegant Header Avatar */}
+                  <div style={{
+                    width: '64px',
+                    height: '64px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #006d77 0%, #83c5be 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontSize: '24px',
+                    fontWeight: 'bold',
+                    boxShadow: '0 4px 15px rgba(0, 109, 119, 0.2)',
+                    marginBottom: '4px'
+                  }}>
+                    {(profileName || roleInfo.name || 'ص').charAt(0)}
+                  </div>
+
+                  {/* Active User Details */}
+                  <div style={{ display: 'grid', gap: '4px' }}>
+                    <strong style={{ fontSize: '15px', color: '#102027', fontWeight: 'bold', display: 'block' }}>
+                      {profileName || roleInfo.name}
+                    </strong>
+                    
+                    {/* Job Title Tag */}
+                    <span style={{
+                      fontSize: '11px',
+                      color: '#006d77',
+                      background: '#eaf8f3',
+                      border: '1px solid #ccebe6',
+                      padding: '3px 10px',
+                      borderRadius: '20px',
+                      fontWeight: 'bold',
+                      display: 'inline-block',
+                      margin: '4px auto'
+                    }}>
+                      {profileJobTitle || roleInfo.jobTitle}
+                    </span>
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ width: '100%', height: '1px', background: '#e0f0f0', margin: '4px 0' }} />
+
+                  {/* Department Block */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    background: '#f8fbfb',
+                    border: '1px solid #cfdcde',
+                    padding: '8px 12px',
+                    borderRadius: '10px',
+                    width: '100%',
+                    justifyContent: 'center'
+                  }}>
+                    <span style={{ fontSize: '13px' }}>🏢</span>
+                    <span style={{ fontSize: '11.5px', color: '#42555d', fontWeight: 'bold' }}>
+                      {profileDepartment || 'الإدارة المركزية للطب العلاجي'}
+                    </span>
+                  </div>
+
+                  {/* User email display */}
+                  {userEmail && (
+                    <span style={{ fontSize: '11px', color: '#78909c', wordBreak: 'break-all', display: 'block' }}>
+                      {userEmail}
+                    </span>
+                  )}
+
+                  {/* Divider */}
+                  <div style={{ width: '100%', height: '1px', background: '#e0f0f0', margin: '4px 0' }} />
+
+                  {/* Logout button */}
+                  <button 
+                    onClick={handleLogout} 
+                    type="button"
+                    style={{
+                      width: '100%',
+                      minHeight: '40px',
+                      borderRadius: '10px',
+                      background: '#fff2f1',
+                      border: '1px solid #ffc9c5',
+                      color: 'var(--red)',
+                      fontWeight: 'bold',
+                      fontSize: '13px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      margin: '0',
+                      fontFamily: 'inherit'
+                    }}
+                  >
+                    <LogOut size={16} />
+                    تسجيل الخروج
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Desktop logout */}
+          <button className="logout-button" onClick={handleLogout} title="تسجيل الخروج" type="button">
+            <LogOut size={18} />
+            <span>خروج</span>
+          </button>
         </div>
       </header>
 
@@ -583,13 +674,13 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
           <div className="sheet-head">
             <div className="brand-lockup">
               <MinistryLogo size="menu" />
-              <strong>نظام المأموريات</strong>
+              <strong>نظام حوكمة المأمورية الميدانية</strong>
             </div>
             <button aria-label="إغلاق القائمة" className="icon-button" onClick={() => setMenuOpen(false)}>
               <X size={20} />
             </button>
           </div>
-          <Navigation onNavigate={() => setMenuOpen(false)} role={currentRole} userEmail={userEmail} />
+          <Navigation allowedKeysOverride={navigationOverride} onNavigate={() => setMenuOpen(false)} role={currentRole} />
         </aside>
       )}
 
@@ -601,57 +692,376 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
         </div>
       </section>
 
-      <nav className="bottom-nav" aria-label="التنقل الرئيسي">
+      <nav 
+        className="bottom-nav" 
+        aria-label="التنقل الرئيسي"
+        style={{
+          gridTemplateColumns: `48px repeat(${bottomNavigationKeys.length + 1}, minmax(0, 1fr))`
+        }}
+      >
         <div className="bottom-logo">
           <MinistryLogo size="footer" />
         </div>
-        <NavItem href="/dashboard" icon={Home} label="الرئيسية" />
-        <NavItem href="/dashboard/missions" icon={ClipboardList} label="المأموريات" />
-        <NavItem href="/dashboard/violations" icon={AlertTriangle} label="المخالفات" />
+        {bottomNavigationKeys.map((key) => {
+          const item = navigationDefinitions[key]
+          return (
+            <NavItem
+              href={item.href}
+              icon={item.icon}
+              key={key}
+              label={key === 'dashboard' ? 'الرئيسية' : (key === 'checklists' ? 'الاستمارات' : item.label)}
+            />
+          )
+        })}
         <NavItem href="/login" icon={LogOut} label="خروج" />
       </nav>
+
+      {/* ===== FORCED PASSWORD CHANGE MODAL =====
+          Direct child of <main>, outside any fixed/positioned stacking context,
+          so z-index: 99999 applies in the root stacking context and covers the topbar ===== */}
+      {mustChangePassword && (
+        <div className="forced-password-overlay" style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(10, 24, 31, 0.74)',
+          backdropFilter: 'blur(10px)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'center',
+          padding: '24px 16px',
+          direction: 'rtl'
+        }}>
+          <div className="forced-password-modal" style={{
+            background: 'white',
+            border: '1px solid #d8e5e7',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 22px 64px rgba(10,24,31,0.32)',
+            overflow: 'auto',
+            maxHeight: '92vh',
+          }}>
+
+            {passwordChangedSuccess ? (
+              /* ===== SUCCESS SCREEN ===== */
+              <div style={{ display: 'grid', gap: 0 }}>
+                {/* Gradient hero */}
+                <div style={{
+                  background: 'linear-gradient(135deg, #006d77 0%, #2a9d8f 50%, #52b788 100%)',
+                  padding: '48px 32px 40px',
+                  textAlign: 'center',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}>
+                  {/* Decorative circles */}
+                  <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
+                  <div style={{ position: 'absolute', bottom: -20, left: -20, width: 90, height: 90, borderRadius: '50%', background: 'rgba(255,255,255,0.07)' }} />
+                  {/* Checkmark badge */}
+                  <div style={{
+                    width: 80, height: 80,
+                    borderRadius: '50%',
+                    background: 'rgba(255,255,255,0.18)',
+                    border: '3px solid rgba(255,255,255,0.5)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '38px',
+                    marginBottom: '16px',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                  }}>
+                    ✅
+                  </div>
+                  <h2 style={{ color: 'white', fontSize: '22px', fontWeight: 900, margin: '0 0 8px', lineHeight: 1.3 }}>
+                    تم التحديث بنجاح!
+                  </h2>
+                  <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '14px', margin: 0, lineHeight: 1.7 }}>
+                    كلمة مرورك الجديدة محفوظة وآمنة
+                  </p>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: '28px 32px 32px', display: 'grid', gap: '20px' }}>
+                  {/* Info row */}
+                  <div style={{
+                    background: '#f0faf8',
+                    border: '1px solid #b2dfdb',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    display: 'grid',
+                    gap: '10px',
+                  }}>
+                    {[
+                      { icon: '🛡️', text: 'حسابك محمي بكلمة مرور قوية وخاصة بك' },
+                      { icon: '🔐', text: 'لن تحتاج لتغيير كلمة المرور مجدداً في كل دخول' },
+                      { icon: '✨', text: 'يمكنك الآن استخدام جميع ميزات المنظومة بأمان' },
+                    ].map((item, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '13px', color: '#37474f' }}>
+                        <span style={{ fontSize: '18px', flexShrink: 0 }}>{item.icon}</span>
+                        <span>{item.text}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* CTA button */}
+                  <button
+                    type="button"
+                    onClick={() => setMustChangePassword(false)}
+                    style={{
+                      width: '100%',
+                      minHeight: '48px',
+                      background: 'linear-gradient(135deg, #006d77 0%, #2a9d8f 100%)',
+                      color: 'white',
+                      border: 0,
+                      borderRadius: '12px',
+                      fontWeight: 900,
+                      cursor: 'pointer',
+                      fontSize: '15px',
+                      boxShadow: '0 6px 20px rgba(0, 109, 119, 0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <span>➡️</span>
+                    الدخول إلى المنظومة
+                  </button>
+                </div>
+              </div>
+
+            ) : (
+              /* ===== FORM SCREEN ===== */
+              <div className="forced-password-content" style={{ display: 'grid', gap: '18px' }}>
+                {/* Header */}
+                <div className="forced-password-header" style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', padding: '22px 24px 18px', borderBottom: '1px solid #e7eff1', background: '#ffffff' }}>
+                  <span style={{ width: '46px', height: '46px', borderRadius: '14px', background: '#e7f5f1', color: 'var(--brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', flexShrink: 0 }}>🔒</span>
+                  <div style={{ display: 'grid', gap: '6px' }}>
+                  <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#102027', margin: 0, lineHeight: 1.35 }}>تغيير كلمة المرور الإلزامي</h2>
+                  <p style={{ fontSize: '13px', color: '#546e7a', margin: 0, lineHeight: '1.75' }}>
+                    أنت تستخدم كلمة مرور مؤقتة أو افتراضية حالياً. لحماية حسابك وتوافقاً مع معايير الأمن السيبراني للمنظومة، يرجى تعيين كلمة مرور جديدة قوية وخاصة بك للمتابعة.
+                  </p>
+                  </div>
+                </div>
+
+            {/* Form */}
+            <form onSubmit={async (e) => {
+              e.preventDefault()
+              const form = e.currentTarget
+              const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null
+              const newPass = (form.elements.namedItem('newPass') as HTMLInputElement).value
+              const confirmPass = (form.elements.namedItem('confirmPass') as HTMLInputElement).value
+
+              if (newPass.length < 6) {
+                alert('كلمة المرور يجب أن تكون 6 أحرف أو أرقام على الأقل.')
+                return
+              }
+              if (newPass === '123456') {
+                alert('يجب اختيار كلمة مرور مختلفة عن الكلمة الافتراضية.')
+                return
+              }
+              if (newPass !== confirmPass) {
+                alert('كلمتا المرور غير متطابقتين.')
+                return
+              }
+
+              if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'جارٍ التحديث...' }
+
+              try {
+                if (supabase) {
+                  // ===== REAL SUPABASE LOGIN =====
+                  // 1. Try live session from the browser client
+                  let accessToken: string | null = null
+                  const { data: { session } } = await supabase.auth.getSession()
+                  if (session?.access_token) {
+                    accessToken = session.access_token
+                  } else {
+                    // 2. Fall back to the token stored right after signInWithPassword
+                    accessToken = sessionStorage.getItem('mohp_pending_token')
+                  }
+
+                  if (!accessToken) {
+                    alert('انتهت صلاحية جلسة الدخول. يرجى تسجيل الخروج ثم الدخول مرة أخرى.')
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'تحديث كلمة المرور والدخول' }
+                    return
+                  }
+
+                  const res = await fetch('/api/user/change-password', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${accessToken}`,
+                    },
+                    body: JSON.stringify({ newPassword: newPass }),
+                  })
+                  const json = await res.json()
+                  if (!res.ok) {
+                    alert('فشل التحديث: ' + (json.error || 'خطأ غير معروف'))
+                    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'تحديث كلمة المرور والدخول' }
+                    return
+                  }
+
+                  // Clean up stored token after successful change
+                  sessionStorage.removeItem('mohp_pending_token')
+                } else {
+                  alert('إعداد قاعدة البيانات Supabase غير مكتمل.')
+                  if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'تحديث كلمة المرور والدخول' }
+                  return
+                }
+
+                setPasswordChangedSuccess(true)
+              } catch (err: any) {
+                alert('حدث خطأ أثناء الاتصال بالخادم: ' + err.message)
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'تحديث كلمة المرور والدخول' }
+              }
+            }} style={{ display: 'grid', gap: '16px', padding: '4px 24px 0' }}>
+
+              <label className="forced-password-field" style={{ display: 'grid', gap: '8px', fontSize: '13px', fontWeight: 'bold', color: '#37474f', textAlign: 'right' }}>
+                كلمة المرور الجديدة
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <input
+                    name="newPass"
+                    type={showNewPassword ? 'text' : 'password'}
+                    placeholder="أدخل كلمة مرور جديدة قوية"
+                    required
+                    style={{
+                      width: '100%',
+                      minHeight: '50px',
+                      borderRadius: '12px',
+                      border: '1px solid #cfdcde',
+                      padding: '0 12px 0 46px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      background: '#fbfdfd',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    aria-label={showNewPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                    style={{
+                      position: 'absolute', top: '50%', left: '8px',
+                      transform: 'translateY(-50%)', background: 'transparent',
+                      border: 0, color: '#546e7a', cursor: 'pointer',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 0, width: '36px', height: '36px', borderRadius: '50%', outline: 'none'
+                    }}
+                  >
+                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+
+              <label className="forced-password-field" style={{ display: 'grid', gap: '8px', fontSize: '13px', fontWeight: 'bold', color: '#37474f', textAlign: 'right' }}>
+                تأكيد كلمة المرور الجديدة
+                <div style={{ position: 'relative', width: '100%' }}>
+                  <input
+                    name="confirmPass"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    placeholder="أعد كتابة كلمة المرور للتأكيد"
+                    required
+                    style={{
+                      width: '100%',
+                      minHeight: '50px',
+                      borderRadius: '12px',
+                      border: '1px solid #cfdcde',
+                      padding: '0 12px 0 46px',
+                      fontSize: '14px',
+                      outline: 'none',
+                      background: '#fbfdfd',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    aria-label={showConfirmPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                    style={{
+                      position: 'absolute', top: '50%', left: '8px',
+                      transform: 'translateY(-50%)', background: 'transparent',
+                      border: 0, color: '#546e7a', cursor: 'pointer',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 0, width: '36px', height: '36px', borderRadius: '50%', outline: 'none'
+                    }}
+                  >
+                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+
+              {/* Submit */}
+              <button
+                className="forced-password-primary"
+                type="submit"
+                style={{
+                  width: '100%', minHeight: '50px',
+                  background: 'var(--brand)', color: 'white',
+                  border: 0, borderRadius: '12px',
+                  fontWeight: 'bold', cursor: 'pointer',
+                  fontSize: '14px', marginTop: '4px',
+                  boxShadow: '0 4px 10px rgba(0, 109, 119, 0.2)',
+                  transition: 'all 0.2s'
+                }}
+              >
+                تحديث كلمة المرور والدخول
+              </button>
+            </form>
+
+              {/* Logout fallback */}
+              <div className="forced-password-footer" style={{ borderTop: '1px solid #eef3f4', padding: '16px 24px 22px', textAlign: 'center', background: '#ffffff' }}>
+                <p style={{ fontSize: '12px', color: '#90a4ae', margin: '0 0 10px' }}>
+                  هل تواجه مشكلة؟ يمكنك تسجيل الخروج والمحاولة مجدداً
+                </p>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  style={{
+                    alignItems: 'center', background: '#fff2f1',
+                    border: '1px solid #ffc9c5', borderRadius: '10px',
+                    color: '#c62828', cursor: 'pointer',
+                    display: 'inline-flex', fontSize: '13px',
+                    fontWeight: 'bold', gap: '6px',
+                    minHeight: '40px', padding: '8px 20px',
+                  }}
+                >
+                  <LogOut size={15} />
+                  تسجيل الخروج
+                </button>
+              </div>
+            </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </main>
   )
 }
 
-function isDemoLogin(email: string, password: string) {
-  return (demoAccounts as readonly string[]).includes(email.trim().toLowerCase()) && password === demoPassword
-}
-
-function readDemoRoleFromCookie() {
+function readUserRoleFromCookie(): UserRole | null {
   if (typeof document === 'undefined') return null
   const match = document.cookie
     .split('; ')
-    .find((cookie) => cookie.startsWith('maamouriyat_demo_session='))
-  return normalizeDemoRole(match?.split('=')[1])
+    .find((cookie) => cookie.startsWith('maamouriyat_user_role='))
+  return (match?.split('=')[1] as UserRole) || null
 }
 
-function readDynamicPermissionsFromCookie() {
-  if (typeof document === 'undefined') return null
-  const match = document.cookie
-    .split('; ')
-    .find((cookie) => cookie.startsWith('maamouriyat_dynamic_permissions='))
-  return match ? decodeURIComponent(match.split('=')[1]) : null
-}
-
-function readUserPermissionsFromCookie() {
-  if (typeof document === 'undefined') return null
-  const match = document.cookie
-    .split('; ')
-    .find((cookie) => cookie.startsWith('maamouriyat_user_permissions='))
-  return match ? decodeURIComponent(match.split('=')[1]) : null
-}
-
-function Navigation({ onNavigate, role, userEmail }: { onNavigate?: () => void; role: DemoRole | null; userEmail?: string | null }) {
+function Navigation({
+  allowedKeysOverride,
+  onNavigate,
+  role,
+}: {
+  allowedKeysOverride?: readonly NavigationKey[] | null
+  onNavigate?: () => void
+  role: UserRole | null
+}) {
   const roleInfo = getRoleDefinition(role)
-  const dynamicPermissionsRaw = readDynamicPermissionsFromCookie()
-  const userPermissionsRaw = readUserPermissionsFromCookie()
-  const allowedKeys = getUserNavigation(
-    userEmail || (role ? `${role}@${role}.com` : null),
-    role ?? 'superadmin',
-    dynamicPermissionsRaw,
-    userPermissionsRaw
-  )
+  const allowedKeys = allowedKeysOverride ?? getRoleNavigation(role ?? 'inspector')
   const items = allowedKeys.map((key: NavigationKey) => ({
     key,
     ...navigationDefinitions[key],
@@ -750,7 +1160,6 @@ function NavItem({
         await supabase.auth.signOut()
       }
 
-      document.cookie = 'maamouriyat_demo_session=; path=/; max-age=0; SameSite=Lax'
       window.location.assign('/login')
       return
     }
@@ -766,36 +1175,178 @@ function NavItem({
   )
 }
 
-function DashboardScreen() {
+export function DashboardScreen() {
+  const [profileName, setProfileName] = useState<string>('قائم بالمرور')
+  const [profileJob, setProfileJob] = useState<string>('مفتش صحي')
+  const [stats, setStats] = useState([
+    { label: 'المأموريات المنجزة', value: '0', tone: 'green', icon: CheckCircle2 },
+    { label: 'قيد التنفيذ', value: '0', tone: 'blue', icon: ClipboardList },
+    { label: 'مأموريات متأخرة', value: '0', tone: 'red', icon: AlertTriangle },
+    { label: 'إجمالي المنشآت', value: '0', tone: 'amber', icon: Building2 },
+  ])
+  const [missionsList, setMissionsList] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function loadDashboardData() {
+      if (!supabase) {
+        setLoading(false)
+        return
+      }
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          setLoading(false)
+          return
+        }
+
+        // 1. Get real profile
+        const { data: profile } = await supabase
+          .from('users')
+          .select('id, full_name, job_title')
+          .eq('auth_id', user.id)
+          .maybeSingle()
+
+        if (profile) {
+          setProfileName(profile.full_name || user.email || 'قائم بالمرور')
+          setProfileJob(profile.job_title || 'مفتش صحي')
+
+          // 2. Get real stats for this user
+          // Completed missions (completed / approved / done)
+          const { count: completedCount } = await supabase
+            .from('missions')
+            .select('id', { count: 'exact', head: true })
+            .eq('assigned_user_id', profile.id)
+            .in('status', ['completed', 'approved', 'done'])
+
+          // In progress (assigned / in_progress / executing / under_review)
+          const { count: inProgressCount } = await supabase
+            .from('missions')
+            .select('id', { count: 'exact', head: true })
+            .eq('assigned_user_id', profile.id)
+            .in('status', ['assigned', 'in_progress', 'executing', 'under_review'])
+
+          // Late missions (scheduled_date < today and status not in completed/approved/done)
+          const todayStr = new Date().toISOString().split('T')[0]
+          const { data: maybeLateMissions } = await supabase
+            .from('missions')
+            .select('id, status, scheduled_date')
+            .eq('assigned_user_id', profile.id)
+            .lt('scheduled_date', todayStr)
+
+          const lateCount = maybeLateMissions
+            ? maybeLateMissions.filter(m => !['completed', 'approved', 'done'].includes(m.status)).length
+            : 0
+
+          // Facilities count (total active facilities in system)
+          const { count: facilityCount } = await supabase
+            .from('facilities')
+            .select('id', { count: 'exact', head: true })
+            .eq('is_active', true)
+
+          setStats([
+            { label: 'المأموريات المنجزة', value: String(completedCount || 0), tone: 'green', icon: CheckCircle2 },
+            { label: 'قيد التنفيذ', value: String(inProgressCount || 0), tone: 'blue', icon: ClipboardList },
+            { label: 'مأموريات متأخرة', value: String(lateCount || 0), tone: 'red', icon: AlertTriangle },
+            { label: 'إجمالي المنشآت', value: String(facilityCount || 0), tone: 'amber', icon: Building2 },
+          ])
+
+          // 3. Get latest 5 assigned missions
+          const { data: latestMissions } = await supabase
+            .from('missions')
+            .select(`
+              id,
+              serial_number,
+              status,
+              scheduled_date,
+              violation_count,
+              facilities:target_facility_id(name),
+              users:assigned_user_id(full_name)
+            `)
+            .eq('assigned_user_id', profile.id)
+            .order('scheduled_date', { ascending: false })
+            .limit(5)
+
+          if (latestMissions) {
+            setMissionsList(latestMissions.map((m: any) => {
+              const facilityObj = Array.isArray(m.facilities) ? m.facilities[0] : m.facilities
+              const userObj = Array.isArray(m.users) ? m.users[0] : m.users
+              
+              let statusText = 'قيد الانتظار'
+              let statusTone = 'amber'
+              const s = (m.status || '').toLowerCase()
+              if (['completed', 'approved', 'done'].includes(s)) {
+                statusText = 'مكتملة'
+                statusTone = 'green'
+              } else if (['assigned', 'in_progress', 'executing'].includes(s)) {
+                statusText = 'قيد التنفيذ'
+                statusTone = 'blue'
+              } else if (s === 'under_review') {
+                statusText = 'بانتظار الاعتماد'
+                statusTone = 'amber'
+              } else if (s === 'rejected') {
+                statusText = 'مرفوضة'
+                statusTone = 'red'
+              }
+
+              return {
+                id: m.serial_number,
+                facility: facilityObj?.name || 'منشأة غير محددة',
+                inspector: userObj?.full_name || profile.full_name || 'مفتش',
+                date: m.scheduled_date ? formatDateArabic(m.scheduled_date) : '',
+                status: statusText,
+                tone: statusTone,
+                violations: m.violation_count || 0
+              }
+            }))
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadDashboardData()
+  }, [])
+
+  function formatDateArabic(dateStr: string) {
+    try {
+      const d = new Date(dateStr)
+      return d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'long' })
+    } catch {
+      return dateStr
+    }
+  }
+
   return (
     <div className="stack">
-      <section className="welcome-band">
-        <div>
-          <p className="eyebrow">اليوم</p>
-          <h2>متابعة المأموريات الميدانية</h2>
-          <p>نظرة مختصرة مناسبة للموبايل على التنفيذ والمخالفات العاجلة.</p>
-        </div>
-        <div className="user-chip">
-          <User size={18} />
-          مدير النظام
-        </div>
-      </section>
 
-      <section className="stats-grid">
-        {stats.map((item) => {
-          const Icon = item.icon
-          return (
-            <article className={`stat-card ${item.tone}`} key={item.label}>
-              <Icon size={22} />
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </article>
-          )
-        })}
-      </section>
 
-      <SectionHeader actionHref="/dashboard/missions" actionText="عرض الكل" title="أحدث المأموريات" />
-      <MissionList compact />
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: '14px', fontWeight: 'bold' }}>
+          جاري تحميل البيانات الحية من قاعدة البيانات...
+        </div>
+      ) : (
+        <>
+          <section className="stats-grid">
+            {stats.map((item) => {
+              const Icon = item.icon
+              return (
+                <article className={`stat-card ${item.tone}`} key={item.label}>
+                  <Icon size={22} />
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </article>
+              )
+            })}
+          </section>
+
+          <SectionHeader actionHref="/dashboard/missions" actionText="عرض الكل" title="أحدث المأموريات" />
+          <MissionList compact missionsData={missionsList} />
+        </>
+      )}
     </div>
   )
 }
@@ -817,16 +1368,30 @@ function MissionsScreen() {
         <button className="icon-button strong" aria-label="تصفية">
           <Filter size={19} />
         </button>
-        <Link className="icon-button accent" aria-label="إضافة مأمورية" href="/dashboard/missions/new">
-          <Plus size={20} />
-        </Link>
       </div>
       <MissionList missionsData={visibleMissions} />
     </div>
   )
 }
 
-function MissionList({ compact = false, missionsData = missions }: { compact?: boolean; missionsData?: typeof missions }) {
+function MissionList({ compact = false, missionsData = [] }: { compact?: boolean; missionsData?: any[] }) {
+  if (missionsData.length === 0) {
+    return (
+      <div style={{
+        textAlign: 'center',
+        padding: '36px 16px',
+        background: 'var(--surface)',
+        border: '1px dashed var(--line)',
+        borderRadius: '8px',
+        color: 'var(--muted)',
+        fontSize: '13.5px',
+        fontWeight: 'bold'
+      }}>
+        📋 لا توجد مأموريات مسجلة حالياً في قاعدة البيانات.
+      </div>
+    )
+  }
+
   return (
     <section className="cards-list">
       {missionsData.map((mission) => (
@@ -1066,6 +1631,65 @@ function Style() {
         box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.12);
       }
 
+      .forced-password-modal input:focus {
+        border-color: var(--brand) !important;
+        box-shadow: 0 0 0 3px rgba(0, 109, 119, 0.12);
+        background: #ffffff !important;
+      }
+
+      .forced-password-content {
+        display: grid !important;
+        gap: 0 !important;
+      }
+
+      .forced-password-header {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e7eff1 !important;
+        color: var(--ink);
+        display: flex !important;
+        gap: 14px !important;
+        padding: 22px 24px 18px !important;
+      }
+
+      .forced-password-header > span {
+        background: #e7f5f1 !important;
+        border: 0;
+        color: var(--brand) !important;
+      }
+
+      .forced-password-header h2,
+      .forced-password-header p {
+        color: inherit !important;
+      }
+
+      .forced-password-header p {
+        color: var(--muted) !important;
+      }
+
+      .forced-password-content form {
+        padding: 20px 24px 0 !important;
+      }
+
+      .forced-password-field {
+        font-size: 14px !important;
+      }
+
+      .forced-password-field input {
+        border-radius: 14px !important;
+        min-height: 54px !important;
+      }
+
+      .forced-password-primary {
+        border-radius: 14px !important;
+        min-height: 54px !important;
+      }
+
+      .forced-password-footer {
+        bottom: 0;
+        position: sticky;
+        z-index: 2;
+      }
+
       .primary-action {
         background: var(--brand);
         border: 0;
@@ -1084,22 +1708,7 @@ function Style() {
         padding: 12px;
       }
 
-      .demo-accounts {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .demo-accounts button {
-        background: #edf7f7;
-        border: 1px solid #cfe5e6;
-        border-radius: 999px;
-        color: var(--brand);
-        cursor: pointer;
-        font-size: 12px;
-        font-weight: 800;
-        padding: 7px 10px;
-      }
+      /* Reserved for future account switcher styles */
 
       .password-field {
         display: block;
@@ -1127,11 +1736,32 @@ function Style() {
         width: 42px;
       }
 
+      .remember-row {
+        align-items: center;
+        color: var(--muted);
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 13px;
+        font-weight: 800;
+        gap: 9px;
+        justify-self: start;
+        min-height: 28px;
+      }
+
+      .remember-row input {
+        accent-color: var(--brand);
+        cursor: pointer;
+        height: 17px;
+        min-height: 17px;
+        padding: 0;
+        width: 17px;
+      }
+
       .app-shell {
         display: flex;
         flex-direction: column;
         min-height: 100dvh;
-        padding: 78px 14px calc(118px + env(safe-area-inset-bottom));
+        padding: 72px 14px calc(112px + env(safe-area-inset-bottom));
       }
 
       .desktop-sidebar {
@@ -1161,48 +1791,120 @@ function Style() {
         margin-top: 3px;
       }
 
+      /* ===================== TOPBAR ===================== */
       .topbar {
         align-items: center;
-        background: rgba(243, 247, 247, 0.94);
-        backdrop-filter: blur(14px);
+        background: rgba(248, 251, 251, 0.96);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-bottom: 1px solid var(--line);
+        box-shadow: 0 1px 8px rgba(16, 32, 39, 0.06);
         display: grid;
-        gap: 12px;
+        gap: 10px;
         grid-template-columns: 44px 1fr auto;
-        margin: 0 auto 16px;
-        max-width: 960px;
-        padding-block: 2px;
+        height: 60px;
+        left: 0;
+        padding: 0 14px;
         position: fixed;
-        right: 14px;
-        left: 14px;
-        top: 12px;
+        right: 0;
+        top: 0;
         z-index: 25;
-        width: auto;
       }
 
-      .topbar h1 {
-        font-size: 21px;
-      }
-
+      /* Brand block */
       .topbar-title {
         align-items: center;
         display: flex;
         gap: 10px;
         min-width: 0;
+        overflow: hidden;
       }
 
-      .topbar-title h1 {
+      .topbar-text {
+        display: grid;
+        gap: 0;
+        min-width: 0;
+      }
+
+      .topbar-org {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1.2;
+        margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .topbar-page {
+        color: var(--ink);
+        font-size: 17px;
+        font-weight: 900;
+        line-height: 1.2;
+        margin: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
-      .topbar-role {
+      /* Actions side */
+      .topbar-actions {
+        align-items: center;
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      /* User chip button */
+      .user-chip-btn {
+        align-items: center;
+        background: #edf7f7;
+        border: 1px solid #cfe5e6;
+        border-radius: 50px;
+        color: var(--brand);
+        cursor: pointer;
+        display: inline-flex;
+        gap: 8px;
+        max-width: 200px;
+        min-height: 40px;
+        padding: 4px 10px 4px 6px;
+      }
+
+      .user-chip-avatar {
+        align-items: center;
+        background: var(--brand);
+        border-radius: 50%;
+        color: white;
+        display: inline-flex;
+        flex: 0 0 auto;
+        height: 28px;
+        justify-content: center;
+        width: 28px;
+      }
+
+      .user-chip-info {
+        display: grid;
+        min-width: 0;
+      }
+
+      .user-chip-name {
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 900;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .user-chip-role {
         color: var(--muted);
-        display: block;
-        font-size: 11px;
-        font-weight: 800;
-        line-height: 1.4;
-        margin-top: 1px;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1.2;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -1231,36 +1933,8 @@ function Style() {
         color: white;
       }
 
-      .topbar-actions {
-        align-items: center;
-        display: flex;
-        gap: 8px;
-        justify-content: flex-end;
-      }
-
       .user-menu-wrap {
         position: relative;
-      }
-
-      .user-menu-button {
-        align-items: center;
-        background: #edf7f7;
-        border: 1px solid #cfe5e6;
-        border-radius: 8px;
-        color: var(--brand);
-        cursor: pointer;
-        display: inline-flex;
-        font-weight: 900;
-        gap: 8px;
-        min-height: 44px;
-        max-width: 170px;
-        padding: 8px 10px;
-      }
-
-      .user-menu-button span {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
 
       .logout-button {
@@ -1273,8 +1947,8 @@ function Style() {
         font-size: 13px;
         font-weight: 900;
         gap: 7px;
-        min-height: 44px;
-        padding: 8px 10px;
+        min-height: 40px;
+        padding: 6px 12px;
       }
 
       .user-menu-scrim {
@@ -1711,6 +2385,20 @@ function Style() {
         color: var(--brand);
       }
 
+      .bottom-nav .nav-item {
+        font-size: 10px;
+        padding: 6px 2px;
+        min-height: 48px;
+      }
+
+      .bottom-nav .nav-item span {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+        display: block;
+      }
+
       .side-sheet {
         background: var(--surface);
         border-left: 1px solid var(--line);
@@ -1778,7 +2466,7 @@ function Style() {
         }
 
         .app-shell {
-          padding: 88px 22px calc(128px + env(safe-area-inset-bottom));
+          padding: 76px 22px calc(120px + env(safe-area-inset-bottom));
         }
 
         .stats-grid {
@@ -1822,11 +2510,17 @@ function Style() {
         }
 
         .topbar {
+          background: rgba(248, 251, 251, 0.97);
+          border-bottom: none;
+          border-radius: 12px;
+          border: 1px solid var(--line);
+          box-shadow: 0 2px 12px rgba(16, 32, 39, 0.08);
           grid-area: topbar;
           grid-template-columns: minmax(0, 1fr) auto;
+          height: auto;
           left: auto;
-          margin: 0;
-          max-width: none;
+          min-height: 60px;
+          padding: 10px 16px;
           position: sticky;
           right: auto;
           top: 24px;
@@ -1834,12 +2528,12 @@ function Style() {
           width: 100%;
         }
 
-        .topbar > .icon-button:first-child {
+        .topbar-menu-btn {
           display: none;
         }
 
-        .topbar h1 {
-          font-size: 24px;
+        .topbar-page {
+          font-size: 20px;
         }
 
         .logout-button {
@@ -1885,13 +2579,55 @@ function Style() {
       }
 
       @media (max-width: 520px) {
-        .user-menu-button {
-          max-width: 44px;
-          padding: 8px;
-          width: 44px;
+        .forced-password-overlay {
+          align-items: stretch !important;
+          padding: 0 !important;
         }
 
-        .user-menu-button span {
+        .forced-password-modal {
+          border: 0 !important;
+          border-radius: 0 !important;
+          max-height: 100dvh !important;
+          max-width: none !important;
+          min-height: 100dvh;
+        }
+
+        .forced-password-content {
+          min-height: 100dvh;
+        }
+
+        .forced-password-header {
+          align-content: start;
+          padding: 22px 16px 18px !important;
+        }
+
+        .forced-password-header h2 {
+          font-size: 17px !important;
+        }
+
+        .forced-password-header p {
+          font-size: 12.5px !important;
+        }
+
+        .forced-password-content form {
+          align-content: start;
+          padding: 22px 16px 8px !important;
+        }
+
+        .forced-password-field input {
+          min-height: 50px !important;
+        }
+
+        .forced-password-footer {
+          padding: 14px 16px calc(14px + env(safe-area-inset-bottom)) !important;
+        }
+
+        .user-chip-btn {
+          max-width: 44px;
+          padding: 6px;
+        }
+
+        .user-chip-info {
           display: none;
         }
 
@@ -1901,5 +2637,210 @@ function Style() {
         }
       }
     `}</style>
+  )
+}
+
+export function SearchableAddableSelect({
+  options,
+  value,
+  onChange,
+  placeholder = 'اختر خياراً...',
+  onAdd,
+  style,
+  disabled = false,
+}: {
+  options: { value: string; label: string }[]
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  onAdd?: (newLabel: string) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [hoveredValue, setHoveredValue] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.custom-select-container')) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
+
+  const selectedOption = useMemo(() => {
+    return options.find(opt => opt.value === value)
+  }, [options, value])
+
+  const filteredOptions = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
+    if (!q) return options
+    return options.filter(opt => opt.label.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q))
+  }, [options, searchQuery])
+
+  const showAddBtn = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim()
+    if (!q || !onAdd) return false
+    return !options.some(opt => opt.label.toLowerCase().trim() === q)
+  }, [options, searchQuery, onAdd])
+
+  return (
+    <div 
+      className="custom-select-container"
+      style={{
+        position: 'relative',
+        width: '100%',
+        fontFamily: 'inherit',
+        direction: 'rtl',
+        ...style
+      }}
+    >
+      <div
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        style={{
+          minHeight: '38px',
+          borderRadius: '8px',
+          border: isOpen ? '1px solid #006d77' : '1px solid #cfdcde',
+          background: disabled ? '#eceff1' : 'white',
+          padding: '8px 12px',
+          fontSize: '13px',
+          color: selectedOption ? '#102027' : '#78909c',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          boxShadow: isOpen ? '0 0 0 3px rgba(0, 109, 119, 0.1)' : 'none',
+          transition: 'all 0.2s',
+          userSelect: 'none'
+        }}
+      >
+        <span>{selectedOption ? selectedOption.label : placeholder}</span>
+        <span style={{ fontSize: '10px', color: '#546e7a', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+          ▼
+        </span>
+      </div>
+
+      {isOpen && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 4px)',
+          left: 0,
+          right: 0,
+          background: 'white',
+          border: '1px solid #cfdcde',
+          borderRadius: '8px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          maxHeight: '260px'
+        }}>
+          {/* Search Input */}
+          <div style={{ padding: '8px', borderBottom: '1px solid #f1f7f7', background: '#fcfdfd', display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <span style={{ color: '#78909c', fontSize: '12px' }}>🔍</span>
+            <input 
+              type="text"
+              placeholder="ابحث هنا..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: '100%',
+                border: 0,
+                outline: 'none',
+                background: 'transparent',
+                fontSize: '12.5px',
+                color: '#102027',
+                padding: '4px 0'
+              }}
+            />
+            {searchQuery && (
+              <button 
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setSearchQuery(''); }}
+                style={{ background: 'transparent', border: 0, color: '#90a4ae', cursor: 'pointer', fontSize: '12px' }}
+              >✕</button>
+            )}
+          </div>
+
+          {/* Options List */}
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {filteredOptions.map((opt) => {
+              const isSelected = opt.value === value
+              const isHovered = opt.value === hoveredValue
+              return (
+                <div
+                  key={opt.value}
+                  onMouseEnter={() => setHoveredValue(opt.value)}
+                  onMouseLeave={() => setHoveredValue(null)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onChange(opt.value)
+                    setIsOpen(false)
+                    setSearchQuery('')
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    fontSize: '12.5px',
+                    color: isSelected ? 'white' : '#37474f',
+                    background: isSelected ? '#006d77' : (isHovered ? '#f1f7f7' : 'transparent'),
+                    cursor: 'pointer',
+                    transition: 'background 0.15s',
+                    textAlign: 'right'
+                  }}
+                >
+                  {opt.label}
+                </div>
+              )
+            })}
+
+            {filteredOptions.length === 0 && !showAddBtn && (
+              <div style={{ padding: '12px', textAlign: 'center', fontSize: '12px', color: '#90a4ae' }}>
+                لا توجد نتائج مطابقة
+              </div>
+            )}
+          </div>
+
+          {/* Add Option Trigger Button */}
+          {showAddBtn && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (onAdd) {
+                  onAdd(searchQuery.trim())
+                }
+                setSearchQuery('')
+                setIsOpen(false)
+              }}
+              style={{
+                background: '#fff8e1',
+                border: 'none',
+                borderTop: '1px solid #ffe082',
+                color: '#b78103',
+                padding: '10px 12px',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                width: '100%',
+                cursor: 'pointer',
+                textAlign: 'right',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                justifyContent: 'flex-start'
+              }}
+            >
+              ➕ إضافة خيار جديد: "{searchQuery.trim()}"
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
