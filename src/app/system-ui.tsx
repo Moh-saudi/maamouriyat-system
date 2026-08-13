@@ -783,7 +783,7 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
 
                   {/* Logout button */}
                   <button 
-                    onClick={handleLogout} 
+                    onClick={handleInitiateLogout} 
                     type="button"
                     style={{
                       width: '100%',
@@ -1170,7 +1170,7 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
                 </p>
                 <button
                   type="button"
-                  onClick={handleLogout}
+                  onClick={handleInitiateLogout}
                   style={{
                     alignItems: 'center', background: '#fff2f1',
                     border: '1px solid #ffc9c5', borderRadius: '10px',
