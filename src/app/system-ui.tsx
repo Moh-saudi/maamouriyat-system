@@ -171,7 +171,6 @@ function LoginScreen() {
   const [setupMessage, setSetupMessage] = useState('')
   const [setupLoading, setSetupLoading] = useState(false)
   const [selectedDemo, setSelectedDemo] = useState<string | null>(null)
-  const [isModalOpen, setIsModalOpen] = useState(true)
 
   useEffect(() => {
     const rememberedEmail = window.localStorage.getItem('maamouriyat_remembered_email')
@@ -265,194 +264,155 @@ function LoginScreen() {
   ]
 
   return (
-    <main className="login-full-page-wrapper">
+    <main className="login-screen-popup-wrapper">
       <Style />
+      {/* Background Mesh Ambient Overlay */}
+      <div className="login-bg-overlay" />
 
-      {/* Background Healthcare Hero Landing View */}
-      <section className="login-landing-hero">
-        <div className="hero-bg-image" />
-        <div className="hero-bg-overlay" />
+      {/* Floating Centered 2-Column Popup Modal Dialog Container */}
+      <div className="login-modal-card-popup" role="dialog" aria-modal="true">
+        {/* Right Column: Healthcare Image & Motivational Welcome Note */}
+        <section className="login-hero-panel-right">
+          <div className="hero-image-overlay" />
+          <div className="hero-content">
+            <div className="hero-badge">
+              <MinistryLogo size="panel" />
+              <span>جمهورية مصر العربية - وزارة الصحة والسكان</span>
+            </div>
 
-        <header className="landing-top-bar">
-          <div className="brand-logo-group">
-            <MinistryLogo size="hero" />
-            <div className="brand-titles">
-              <span className="brand-country">جمهورية مصر العربية</span>
-              <span className="brand-ministry">وزارة الصحة والسكان - قطاع الطب العلاجي</span>
+            <div className="quran-quote-box">
+              <span className="quran-icon">🌿</span>
+              <blockquote className="quran-quote">
+                « وَقُلِ اعْمَلُوا فَسَيَرَى اللَّهُ عَمَلَكُمْ وَرَسُولُهُ وَالْمُؤْمِنُونَ »
+              </blockquote>
+            </div>
+
+            <div className="hero-main-title">
+              <h1>نظام حوكمة المأموريات الميدانية 🩺</h1>
+              <p className="hero-subtext">
+                أهلاً بك 👋 نتمنى لك يوماً موفقاً ومجهوداً كبيراً مقدراً في خدمة الوطن والرعاية الصحية 💙✨
+              </p>
+            </div>
+
+            <div className="hero-features-list">
+              <div className="feature-pill"><span>⚡</span> متابعة وحوكمة دقيقة</div>
+              <div className="feature-pill"><span>🏥</span> ربط مباشر بالمنشآت</div>
+              <div className="feature-pill"><span>🛡️</span> أعلى معايير الجودة</div>
             </div>
           </div>
+        </section>
 
-          <button
-            type="button"
-            className="open-popup-btn"
-            onClick={() => setIsModalOpen(true)}
-          >
-            🔐 فتح نافذة تسجيل الدخول
-          </button>
-        </header>
-
-        <div className="landing-center-content">
-          <div className="quran-quote-card">
-            <span className="quran-leaf">🌿</span>
-            <blockquote className="quran-verse">
-              « وَقُلِ اعْمَلُوا فَسَيَرَى اللَّهُ عَمَلَكُمْ وَرَسُولُهُ وَالْمُؤْمِنُونَ »
-            </blockquote>
-          </div>
-
-          <h1 className="landing-main-title">نظام حوكمة المأموريات الميدانية 🩺</h1>
-          <p className="landing-motivational-text">
-            أهلاً بك 👋 نتمنى لك يوماً موفقاً ومجهوداً كبيراً مقدراً في خدمة الوطن والرعاية الصحية 💙✨
-          </p>
-
-          <div className="landing-features-grid">
-            <div className="landing-feature-chip"><span>🏥</span> متابعة وحوكمة 890+ منشأة صحية</div>
-            <div className="landing-feature-chip"><span>⚡</span> متابعة المأموريات والزيارات لحظياً</div>
-            <div className="landing-feature-chip"><span>🛡️</span> أعلى معايير الجودة والالتزام الميداني</div>
-          </div>
-
-          <div className="hero-action-row">
-            <button
-              type="button"
-              className="primary-hero-login-btn"
-              onClick={() => setIsModalOpen(true)}
-            >
-              🚀 تسجيل الدخول إلى المنظومة الآن
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* POPUP MODAL DIALOG OVERLAY */}
-      {isModalOpen && (
-        <div className="popup-backdrop-overlay" onClick={() => setIsModalOpen(false)}>
-          <div
-            className="popup-modal-container"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-          >
-            {/* Close Popup Button */}
-            <button
-              type="button"
-              className="popup-close-x"
-              onClick={() => setIsModalOpen(false)}
-              aria-label="إغلاق النافذة المنبثقة"
-            >
-              <X size={22} />
-            </button>
-
-            {/* Popup Header */}
-            <div className="popup-dialog-header">
+        {/* Left Column: Interactive Login Form & Hints */}
+        <form className="login-form-panel-left" onSubmit={handleLogin}>
+          <div className="form-header">
+            <div className="header-logo-row">
               <MinistryLogo size="panel" />
               <div>
                 <h2>تسجيل الدخول للمنظومة 🔐</h2>
-                <p className="popup-dialog-subtext">البوابة الرقمية المركزية لقطاع الطب العلاجي</p>
+                <p className="subhead">البوابة الرقمية المركزية لقطاع الطب العلاجي</p>
               </div>
             </div>
-
-            {error && <div className="alert alert-danger">{error}</div>}
-            {setupMessage && <div className="alert alert-success">{setupMessage}</div>}
-
-            {/* Interactive Demo Hints & Chips Inside Popup Modal */}
-            <div className="demo-hints-container">
-              <div className="hints-header">
-                <span>💡 تلميحات الحسابات التجريبية (اضغط للتعبئة التلقائية):</span>
-              </div>
-              <div className="demo-chips-grid">
-                {demoAccounts.map((acc) => (
-                  <button
-                    key={acc.email}
-                    type="button"
-                    onClick={() => fillDemoAccount(acc.email, acc.label)}
-                    className={`demo-chip ${selectedDemo === acc.email ? 'active' : ''}`}
-                    title={`${acc.name} (${acc.email})`}
-                  >
-                    <span className="chip-label">{acc.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Login Form inside Popup */}
-            <form onSubmit={handleLogin} className="popup-dialog-form">
-              {/* Email Field */}
-              <div className="input-group">
-                <label htmlFor="popup-email">البريد الإلكتروني المعتمد</label>
-                <div className="input-wrapper">
-                  <User className="input-icon" size={18} />
-                  <input
-                    id="popup-email"
-                    autoComplete="email"
-                    inputMode="email"
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="أدخل بريدك الإلكتروني المعتمد..."
-                    required
-                    type="email"
-                    value={email}
-                  />
-                </div>
-              </div>
-
-              {/* Clean Password Field without browser dots artifacts */}
-              <div className="input-group">
-                <label htmlFor="popup-password">كلمة المرور</label>
-                <div className="input-wrapper clean-password-wrapper">
-                  <input
-                    id="popup-password"
-                    className="clean-password-input"
-                    autoComplete="current-password"
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                  />
-                  <button
-                    aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-                    className="toggle-password-btn"
-                    onClick={() => setShowPassword((v) => !v)}
-                    type="button"
-                  >
-                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="remember-row-container">
-                <label className="remember-row">
-                  <input
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    type="checkbox"
-                  />
-                  <span>تذكر بياناتي في هذا الجهاز</span>
-                </label>
-              </div>
-
-              <button className="primary-action-btn" disabled={loading} type="submit">
-                {loading ? (
-                  <span className="btn-spinner-row">
-                    <span className="spinner" /> جاري تسجيل الدخول...
-                  </span>
-                ) : (
-                  'تسجيل الدخول إلى المنظومة 🚀'
-                )}
-              </button>
-
-              <div className="setup-trigger-box">
-                <button
-                  type="button"
-                  onClick={handleSetupDemoUsers}
-                  disabled={setupLoading}
-                  className="setup-link-btn"
-                >
-                  {setupLoading ? '⚡ جاري تفعيل وتأكيد حسابات التجربة...' : '🔄 إعادة تهيئة وتفعيل حسابات التجربة'}
-                </button>
-              </div>
-            </form>
           </div>
-        </div>
-      )}
+
+          {error && <div className="alert alert-danger">{error}</div>}
+          {setupMessage && <div className="alert alert-success">{setupMessage}</div>}
+
+          {/* Interactive Demo Hints Chips */}
+          <div className="demo-hints-container">
+            <div className="hints-header">
+              <span>💡 تلميحات الحسابات التجريبية (اضغط للتعبئة التلقائية):</span>
+            </div>
+            <div className="demo-chips-grid">
+              {demoAccounts.map((acc) => (
+                <button
+                  key={acc.email}
+                  type="button"
+                  onClick={() => fillDemoAccount(acc.email, acc.label)}
+                  className={`demo-chip ${selectedDemo === acc.email ? 'active' : ''}`}
+                  title={`${acc.name} (${acc.email})`}
+                >
+                  <span className="chip-label">{acc.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Email Field */}
+          <div className="input-group">
+            <label htmlFor="login-email">البريد الإلكتروني المعتمد</label>
+            <div className="input-wrapper">
+              <User className="input-icon" size={18} />
+              <input
+                id="login-email"
+                autoComplete="email"
+                inputMode="email"
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="أدخل بريدك الإلكتروني المعتمد..."
+                required
+                type="email"
+                value={email}
+              />
+            </div>
+          </div>
+
+          {/* Clean Password Field without Dots Artifacts */}
+          <div className="input-group">
+            <label htmlFor="login-password">كلمة المرور</label>
+            <div className="input-wrapper clean-password-wrapper">
+              <input
+                id="login-password"
+                className="clean-password-input"
+                autoComplete="current-password"
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="••••••••"
+                required
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+              />
+              <button
+                aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                className="toggle-password-btn"
+                onClick={() => setShowPassword((isVisible) => !isVisible)}
+                type="button"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="remember-row-container">
+            <label className="remember-row">
+              <input
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                type="checkbox"
+              />
+              <span>تذكر بياناتي في هذا الجهاز</span>
+            </label>
+          </div>
+
+          <button className="primary-action-btn" disabled={loading} type="submit">
+            {loading ? (
+              <span className="btn-spinner-row">
+                <span className="spinner" /> جاري تسجيل الدخول...
+              </span>
+            ) : (
+              'تسجيل الدخول إلى المنظومة 🚀'
+            )}
+          </button>
+
+          <div className="setup-trigger-box">
+            <button
+              type="button"
+              onClick={handleSetupDemoUsers}
+              disabled={setupLoading}
+              className="setup-link-btn"
+            >
+              {setupLoading ? '⚡ جاري تفعيل وتأكيد حسابات التجربة...' : '🔄 إعادة تهيئة وتفعيل حسابات التجربة'}
+            </button>
+          </div>
+        </form>
+      </div>
     </main>
   )
 }
@@ -470,6 +430,11 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
   const [profileJobTitle, setProfileJobTitle] = useState<string | null>(null)
   const [profileDepartment, setProfileDepartment] = useState<string | null>(null)
   const [navigationOverride, setNavigationOverride] = useState<NavigationKey[] | null>(null)
+
+  // Logout Confirmation & Farewell Toast States
+  const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [showLogoutFarewellToast, setShowLogoutFarewellToast] = useState(false)
 
   const roleInfo = getRoleDefinition(currentRole)
   const shellAllowedNavigation = navigationOverride ?? getRoleNavigation(currentRole ?? 'inspector')
@@ -579,10 +544,16 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
     }
   }
 
-  async function handleLogout() {
+  function handleInitiateLogout() {
     setUserMenuOpen(false)
     setNotificationsOpen(false)
     setMenuOpen(false)
+    setShowLogoutConfirmModal(true)
+  }
+
+  async function handleConfirmLogout() {
+    setIsLoggingOut(true)
+    setShowLogoutFarewellToast(true)
 
     if (supabase) {
       await supabase.auth.signOut().catch(() => {})
@@ -598,8 +569,13 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
       sessionStorage.removeItem('mohp_pending_token')
     }
 
-    router.replace('/login')
-    router.refresh()
+    setTimeout(() => {
+      setShowLogoutConfirmModal(false)
+      setIsLoggingOut(false)
+      setShowLogoutFarewellToast(false)
+      router.replace('/login')
+      router.refresh()
+    }, 1500)
   }
 
   return (
@@ -837,7 +813,7 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
           </div>
 
           {/* Desktop logout */}
-          <button className="logout-button" onClick={handleLogout} title="تسجيل الخروج" type="button">
+          <button className="logout-button" onClick={handleInitiateLogout} title="تسجيل الخروج" type="button">
             <LogOut size={18} />
             <span>خروج</span>
           </button>
@@ -1209,6 +1185,62 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
                 </button>
               </div>
             </div>
+            )}
+          </div>
+      {/* ===== LOGOUT CONFIRMATION MODAL POPUP ===== */}
+      {showLogoutConfirmModal && (
+        <div className="popup-backdrop-overlay" onClick={() => !isLoggingOut && setShowLogoutConfirmModal(false)}>
+          <div
+            className="logout-modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="logout-modal-header">
+              <div className="logout-icon-circle">🚪</div>
+              <h3>تأكيد تسجيل الخروج</h3>
+            </div>
+
+            {showLogoutFarewellToast ? (
+              <div className="logout-farewell-box">
+                <span className="farewell-star">🌟</span>
+                <p className="farewell-title">تم تسجيل الخروج بنجاح!</p>
+                <p className="farewell-msg">
+                  نشكرك جزيل الشكر على جهودك العظيمة والدؤوبة اليوم في خدمة المرضى والرعاية الصحية والوطن! 💙✨ نتطلع لرؤيتك مجدداً بكل خير.
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="logout-question">
+                  هل أنت تأكد من رغبتك في تسجيل الخروج من المنظومة؟
+                </p>
+
+                <div className="logout-motivational-preview">
+                  <span className="preview-heart">💙</span>
+                  <p className="preview-text">
+                    نشكرك من القلب على جهودك العظيمة والدؤوبة في خدمة المرضى والرعاية الصحية والوطن! 🌟 نتطلع لرؤيتك مجدداً بكل خير.
+                  </p>
+                </div>
+
+                <div className="logout-actions-row">
+                  <button
+                    type="button"
+                    className="logout-cancel-btn"
+                    onClick={() => setShowLogoutConfirmModal(false)}
+                    disabled={isLoggingOut}
+                  >
+                    إلغاء (البقاء في المنظومة)
+                  </button>
+                  <button
+                    type="button"
+                    className="logout-confirm-btn"
+                    onClick={handleConfirmLogout}
+                    disabled={isLoggingOut}
+                  >
+                    {isLoggingOut ? 'جاري الخروج...' : 'تأكيد الخروج 👋'}
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -1673,198 +1705,437 @@ function Style() {
         text-decoration: none;
       }
 
-      /* Full Page Healthcare Landing Wrapper */
-      .login-full-page-wrapper {
+      /* Popup Screen Wrapper */
+      .login-screen-popup-wrapper {
         min-height: 100vh;
         width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         position: relative;
+        padding: 24px 16px;
+        background: radial-gradient(circle at 10% 20%, #e0f2fe 0%, #f0fdf4 40%, #e6fffa 90%);
         overflow-x: hidden;
       }
 
-      .login-landing-hero {
-        position: relative;
-        min-height: 100vh;
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        padding: 24px 32px;
-        color: white;
-        background-color: #032b30;
-      }
-
-      .hero-bg-image {
+      .login-bg-overlay {
         position: absolute;
         inset: 0;
+        background-image: 
+          radial-gradient(at 80% 20%, rgba(0, 109, 119, 0.15) 0px, transparent 50%),
+          radial-gradient(at 20% 80%, rgba(42, 157, 143, 0.15) 0px, transparent 50%);
+        pointer-events: none;
+      }
+
+      /* Floating 2-Column Popup Modal Card Container */
+      .login-modal-card-popup {
+        position: relative;
+        z-index: 10;
+        width: 100%;
+        max-width: 1050px;
+        display: grid;
+        grid-template-columns: 1.15fr 1fr;
+        background: rgba(255, 255, 255, 0.96);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.85);
+        border-radius: 28px;
+        box-shadow: 0 30px 70px -15px rgba(0, 109, 119, 0.25), 0 0 1px 1px rgba(255, 255, 255, 0.9) inset;
+        overflow: hidden;
+        animation: popupZoomIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      @keyframes popupZoomIn {
+        from {
+          opacity: 0;
+          transform: scale(0.94) translateY(18px);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+      }
+
+      /* Right Column: Hero Healthcare Panel */
+      .login-hero-panel-right {
+        position: relative;
         background-image: url('/healthcare-hero.jpg');
         background-size: cover;
         background-position: center;
-        filter: brightness(0.85);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 40px 32px;
+        color: white;
+        overflow: hidden;
       }
 
-      .hero-bg-overlay {
+      .hero-image-overlay {
         position: absolute;
         inset: 0;
-        background: linear-gradient(135deg, rgba(0, 50, 56, 0.92) 0%, rgba(0, 95, 104, 0.85) 50%, rgba(13, 148, 136, 0.78) 100%);
+        background: linear-gradient(160deg, rgba(0, 75, 82, 0.88) 0%, rgba(0, 109, 119, 0.82) 45%, rgba(13, 148, 136, 0.85) 100%);
         backdrop-filter: blur(2px);
       }
 
-      .landing-top-bar {
+      .hero-content {
         position: relative;
-        z-index: 5;
+        z-index: 2;
         display: flex;
-        align-items: center;
+        flex-direction: column;
+        gap: 24px;
+        height: 100%;
         justify-content: space-between;
-        gap: 20px;
-        width: 100%;
-        max-width: 1300px;
-        margin: 0 auto;
       }
 
-      .brand-logo-group {
+      .hero-badge {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        padding: 8px 16px;
+        border-radius: 100px;
+        width: fit-content;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #f0fdf4;
+      }
+
+      .quran-quote-box {
+        background: rgba(255, 255, 255, 0.14);
+        border-right: 4px solid #34d399;
+        border-radius: 14px;
+        padding: 16px 20px;
+        backdrop-filter: blur(8px);
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .quran-icon {
+        font-size: 1.4rem;
+      }
+
+      .quran-quote {
+        margin: 0;
+        font-size: 1.05rem;
+        line-height: 1.65;
+        font-weight: 700;
+        color: #ecfdf5;
+        font-family: Cairo, Tajawal, sans-serif;
+      }
+
+      .hero-main-title h1 {
+        font-size: 1.75rem;
+        margin: 0 0 10px 0;
+        font-weight: 800;
+        color: #ffffff;
+        line-height: 1.3;
+      }
+
+      .hero-subtext {
+        font-size: 0.95rem;
+        line-height: 1.7;
+        color: #e0f2fe;
+        margin: 0;
+      }
+
+      .hero-features-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .feature-pill {
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        padding: 6px 14px;
+        border-radius: 100px;
+        font-size: 0.8rem;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      /* Left Column: Form Panel */
+      .login-form-panel-left {
+        padding: 40px 36px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 20px;
+        background: #ffffff;
+      }
+
+      .header-logo-row {
         display: flex;
         align-items: center;
         gap: 16px;
       }
 
-      .brand-titles {
+      .header-logo-row h2 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #0f172a;
+      }
+
+      .header-logo-row .subhead {
+        margin: 4px 0 0 0;
+        font-size: 0.85rem;
+        color: #64748b;
+      }
+
+      /* Alerts */
+      .alert {
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.5;
+      }
+
+      .alert-danger {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+      }
+
+      .alert-success {
+        background: #f0fdf4;
+        color: #166534;
+        border: 1px solid #bbf7d0;
+      }
+
+      /* Demo Chips Hints */
+      .demo-hints-container {
+        background: #f8fafc;
+        border: 1px dashed #cbd5e1;
+        border-radius: 14px;
+        padding: 14px;
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 10px;
       }
 
-      .brand-country {
-        font-size: 0.85rem;
-        color: #a7f3d0;
-        font-weight: 500;
-      }
-
-      .brand-ministry {
-        font-size: 1.1rem;
-        font-weight: 800;
-        color: #ffffff;
-      }
-
-      .open-popup-btn {
-        background: rgba(255, 255, 255, 0.18);
-        border: 1px solid rgba(255, 255, 255, 0.35);
-        color: #ffffff;
-        padding: 10px 20px;
-        border-radius: 100px;
-        font-size: 0.9rem;
+      .hints-header {
+        font-size: 0.8rem;
         font-weight: 700;
-        cursor: pointer;
-        backdrop-filter: blur(12px);
-        transition: all 0.2s ease;
+        color: #475569;
       }
 
-      .open-popup-btn:hover {
-        background: rgba(255, 255, 255, 0.28);
+      .demo-chips-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+
+      .demo-chip {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 8px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+
+      .demo-chip:hover {
+        background: #f1f5f9;
+        border-color: #006d77;
         transform: translateY(-1px);
       }
 
-      .landing-center-content {
-        position: relative;
-        z-index: 5;
-        max-width: 850px;
-        margin: 40px auto;
+      .demo-chip.active {
+        background: #e0f2fe;
+        border-color: #0284c7;
+        color: #0369a1;
+        font-weight: bold;
+        box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+      }
+
+      .chip-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+
+      /* Inputs */
+      .input-group {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        text-align: center;
-        gap: 24px;
+        gap: 6px;
       }
 
-      .quran-quote-card {
-        background: rgba(255, 255, 255, 0.14);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 16px;
-        padding: 14px 28px;
-        backdrop-filter: blur(12px);
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-      }
-
-      .quran-leaf {
-        font-size: 1.4rem;
-      }
-
-      .quran-verse {
-        margin: 0;
-        font-size: 1.15rem;
+      .input-group label {
+        font-size: 0.875rem;
         font-weight: 700;
-        color: #f0fdf4;
-        font-family: Cairo, Tajawal, sans-serif;
+        color: #334155;
       }
 
-      .landing-main-title {
-        font-size: 2.5rem;
-        font-weight: 900;
-        color: #ffffff;
-        margin: 0;
-        line-height: 1.25;
-        text-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      }
-
-      .landing-motivational-text {
-        font-size: 1.2rem;
-        line-height: 1.7;
-        color: #e0f2fe;
-        margin: 0;
-        max-width: 720px;
-      }
-
-      .landing-features-grid {
+      .input-wrapper {
+        position: relative;
         display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 12px;
-        margin-top: 8px;
+        align-items: center;
       }
 
-      .landing-feature-chip {
-        background: rgba(255, 255, 255, 0.15);
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        padding: 8px 18px;
-        border-radius: 100px;
-        font-size: 0.9rem;
-        color: #ffffff;
+      .input-wrapper input {
+        width: 100%;
+        padding: 12px 14px 12px 42px;
+        border: 1.5px solid #cbd5e1;
+        border-radius: 12px;
+        font-size: 0.95rem;
+        outline: none;
+        transition: all 0.2s ease;
+        background: #ffffff;
+      }
+
+      .input-wrapper input:focus {
+        border-color: #006d77;
+        box-shadow: 0 0 0 3.5px rgba(0, 109, 119, 0.15);
+      }
+
+      .input-icon {
+        position: absolute;
+        left: 14px;
+        color: #94a3b8;
+        pointer-events: none;
+      }
+
+      /* Clean Password Input without default browser dots/icons artifacts */
+      .clean-password-wrapper {
+        position: relative;
+      }
+
+      .clean-password-input {
+        letter-spacing: 0.08em;
+        font-family: inherit;
+      }
+
+      .clean-password-input::-ms-reveal,
+      .clean-password-input::-ms-clear,
+      .clean-password-input::-webkit-credentials-auto-fill-button {
+        display: none !important;
+      }
+
+      .toggle-password-btn {
+        position: absolute;
+        left: 10px;
+        background: none;
+        border: none;
+        color: #64748b;
+        cursor: pointer;
+        padding: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        transition: color 0.15s;
+      }
+
+      .toggle-password-btn:hover {
+        color: #006d77;
+      }
+
+      .remember-row-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .remember-row {
         display: flex;
         align-items: center;
         gap: 8px;
-        backdrop-filter: blur(8px);
+        font-size: 0.85rem;
+        color: #475569;
+        cursor: pointer;
       }
 
-      .hero-action-row {
-        margin-top: 16px;
+      .remember-row input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: #006d77;
+        cursor: pointer;
       }
 
-      .primary-hero-login-btn {
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      /* Primary Button */
+      .primary-action-btn {
+        background: linear-gradient(135deg, #006d77 0%, #004b52 100%);
         color: #ffffff;
         border: none;
-        padding: 16px 36px;
-        border-radius: 100px;
-        font-size: 1.1rem;
-        font-weight: 800;
+        padding: 14px;
+        border-radius: 12px;
+        font-size: 1rem;
+        font-weight: 700;
         cursor: pointer;
-        box-shadow: 0 10px 25px rgba(16, 185, 129, 0.4);
-        transition: all 0.25s ease;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 12px rgba(0, 109, 119, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
 
-      .primary-hero-login-btn:hover {
-        transform: translateY(-2px) scale(1.03);
-        box-shadow: 0 14px 32px rgba(16, 185, 129, 0.5);
+      .primary-action-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(0, 109, 119, 0.35);
       }
 
-      /* POPUP MODAL OVERLAY & BACKDROP */
+      .primary-action-btn:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+
+      .btn-spinner-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .setup-trigger-box {
+        text-align: center;
+        margin-top: 4px;
+      }
+
+      .setup-link-btn {
+        background: none;
+        border: none;
+        color: #0284c7;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: color 0.15s;
+        text-decoration: underline;
+      }
+
+      .setup-link-btn:hover {
+        color: #0369a1;
+      }
+
+      /* POPUP BACKDROP OVERLAY */
       .popup-backdrop-overlay {
         position: fixed;
         inset: 0;
-        z-index: 9999;
-        background: rgba(15, 23, 42, 0.72);
+        z-index: 99999;
+        background: rgba(15, 23, 42, 0.75);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
         display: flex;
@@ -1879,94 +2150,169 @@ function Style() {
         to { opacity: 1; }
       }
 
-      .popup-modal-container {
+      /* LOGOUT CONFIRMATION MODAL */
+      .logout-modal-dialog {
         position: relative;
         width: 100%;
-        max-width: 520px;
+        max-width: 480px;
         background: #ffffff;
-        border-radius: 28px;
-        box-shadow: 0 30px 70px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.2);
-        padding: 32px;
+        border-radius: 24px;
+        box-shadow: 0 25px 65px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.2);
+        padding: 28px;
         display: flex;
         flex-direction: column;
         gap: 18px;
-        animation: popupZoomIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        max-height: 90vh;
-        overflow-y: auto;
+        animation: popupZoomIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        direction: rtl;
+        text-align: center;
       }
 
-      @keyframes popupZoomIn {
-        from {
-          opacity: 0;
-          transform: scale(0.92) translateY(20px);
-        }
-        to {
-          opacity: 1;
-          transform: scale(1) translateY(0);
-        }
+      .logout-modal-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
       }
 
-      .popup-close-x {
-        position: absolute;
-        top: 20px;
-        left: 20px;
-        background: #f1f5f9;
-        border: none;
-        color: #64748b;
-        width: 36px;
-        height: 36px;
+      .logout-icon-circle {
+        width: 60px;
+        height: 60px;
         border-radius: 50%;
+        background: #fef2f2;
+        border: 2px solid #fecaca;
         display: flex;
         align-items: center;
         justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s ease;
+        font-size: 26px;
       }
 
-      .popup-close-x:hover {
-        background: #e2e8f0;
-        color: #0f172a;
-        transform: rotate(90deg);
-      }
-
-      .popup-dialog-header {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid #f1f5f9;
-      }
-
-      .popup-dialog-header h2 {
+      .logout-modal-header h3 {
         margin: 0;
-        font-size: 1.4rem;
+        font-size: 1.3rem;
         font-weight: 800;
         color: #0f172a;
       }
 
-      .popup-dialog-subtext {
-        margin: 4px 0 0 0;
-        font-size: 0.85rem;
-        color: #64748b;
+      .logout-question {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #334155;
+        margin: 0;
+        line-height: 1.5;
       }
 
-      .popup-dialog-form {
+      .logout-motivational-preview {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        border-radius: 16px;
+        padding: 16px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        text-align: right;
+      }
+
+      .preview-heart {
+        font-size: 1.3rem;
+        flex-shrink: 0;
+      }
+
+      .preview-text {
+        margin: 0;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        color: #166534;
+        font-weight: 600;
+      }
+
+      .logout-actions-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 8px;
+      }
+
+      .logout-cancel-btn {
+        flex: 1;
+        background: #f1f5f9;
+        color: #475569;
+        border: 1px solid #cbd5e1;
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .logout-cancel-btn:hover:not(:disabled) {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+
+      .logout-confirm-btn {
+        flex: 1;
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: #ffffff;
+        border: none;
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+      }
+
+      .logout-confirm-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(239, 68, 68, 0.4);
+      }
+
+      .logout-farewell-box {
+        background: #f0fdf4;
+        border: 1px solid #86efac;
+        border-radius: 16px;
+        padding: 20px;
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        align-items: center;
+        gap: 10px;
+        animation: backdropFadeIn 0.3s ease forwards;
       }
 
-      @media (max-width: 640px) {
-        .landing-title {
-          font-size: 1.8rem;
+      .farewell-star {
+        font-size: 2.2rem;
+      }
+
+      .farewell-title {
+        font-size: 1.2rem;
+        font-weight: 800;
+        color: #15803d;
+        margin: 0;
+      }
+
+      .farewell-msg {
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: #166534;
+        margin: 0;
+        font-weight: 600;
+      }
+
+      /* Responsive Media Query */
+      @media (max-width: 900px) {
+        .login-modal-card-popup {
+          grid-template-columns: 1fr;
         }
 
-        .landing-motivational-text {
-          font-size: 1rem;
+        .login-hero-panel-right {
+          min-height: 280px;
+          padding: 28px 20px;
         }
 
-        .popup-modal-container {
-          padding: 24px 18px;
+        .login-form-panel-left {
+          padding: 28px 20px;
         }
       }
 
