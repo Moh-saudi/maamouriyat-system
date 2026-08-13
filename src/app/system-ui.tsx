@@ -199,7 +199,7 @@ function LoginScreen() {
         console.error('Supabase auth login error:', result.error)
         const errMsg = result.error.message?.toLowerCase() || ''
         if (errMsg.includes('invalid login credentials') || errMsg.includes('invalid_grant')) {
-          setError('البريد الإلكتروني أو كلمة المرور غير صحيحة، أو الحساب غير مسجل في Supabase Auth.')
+          setError('البريد الإلكتروني أو كلمة المرور غير صحيحة، أو الحساب غير مسجل بالمنظومة.')
         } else if (errMsg.includes('email not confirmed')) {
           setError('حساب البريد الإلكتروني غير مؤكد. يرجى التواصل مع المسؤول لتأكيد الحساب.')
         } else {
@@ -222,7 +222,7 @@ function LoginScreen() {
     } catch (err: any) {
       setLoading(false)
       console.error('Supabase auth connection error:', err)
-      setError('تعذر الاتصال بسيرفر Supabase. يُرجى التحقق من اتصال الإنترنت أو تحديث بيانات الاتصال (NEXT_PUBLIC_SUPABASE_URL) في ملف البيئة .env.local')
+      setError('تعذر الاتصال بالمخزُن الرئيسي للمنظومة. يُرجى التحقق من اتصال الإنترنت.')
     }
   }
 
@@ -408,7 +408,7 @@ function LoginScreen() {
               disabled={setupLoading}
               className="setup-link-btn"
             >
-              {setupLoading ? '⚡ جاري تفعيل وتأكيد حسابات التجربة...' : '🔄 إعادة تهيئة وتفعيل حسابات التجربة (Supabase Auth)'}
+              {setupLoading ? '⚡ جاري تفعيل وتأكيد حسابات التجربة...' : '🔄 إعادة تهيئة وتفعيل حسابات التجربة'}
             </button>
           </div>
         </form>
