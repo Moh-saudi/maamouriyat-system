@@ -168,6 +168,9 @@ function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [setupMessage, setSetupMessage] = useState('')
+  const [setupLoading, setSetupLoading] = useState(false)
+  const [selectedDemo, setSelectedDemo] = useState<string | null>(null)
 
   useEffect(() => {
     const rememberedEmail = window.localStorage.getItem('maamouriyat_remembered_email')
@@ -187,97 +190,229 @@ function LoginScreen() {
     }
 
     setLoading(true)
-    const result = await supabase.auth.signInWithPassword({ email, password })
-    setLoading(false)
+    try {
+      const cleanEmail = email.trim().toLowerCase()
+      const result = await supabase.auth.signInWithPassword({ email: cleanEmail, password })
+      setLoading(false)
 
-    if (result.error) {
-      setError('البريد الإلكتروني أو كلمة المرور غير صحيحة')
-      return
+      if (result.error) {
+        console.error('Supabase auth login error:', result.error)
+        const errMsg = result.error.message?.toLowerCase() || ''
+        if (errMsg.includes('invalid login credentials') || errMsg.includes('invalid_grant')) {
+          setError('البريد الإلكتروني أو كلمة المرور غير صحيحة، أو الحساب غير مسجل في Supabase Auth.')
+        } else if (errMsg.includes('email not confirmed')) {
+          setError('حساب البريد الإلكتروني غير مؤكد. يرجى التواصل مع المسؤول لتأكيد الحساب.')
+        } else {
+          setError(`خطأ في تسجيل الدخول: ${result.error.message}`)
+        }
+        return
+      }
+
+      if (rememberMe) {
+        window.localStorage.setItem('maamouriyat_remembered_email', cleanEmail)
+      } else {
+        window.localStorage.removeItem('maamouriyat_remembered_email')
+      }
+
+      if (result.data.session?.access_token) {
+        sessionStorage.setItem('mohp_pending_token', result.data.session.access_token)
+      }
+
+      router.push('/dashboard')
+    } catch (err: any) {
+      setLoading(false)
+      console.error('Supabase auth connection error:', err)
+      setError('تعذر الاتصال بسيرفر Supabase. يُرجى التحقق من اتصال الإنترنت أو تحديث بيانات الاتصال (NEXT_PUBLIC_SUPABASE_URL) في ملف البيئة .env.local')
     }
-
-    if (rememberMe) {
-      window.localStorage.setItem('maamouriyat_remembered_email', email.trim())
-    } else {
-      window.localStorage.removeItem('maamouriyat_remembered_email')
-    }
-
-    // Store the access token in sessionStorage so the forced-password-change
-    // modal can use it even before the new-page supabase instance hydrates.
-    if (result.data.session?.access_token) {
-      sessionStorage.setItem('mohp_pending_token', result.data.session.access_token)
-    }
-
-    router.push('/dashboard')
   }
 
+  async function handleSetupDemoUsers() {
+    setSetupLoading(true)
+    setSetupMessage('')
+    setError('')
+    try {
+      const res = await fetch('/api/setup-demo-users', { method: 'POST' })
+      const data = await res.json()
+      setSetupLoading(false)
+      if (data.success) {
+        setSetupMessage('تم تفعيل وتجهيز الحسابات التجريبية بنجاح! (كلمة المرور الإفتراضية: 123456)')
+        setEmail('admin@admin.com')
+        setPassword('123456')
+        setSelectedDemo('admin@admin.com')
+      } else {
+        setError(data.error || 'فشل تهيئة الحسابات')
+      }
+    } catch (err: any) {
+      setSetupLoading(false)
+      setError('تعذر الاتصال بمسار تهيئة الحسابات')
+    }
+  }
+
+  function fillDemoAccount(demoEmail: string, demoRoleName: string) {
+    setEmail(demoEmail)
+    setPassword('123456')
+    setSelectedDemo(demoEmail)
+    setError('')
+    setSetupMessage(`تم اختيار حساب (${demoRoleName}) بنجاح! يمكنك الدخول الآن ✨`)
+  }
+
+  const demoAccounts = [
+    { label: '👑 مدير النظام', email: 'admin@admin.com', name: 'أحمد محمود العشري' },
+    { label: '🩺 مفتش صحي', email: 'inspector@inspector.com', name: 'سارة خالد البشري' },
+    { label: '📋 مشرف ميداني', email: 'supervisor@supervisor.com', name: 'محمد علي سليم' },
+    { label: '🏢 مدير تفتيش', email: 'director@director.com', name: 'مدير إدارة التفتيش' },
+  ]
+
   return (
-    <main className="login-screen">
+    <main className="login-screen-popup-wrapper">
       <Style />
-      <section className="login-hero">
-        <MinistryLogo size="hero" />
-        <p className="eyebrow">وزارة الصحة والسكان</p>
-        <h1>نظام حوكمة المأمورية الميدانية</h1>
-        <p className="hero-copy">متابعة ميدانية أسرع، قرارات أوضح، وتجربة موبايل جاهزة لفترة الاختبار.</p>
-      </section>
+      {/* Background Mesh Overlay */}
+      <div className="login-bg-overlay" />
 
-      <form className="login-panel" onSubmit={handleLogin}>
-        <div className="panel-logo">
-          <MinistryLogo size="panel" />
-        </div>
-        <div>
-          <h2>تسجيل الدخول</h2>
-          <p>البوابة الرقمية لحوكمة ومتابعة المأموريات الميدانية</p>
-        </div>
+      {/* Floating Glassmorphism Modal Popup */}
+      <div className="login-modal-card">
+        {/* Right Section: Healthcare Hero Image & Inspiration */}
+        <section className="login-hero-panel">
+          <div className="hero-image-overlay" />
+          <div className="hero-content">
+            <div className="hero-badge">
+              <MinistryLogo size="panel" />
+              <span>جمهورية مصر العربية - وزارة الصحة والسكان</span>
+            </div>
 
-        {error && <div className="alert">{error}</div>}
+            <div className="quran-quote-box">
+              <span className="quran-icon">🌿</span>
+              <blockquote className="quran-quote">
+                « وَقُلِ اعْمَلُوا فَسَيَرَى اللَّهُ عَمَلَكُمْ وَرَسُولُهُ وَالْمُؤْمِنُونَ »
+              </blockquote>
+            </div>
 
-        <label>
-          البريد الإلكتروني
-          <input
-            autoComplete="email"
-            inputMode="email"
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="أدخل بريدك الإلكتروني المعتمد"
-            required
-            type="email"
-            value={email}
-          />
-        </label>
+            <div className="hero-main-title">
+              <h1>نظام حوكمة المأموريات الميدانية 🩺</h1>
+              <p className="hero-subtext">
+                أهلاً بك 👋 نتمنى لك يوماً موفقاً ومجهوداً كبيراً مقدراً في خدمة الوطن والرعاية الصحية 💙✨
+              </p>
+            </div>
 
-        <label>
-          كلمة المرور
-          <span className="password-field">
-            <input
-              autoComplete="current-password"
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
-              required
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-            />
+            <div className="hero-features-list">
+              <div className="feature-pill"><span>⚡</span> متابعة وحوكمة دقيقة</div>
+              <div className="feature-pill"><span>🏥</span> ربط مباشر بالمنشآت</div>
+              <div className="feature-pill"><span>🛡️</span> أعلى معايير الجودة</div>
+            </div>
+          </div>
+        </section>
+
+        {/* Left Section: Interactive Login Form & Demo Hints */}
+        <form className="login-form-panel" onSubmit={handleLogin}>
+          <div className="form-header">
+            <div className="header-logo-row">
+              <MinistryLogo size="panel" />
+              <div>
+                <h2>تسجيل الدخول</h2>
+                <p className="subhead">البوابة الرقمية المركزية لقطاع الطب العلاجي</p>
+              </div>
+            </div>
+          </div>
+
+          {error && <div className="alert alert-danger">{error}</div>}
+          {setupMessage && <div className="alert alert-success">{setupMessage}</div>}
+
+          {/* Interactive Hints & Quick Demo Accounts */}
+          <div className="demo-hints-container">
+            <div className="hints-header">
+              <span>💡 تلميحات الحسابات التجريبية (اضغط للتعبئة):</span>
+            </div>
+            <div className="demo-chips-grid">
+              {demoAccounts.map((acc) => (
+                <button
+                  key={acc.email}
+                  type="button"
+                  onClick={() => fillDemoAccount(acc.email, acc.label)}
+                  className={`demo-chip ${selectedDemo === acc.email ? 'active' : ''}`}
+                  title={`${acc.name} (${acc.email})`}
+                >
+                  <span className="chip-label">{acc.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Email Field */}
+          <div className="input-group">
+            <label htmlFor="login-email">البريد الإلكتروني المعتمد</label>
+            <div className="input-wrapper">
+              <User className="input-icon" size={18} />
+              <input
+                id="login-email"
+                autoComplete="email"
+                inputMode="email"
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="أدخل البريد الإلكتروني..."
+                required
+                type="email"
+                value={email}
+              />
+            </div>
+          </div>
+
+          {/* Password Field with Clean Dots Fix */}
+          <div className="input-group">
+            <label htmlFor="login-password">كلمة المرور</label>
+            <div className="input-wrapper clean-password-wrapper">
+              <input
+                id="login-password"
+                className="clean-password-input"
+                autoComplete="current-password"
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="••••••••"
+                required
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+              />
+              <button
+                aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                className="toggle-password-btn"
+                onClick={() => setShowPassword((isVisible) => !isVisible)}
+                type="button"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="remember-row-container">
+            <label className="remember-row">
+              <input
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                type="checkbox"
+              />
+              <span>تذكر بياناتي في هذا الجهاز</span>
+            </label>
+          </div>
+
+          <button className="primary-action-btn" disabled={loading} type="submit">
+            {loading ? (
+              <span className="btn-spinner-row">
+                <span className="spinner" /> جاري تسجيل الدخول...
+              </span>
+            ) : (
+              'تسجيل الدخول إلى النظام 🚀'
+            )}
+          </button>
+
+          <div className="setup-trigger-box">
             <button
-              aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-              onClick={() => setShowPassword((isVisible) => !isVisible)}
               type="button"
+              onClick={handleSetupDemoUsers}
+              disabled={setupLoading}
+              className="setup-link-btn"
             >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              {setupLoading ? '⚡ جاري تفعيل وتأكيد حسابات التجربة...' : '🔄 إعادة تهيئة وتفعيل حسابات التجربة (Supabase Auth)'}
             </button>
-          </span>
-        </label>
-
-        <label className="remember-row">
-          <input
-            checked={rememberMe}
-            onChange={(event) => setRememberMe(event.target.checked)}
-            type="checkbox"
-          />
-          <span>تذكرني</span>
-        </label>
-
-        <button className="primary-action" disabled={loading} type="submit">
-          {loading ? 'جاري الدخول...' : 'تسجيل الدخول'}
-        </button>
-      </form>
+          </div>
+        </form>
+      </div>
     </main>
   )
 }
@@ -1496,6 +1631,447 @@ function Style() {
       a {
         color: inherit;
         text-decoration: none;
+      }
+
+      /* Popup Screen Wrapper */
+      .login-screen-popup-wrapper {
+        min-height: 100vh;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        padding: 24px 16px;
+        background: radial-gradient(circle at 10% 20%, #e0f2fe 0%, #f0fdf4 40%, #e6fffa 90%);
+        overflow-x: hidden;
+      }
+
+      .login-bg-overlay {
+        position: absolute;
+        inset: 0;
+        background-image: 
+          radial-gradient(at 80% 20%, rgba(0, 109, 119, 0.15) 0px, transparent 50%),
+          radial-gradient(at 20% 80%, rgba(42, 157, 143, 0.15) 0px, transparent 50%);
+        pointer-events: none;
+      }
+
+      /* Floating Modal Card */
+      .login-modal-card {
+        position: relative;
+        z-index: 10;
+        width: 100%;
+        max-width: 1050px;
+        display: grid;
+        grid-template-columns: 1.15fr 1fr;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
+        border-radius: 24px;
+        box-shadow: 0 25px 60px -15px rgba(0, 109, 119, 0.22), 0 0 1px 1px rgba(255, 255, 255, 0.9) inset;
+        overflow: hidden;
+        animation: modalAppear 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      @keyframes modalAppear {
+        from {
+          opacity: 0;
+          transform: translateY(24px) scale(0.97);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      /* Hero Panel (Right side in RTL) */
+      .login-hero-panel {
+        position: relative;
+        background-image: url('/healthcare-hero.jpg');
+        background-size: cover;
+        background-position: center;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 40px 32px;
+        color: white;
+        overflow: hidden;
+      }
+
+      .hero-image-overlay {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(160deg, rgba(0, 75, 82, 0.88) 0%, rgba(0, 109, 119, 0.82) 45%, rgba(13, 148, 136, 0.85) 100%);
+        backdrop-filter: blur(2px);
+      }
+
+      .hero-content {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+        height: 100%;
+        justify-content: space-between;
+      }
+
+      .hero-badge {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        padding: 8px 16px;
+        border-radius: 100px;
+        width: fit-content;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #f0fdf4;
+      }
+
+      .quran-quote-box {
+        background: rgba(255, 255, 255, 0.12);
+        border-right: 4px solid #34d399;
+        border-radius: 12px;
+        padding: 16px 20px;
+        backdrop-filter: blur(8px);
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      .quran-icon {
+        font-size: 1.4rem;
+      }
+
+      .quran-quote {
+        margin: 0;
+        font-size: 1.05rem;
+        line-height: 1.6;
+        font-weight: 600;
+        color: #ecfdf5;
+        font-family: Cairo, Tajawal, sans-serif;
+      }
+
+      .hero-main-title h1 {
+        font-size: 1.75rem;
+        margin: 0 0 10px 0;
+        font-weight: 800;
+        color: #ffffff;
+        line-height: 1.3;
+      }
+
+      .hero-subtext {
+        font-size: 0.95rem;
+        line-height: 1.7;
+        color: #e0f2fe;
+        margin: 0;
+      }
+
+      .hero-features-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .feature-pill {
+        background: rgba(255, 255, 255, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        padding: 6px 14px;
+        border-radius: 100px;
+        font-size: 0.8rem;
+        color: #ffffff;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      /* Form Panel (Left side in RTL) */
+      .login-form-panel {
+        padding: 40px 36px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 20px;
+        background: #ffffff;
+      }
+
+      .header-logo-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .header-logo-row h2 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: #0f172a;
+      }
+
+      .header-logo-row .subhead {
+        margin: 4px 0 0 0;
+        font-size: 0.85rem;
+        color: #64748b;
+      }
+
+      /* Alerts */
+      .alert {
+        padding: 12px 16px;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.5;
+      }
+
+      .alert-danger {
+        background: #fef2f2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+      }
+
+      .alert-success {
+        background: #f0fdf4;
+        color: #166534;
+        border: 1px solid #bbf7d0;
+      }
+
+      /* Demo Chips Hints */
+      .demo-hints-container {
+        background: #f8fafc;
+        border: 1px dashed #cbd5e1;
+        border-radius: 14px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .hints-header {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #475569;
+      }
+
+      .demo-chips-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+
+      .demo-chip {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 8px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+
+      .demo-chip:hover {
+        background: #f1f5f9;
+        border-color: #006d77;
+        transform: translateY(-1px);
+      }
+
+      .demo-chip.active {
+        background: #e0f2fe;
+        border-color: #0284c7;
+        color: #0369a1;
+        font-weight: bold;
+        box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+      }
+
+      .chip-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+
+      /* Inputs */
+      .input-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .input-group label {
+        font-size: 0.875rem;
+        font-weight: 700;
+        color: #334155;
+      }
+
+      .input-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+
+      .input-wrapper input {
+        width: 100%;
+        padding: 12px 14px 12px 42px;
+        border: 1.5px solid #cbd5e1;
+        border-radius: 12px;
+        font-size: 0.95rem;
+        outline: none;
+        transition: all 0.2s ease;
+        background: #ffffff;
+      }
+
+      .input-wrapper input:focus {
+        border-color: #006d77;
+        box-shadow: 0 0 0 3.5px rgba(0, 109, 119, 0.15);
+      }
+
+      .input-icon {
+        position: absolute;
+        left: 14px;
+        color: #94a3b8;
+        pointer-events: none;
+      }
+
+      /* Clean Password Input without default browser dots/icons artifacts */
+      .clean-password-wrapper {
+        position: relative;
+      }
+
+      .clean-password-input {
+        letter-spacing: 0.08em;
+        font-family: inherit;
+      }
+
+      .clean-password-input::-ms-reveal,
+      .clean-password-input::-ms-clear,
+      .clean-password-input::-webkit-credentials-auto-fill-button {
+        display: none !important;
+      }
+
+      .toggle-password-btn {
+        position: absolute;
+        left: 10px;
+        background: none;
+        border: none;
+        color: #64748b;
+        cursor: pointer;
+        padding: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        transition: color 0.15s;
+      }
+
+      .toggle-password-btn:hover {
+        color: #006d77;
+      }
+
+      .remember-row-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .remember-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        color: #475569;
+        cursor: pointer;
+      }
+
+      .remember-row input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: #006d77;
+        cursor: pointer;
+      }
+
+      /* Primary Button */
+      .primary-action-btn {
+        background: linear-gradient(135deg, #006d77 0%, #004b52 100%);
+        color: #ffffff;
+        border: none;
+        padding: 14px;
+        border-radius: 12px;
+        font-size: 1rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 12px rgba(0, 109, 119, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .primary-action-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(0, 109, 119, 0.35);
+      }
+
+      .primary-action-btn:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+
+      .btn-spinner-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .setup-trigger-box {
+        text-align: center;
+        margin-top: 4px;
+      }
+
+      .setup-link-btn {
+        background: none;
+        border: none;
+        color: #0284c7;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: color 0.15s;
+        text-decoration: underline;
+      }
+
+      .setup-link-btn:hover {
+        color: #0369a1;
+      }
+
+      /* Responsive Media Query */
+      @media (max-width: 900px) {
+        .login-modal-card {
+          grid-template-columns: 1fr;
+        }
+
+        .login-hero-panel {
+          min-height: 280px;
+          padding: 28px 20px;
+        }
+
+        .login-form-panel {
+          padding: 28px 20px;
+        }
       }
 
       .login-screen {
