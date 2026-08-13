@@ -1187,6 +1187,8 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
             </div>
             )}
           </div>
+        </div>
+      )}
       {/* ===== LOGOUT CONFIRMATION MODAL POPUP ===== */}
       {showLogoutConfirmModal && (
         <div className="popup-backdrop-overlay" onClick={() => !isLoggingOut && setShowLogoutConfirmModal(false)}>
