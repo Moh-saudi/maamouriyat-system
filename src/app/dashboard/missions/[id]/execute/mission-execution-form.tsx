@@ -267,6 +267,7 @@ export function MissionExecutionForm({
   const [selectedStage, setSelectedStage] = useState<number>(0)
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [showLiveScoreModal, setShowLiveScoreModal] = useState<boolean>(false)
 
   // --- Dynamic Client-Side Leaflet Ingestion ---
   useEffect(() => {
@@ -623,6 +624,89 @@ export function MissionExecutionForm({
     const baseChecklist = getChecklistByDepartment(currentUserDept)
     return baseChecklist
   }, [currentUserDept, localCustomChecklists])
+
+  // Live Real-Time Evaluation Metrics Computation
+  const liveScoreStats = useMemo(() => {
+    let totalScore = 0
+    let maxScore = 0
+    let answeredCount = 0
+    let totalCount = 0
+    let violationsCount = 0
+
+    const sectionScores: Array<{
+      id: string | number
+      name: string
+      earned: number
+      max: number
+      pct: number
+      answered: number
+      total: number
+    }> = []
+
+    checklistSections.forEach((sec: any) => {
+      let secEarned = 0
+      let secMax = 0
+      let secAnswered = 0
+      const secTotal = (sec.items || []).length
+
+      ;(sec.items || []).forEach((item: any) => {
+        totalCount++
+        const ans = answers[item.id]?.answer
+        if (ans !== undefined && ans !== null && ans !== '') {
+          answeredCount++
+          secAnswered++
+          const itemMax = item.score_max_value || 2
+          const itemMid = item.score_mid_value || 1
+
+          if (ans === 'yes' || ans === 'مطابق' || ans === 'مطابق بالكامل' || ans === 'ملتزم' || ans === true) {
+            totalScore += itemMax
+            maxScore += itemMax
+            secEarned += itemMax
+            secMax += itemMax
+          } else if (ans === 'مطابق جزئياً' || ans === 'متوسط' || ans === 'مقبول') {
+            totalScore += itemMid
+            maxScore += itemMax
+            secEarned += itemMid
+            secMax += itemMax
+          } else if (ans === 'no' || ans === 'غير مطابق' || ans === 'غير مطابق بالكامل' || ans === 'غير ملتزم' || ans === false) {
+            maxScore += itemMax
+            secMax += itemMax
+            violationsCount++
+          } else if (ans === 'na' || ans === 'لا ينطبق' || ans === 'غير منطبق') {
+            // NA
+          } else {
+            totalScore += itemMax
+            maxScore += itemMax
+            secEarned += itemMax
+            secMax += itemMax
+          }
+        }
+      })
+
+      const secPct = secMax > 0 ? Math.round((secEarned / secMax) * 100) : 0
+      sectionScores.push({
+        id: sec.id,
+        name: sec.name,
+        earned: secEarned,
+        max: secMax,
+        pct: secPct,
+        answered: secAnswered,
+        total: secTotal
+      })
+    })
+
+    const overallPct = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0
+
+    return {
+      totalScore,
+      maxScore,
+      answeredCount,
+      totalCount,
+      violationsCount,
+      overallPct,
+      sectionScores
+    }
+  }, [checklistSections, answers])
 
   function addBuilderQuestion() {
     setNewQuestions(prev => [
@@ -2412,14 +2496,135 @@ export function MissionExecutionForm({
         </div>
       </section>
 
+      {/* Floating Live Evaluation HUD */}
+      <div 
+        className={styles.floatingHUD} 
+        onClick={() => setShowLiveScoreModal(true)}
+        title="انقر لعرض تفاصيل التقييم ورادار الأقسام اللحظي"
+      >
+        <div 
+          className={styles.hudCircle}
+          style={{
+            borderColor: liveScoreStats.overallPct >= 90 ? '#2a9d8f' : liveScoreStats.overallPct >= 75 ? '#e76f51' : '#c2413f',
+            color: liveScoreStats.overallPct >= 90 ? '#2a9d8f' : liveScoreStats.overallPct >= 75 ? '#e76f51' : '#c2413f'
+          }}
+        >
+          {liveScoreStats.overallPct}%
+        </div>
+        <div className={styles.hudInfo}>
+          <strong>التقييم اللحظي 📊</strong>
+          <span>{liveScoreStats.totalScore} من {liveScoreStats.maxScore || 676} درجة | {liveScoreStats.answeredCount}/{liveScoreStats.totalCount} بند</span>
+        </div>
+      </div>
+
+      {/* Live Scorecard Modal */}
+      {showLiveScoreModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowLiveScoreModal(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: '16px', borderBottom: '1px solid #dce7e8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fbfb' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#102027', fontWeight: 900 }}>
+                  📊 رادار ونتائج التقييم اللحظي للمأمورية
+                </h3>
+                <span style={{ fontSize: '12px', color: '#546e7a' }}>
+                  {mission.serial_number} — المنشأة: {selectedFacility?.name || 'المنشأة المستهدفة'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLiveScoreModal(false)}
+                style={{ background: '#e2ecec', border: 0, borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', color: '#37474f' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '16px', overflowY: 'auto', display: 'grid', gap: '16px', maxHeight: 'calc(85vh - 130px)' }}>
+              {/* Top Score summary */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <div style={{ background: '#f0f7f7', border: '1px solid #c2dede', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#546e7a', display: 'block' }}>نسبة الامتثال</span>
+                  <strong style={{ fontSize: '22px', color: '#006d77', fontWeight: 900 }}>{liveScoreStats.overallPct}%</strong>
+                </div>
+                <div style={{ background: '#f8fbfb', border: '1px solid #dce7e8', borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#546e7a', display: 'block' }}>الدرجات المحققة</span>
+                  <strong style={{ fontSize: '18px', color: '#2c6fbb', fontWeight: 900 }}>{liveScoreStats.totalScore} / {liveScoreStats.maxScore}</strong>
+                </div>
+                <div style={{ background: liveScoreStats.violationsCount > 0 ? '#fff2f1' : '#f0f7f7', border: `1px solid ${liveScoreStats.violationsCount > 0 ? '#f5c6cb' : '#c2dede'}`, borderRadius: '10px', padding: '12px', textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', color: '#546e7a', display: 'block' }}>المخالفات المرصودة</span>
+                  <strong style={{ fontSize: '20px', color: liveScoreStats.violationsCount > 0 ? '#c2413f' : '#2a9d8f', fontWeight: 900 }}>{liveScoreStats.violationsCount}</strong>
+                </div>
+              </div>
+
+              {/* Provisional Facility Rating */}
+              <div style={{ background: '#ffffff', border: '1px solid #dce7e8', borderRadius: '10px', padding: '12px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '13px', color: '#37474f', fontWeight: 'bold' }}>التصنيف التقديري للمنشأة:</span>
+                <span style={{
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  fontSize: '12px',
+                  fontWeight: 900,
+                  background: liveScoreStats.overallPct >= 90 ? '#eaf8f3' : liveScoreStats.overallPct >= 75 ? '#fff3e0' : '#ffebee',
+                  color: liveScoreStats.overallPct >= 90 ? '#16725a' : liveScoreStats.overallPct >= 75 ? '#e65100' : '#c62828'
+                }}>
+                  {liveScoreStats.overallPct >= 90 ? '🌟 منشأة متميزة ومعتمدة' : liveScoreStats.overallPct >= 75 ? '⚠️ مقبولة مع وجود ملاحظات' : '🚨 غير مطابقة وذات خطورة'}
+                </span>
+              </div>
+
+              {/* Sections Breakdown List */}
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <h4 style={{ margin: 0, fontSize: '14px', color: '#102027', fontWeight: 'bold' }}>
+                  📋 تفصيل درجات الأقسام التي تم فحصها ({liveScoreStats.sectionScores.filter(s => s.answered > 0).length} قسم):
+                </h4>
+                {liveScoreStats.sectionScores.map((sec, idx) => {
+                  if (sec.answered === 0) return null;
+                  const isTop = sec.pct >= 90;
+                  const isCrit = sec.pct < 75;
+                  const barColor = isTop ? '#2a9d8f' : isCrit ? '#c2413f' : '#e76f51';
+
+                  return (
+                    <div key={sec.id} style={{ background: '#f8fbfb', border: '1px solid #e2ecec', borderRadius: '8px', padding: '10px 12px', display: 'grid', gap: '4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#102027' }}>
+                          {idx + 1}. {sec.name}
+                        </span>
+                        <span style={{ fontSize: '12px', fontWeight: 900, color: barColor }}>
+                          {sec.pct}% ({sec.earned}/{sec.max} درجة)
+                        </span>
+                      </div>
+                      <div style={{ height: '5px', background: '#e2ecec', borderRadius: '999px', overflow: 'hidden' }}>
+                        <div style={{ width: `${sec.pct}%`, height: '100%', background: barColor, borderRadius: '999px' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ padding: '12px 16px', borderTop: '1px solid #dce7e8', background: '#f8fbfb', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setShowLiveScoreModal(false)}
+                style={{ background: '#006d77', color: 'white', border: 0, borderRadius: '8px', padding: '8px 20px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                متابعة التفتيش
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={styles.mobileStickyBar}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        <div 
+          style={{ display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer' }}
+          onClick={() => setShowLiveScoreModal(true)}
+        >
           <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#102027' }}>
-            الامتثال: <strong style={{ color: answeredStats.rate >= 80 ? '#2a9d8f' : '#e76f51', fontSize: '15px' }}>{answeredStats.rate}%</strong>
-            <span style={{ fontSize: '11px', color: '#78909c', marginRight: '6px' }}>({answeredStats.answered} بند مُقيّم)</span>
+            الامتثال: <strong style={{ color: liveScoreStats.overallPct >= 80 ? '#2a9d8f' : '#e76f51', fontSize: '15px' }}>{liveScoreStats.overallPct}%</strong>
+            <span style={{ fontSize: '11px', color: '#78909c', marginRight: '6px' }}>({liveScoreStats.answeredCount} بند مُقيّم 📊)</span>
           </span>
-          <span style={{ fontSize: '11px', color: answeredStats.nonCompliant > 0 ? '#c62828' : '#2a9d8f', fontWeight: 'bold' }}>
-            {answeredStats.nonCompliant > 0 ? `⚠️ ${answeredStats.nonCompliant} مخالفة مرصودة` : '🟢 لا توجد مخالفات مسجلة'}
+          <span style={{ fontSize: '11px', color: liveScoreStats.violationsCount > 0 ? '#c62828' : '#2a9d8f', fontWeight: 'bold' }}>
+            {liveScoreStats.violationsCount > 0 ? `⚠️ ${liveScoreStats.violationsCount} مخالفة مرصودة` : '🟢 لا توجد مخالفات مسجلة'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
