@@ -529,7 +529,22 @@ export function MissionExecutionForm({
         const mappedSections: any[] = []
         templates.forEach((tmpl: any) => {
           (tmpl.sections || []).forEach((sec: any) => {
-            const items = (sec.criteria || sec.checklist_items || []).map((c: any) => {
+            const items = (sec.criteria || sec.checklist_items || [])
+              .filter((c: any) => {
+                const t = (c.criterion_text || c.text || '').trim()
+                return !(
+                  t === 'المجموع' ||
+                  t.startsWith('المجموع الكلي') ||
+                  t.startsWith('المجموع') ||
+                  t === 'المعيار' ||
+                  t === 'الدرجة' ||
+                  t.includes('إجمالي الدرجات') ||
+                  t === 'ملاحظات' ||
+                  t === 'البيان' ||
+                  t === 'م'
+                )
+              })
+              .map((c: any) => {
               const maxLabel = c.score_max_label || 'مطابق'
               const midLabel = c.score_mid_label || (c.score_mid_value ? 'مطابق جزئياً' : '')
               const zeroLabel = c.score_0_label || 'غير مطابق'

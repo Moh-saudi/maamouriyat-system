@@ -134,9 +134,24 @@ export async function GET() {
       return NextResponse.json({ error: critError.message }, { status: 500 })
     }
 
-    // Assemble hierarchical structure
+    // Assemble hierarchical structure (ignoring any non-question headers or total footers)
     const criteriaBySection = new Map<string, any[]>()
     for (const c of criteria || []) {
+      const t = (c.criterion_text || '').trim()
+      if (
+        t === 'المجموع' ||
+        t.startsWith('المجموع الكلي') ||
+        t.startsWith('المجموع') ||
+        t === 'المعيار' ||
+        t === 'الدرجة' ||
+        t.includes('إجمالي الدرجات') ||
+        t === 'ملاحظات' ||
+        t === 'البيان' ||
+        t === 'م'
+      ) {
+        continue
+      }
+
       if (!criteriaBySection.has(c.section_id)) {
         criteriaBySection.set(c.section_id, [])
       }
