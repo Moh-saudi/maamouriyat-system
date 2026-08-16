@@ -395,7 +395,7 @@ export function MissionsPortal({
     if (!existingLink) {
       const link = document.createElement('link')
       link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
       link.crossOrigin = ''
       document.head.appendChild(link)
     }
@@ -403,7 +403,7 @@ export function MissionsPortal({
     const existingScript = document.querySelector('script[src*="leaflet.js"]')
     if (!existingScript) {
       const script = document.createElement('script')
-      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
       script.crossOrigin = ''
       script.onload = () => {
         setLeafletLoaded(true)
@@ -1994,9 +1994,7 @@ export function MissionsPortal({
                 <div style={{ textAlign: 'right', fontSize: '13px', lineHeight: '1.6' }}>
                   <strong>جمهورية مصر العربية</strong><br />
                   <span>وزارة الصحة والسكان</span><br />
-                  <span>ديوان عام الوزارة</span><br />
-                  <span>قطاع الطب العلاجي</span><br />
-                  <strong>الإدارة: {auditMission.orgUnitName}</strong>
+                  <span>{auditMission.orgUnitName || 'ديوان عام الوزارة'}</span>
                 </div>
                 <img 
                   alt="شعار وزارة الصحة والسكان المصرية" 
@@ -2382,7 +2380,7 @@ export function MissionsPortal({
                 </div>
               </div>
               <div style={{ textAlign: 'center', fontSize: '11.5px', color: '#90a4ae', marginTop: '24px', borderTop: '1px solid #edf2f2', paddingTop: '12px' }}>
-                <span>تم استخراج وتوثيق وثيقة المطابقة ومعاينة التكليف رقم {auditMission.serialNumber} إلكترونياً من ديوان عام وزارة الصحة والسكان المصرية (قطاع الطب العلاجي).</span>
+                <span>تم استخراج وتوثيق وثيقة المطابقة ومعاينة التكليف رقم {auditMission.serialNumber} إلكترونياً من وزارة الصحة والسكان المصرية.</span>
               </div>
             </div>
 

@@ -44,16 +44,29 @@ export default async function SettingsPage() {
       .order('sort_order')
       .order('name')
 
+    const { data: orgData } = await supabase
+      .from('organizations')
+      .select('id, name, code, level, level_label, parent_id, sector_id, governorate, health_admin, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities, is_active, created_at')
+      .order('level')
+      .order('name')
+
     if (!error && data?.length) {
       correctionUnits = data
       centralStoreReady = true
     }
   }
 
+  const { data: allOrgs } = supabase ? await supabase
+    .from('organizations')
+    .select('id, name, code, level, level_label, parent_id, sector_id, governorate, health_admin, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities, is_active, created_at')
+    .order('level')
+    .order('name') : { data: [] }
+
   return (
     <DashboardShell role={currentRole} view="settings">
       <SettingsPortal
         initialUnits={correctionUnits}
+        initialOrganizations={allOrgs ?? []}
         centralStoreReady={centralStoreReady}
       />
     </DashboardShell>

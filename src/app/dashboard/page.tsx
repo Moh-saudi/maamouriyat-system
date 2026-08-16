@@ -25,8 +25,13 @@ type ViolationRow = {
 
 type FacilityRow = {
   id: string
+  name?: string | null
   facility_type: string | null
   governorate_id: string | null
+  governorate?: string | null
+  health_admin?: string | null
+  sector_id?: string | null
+  organization_id?: string | null
   is_active: boolean | null
   org_unit_id: string | null
 }
@@ -36,8 +41,11 @@ type UserRow = {
   full_name: string | null
   job_title: string | null
   level: number | null
+  org_level?: number | null
   department: string | null
   org_unit_id: string | null
+  organization_id?: string | null
+  sector_id?: string | null
 }
 
 type GovernorateRow = {
@@ -64,21 +72,27 @@ export default async function DashboardPage() {
 
   const { data: profileData } = await supabase
     .from('users')
-    .select('id, full_name, job_title, level, department, org_unit_id')
+    .select('id, full_name, job_title, level, org_level, department, org_unit_id, organization_id, sector_id')
     .eq('auth_id', user.id)
-    .maybeSingle<UserRow>()
+    .maybeSingle<any>()
+
+  const userLevel = profileData?.level ?? profileData?.org_level ?? 7
+
+  const { data: userOrg } = (profileData?.organization_id || profileData?.org_unit_id)
+    ? await supabase.from('organizations').select('id, level, sector_id, governorate, health_admin').eq('id', profileData.organization_id || profileData.org_unit_id).maybeSingle()
+    : { data: null }
 
   const [missionsResult, violationsResult, facilitiesResult, usersResult, governoratesResult] = await Promise.allSettled([
     supabase
       .from('missions')
       .select(
-        'status, scheduled_date, completed_at, violation_count, assigned_user_id, target_facility_id, target_governorate_id, actual_facility_id, actual_governorate_id, org_unit_id',
+        'id, status, scheduled_date, completed_at, violation_count, assigned_user_id, primary_inspector_id, target_facility_id, target_governorate_id, actual_facility_id, actual_governorate_id, org_unit_id, sector_id',
       )
-      .limit(1000),
-    supabase.from('violations').select('status, priority, facility_id').limit(1000),
-    supabase.from('facilities').select('id, facility_type, is_active, governorate_id, org_unit_id').limit(1000),
-    supabase.from('users').select('id, full_name, job_title, level, department, org_unit_id').limit(1000),
-    supabase.from('governorates').select('id, name').limit(1000),
+      .limit(2000),
+    supabase.from('violations').select('id, status, priority, facility_id, mission_id').limit(2000),
+    supabase.from('facilities').select('id, name, facility_type, is_active, governorate_id, org_unit_id, governorate, health_admin, sector_id, organization_id').limit(4000),
+    supabase.from('users').select('id, full_name, job_title, level, org_level, department, org_unit_id, organization_id, sector_id').limit(1000),
+    supabase.from('governorates').select('id, name').limit(100),
   ])
 
   const missions = readRows<MissionRow>(missionsResult)
@@ -88,49 +102,47 @@ export default async function DashboardPage() {
   const governorates = readRows<GovernorateRow>(governoratesResult)
 
   const profile: DashboardProfile = {
-    department: profileData?.department ?? 'منظومة المأموريات',
+    department: profileData?.department ?? userOrg?.governorate ?? 'منظومة المأموريات',
     fullName: profileData?.full_name ?? user.email ?? 'مستخدم النظام',
     jobTitle: profileData?.job_title ?? 'حساب نظام',
-    level: profileData?.level ?? 7,
+    level: userLevel,
   }
 
-  // Filter metrics and charts data to reflect only the logged-in user's department/unit.
-  // superadmin (level 1) and techadmin (level 0) see global system metrics.
-  // levels 2, 3, 4, 5 (central, generalmanager, creator, financial) see their department-specific data.
-  const userOrgUnitId = profileData?.org_unit_id
-  const userDeptText = profileData?.department
-  const userLevel = profileData?.level ?? 7
-  const shouldFilterByDept = userLevel > 1 && userLevel <= 5
+  // Hierarchical Data Scoping (100% Dynamic)
+  let filteredFacilities = facilities
+  let filteredMissions = missions
+  let filteredUsers = users
 
-  const filteredUsers = shouldFilterByDept
-    ? (userOrgUnitId
-        ? users.filter((u) => u.org_unit_id === userOrgUnitId)
-        : (userDeptText
-            ? users.filter((u) => u.department === userDeptText)
-            : users))
-    : users
-
-  const filteredMissions = shouldFilterByDept
-    ? (userOrgUnitId
-        ? missions.filter((m) => m.org_unit_id === userOrgUnitId)
-        : (userDeptText
-            ? missions.filter((m) => {
-                const assignedUser = users.find((u) => u.id === m.assigned_user_id)
-                return assignedUser?.department === userDeptText
-              })
-            : missions))
-    : missions
-
-  const filteredFacilities = shouldFilterByDept
-    ? (userOrgUnitId
-        ? facilities.filter((f) => f.org_unit_id === userOrgUnitId)
-        : facilities)
-    : facilities
+  if (userLevel > 1) {
+    if (userLevel <= 4) {
+      // Sector level
+      const secId = profileData?.sector_id || userOrg?.sector_id
+      if (secId) {
+        filteredFacilities = facilities.filter(f => f.sector_id === secId)
+        filteredMissions = missions.filter(m => (m as any).sector_id === secId)
+        filteredUsers = users.filter(u => u.sector_id === secId)
+      }
+    } else if (userLevel === 5) {
+      // Directorate level
+      const gov = userOrg?.governorate
+      if (gov) {
+        filteredFacilities = facilities.filter(f => (f.governorate || '').trim() === gov.trim())
+        const facIds = new Set(filteredFacilities.map(f => f.id))
+        filteredMissions = missions.filter(m => m.target_facility_id && facIds.has(m.target_facility_id))
+      }
+    } else if (userLevel === 6) {
+      // Health Admin level
+      const adm = userOrg?.health_admin
+      if (adm) {
+        filteredFacilities = facilities.filter(f => (f.health_admin || '').trim() === adm.trim())
+        const facIds = new Set(filteredFacilities.map(f => f.id))
+        filteredMissions = missions.filter(m => m.target_facility_id && facIds.has(m.target_facility_id))
+      }
+    }
+  }
 
   const filteredFacilityIds = new Set(filteredFacilities.map((f) => f.id))
-  const filteredViolations = shouldFilterByDept
-    ? violations.filter((v) => v.facility_id && filteredFacilityIds.has(v.facility_id))
-    : violations
+  const filteredViolations = violations.filter((v) => !v.facility_id || filteredFacilityIds.has(v.facility_id))
 
   const metrics = buildMetrics({
     facilities: filteredFacilities,
@@ -140,16 +152,19 @@ export default async function DashboardPage() {
     violations: filteredViolations,
   })
 
-  if (profile.level === 7) {
+  const { orgLevelToRole } = await import('@/lib/roles')
+  const currentRole = orgLevelToRole(userLevel, profileData?.job_title)
+
+  if (profile.level === 7 || userLevel === 7) {
     return (
-      <DashboardShell view="dashboard">
+      <DashboardShell role={currentRole} view="dashboard">
         <DashboardScreen />
       </DashboardShell>
     )
   }
 
   return (
-    <DashboardShell view="dashboard">
+    <DashboardShell role={currentRole} view="dashboard">
       <AnalyticsDashboard metrics={metrics} profile={profile} />
     </DashboardShell>
   )
@@ -356,13 +371,18 @@ function buildTopInspectors(missions: MissionRow[], users: Map<string, UserRow>)
     .sort((a, b) => b.value - a.value)
     .slice(0, 5)
 
-  return ranked.length
-    ? ranked
-    : [
-        { detail: 'تفتيش ومتابعة', label: 'أحمد محمود', value: 18 },
-        { detail: 'تفتيش منشآت', label: 'سارة خالد', value: 15 },
-        { detail: 'مشرف ميداني', label: 'محمد علي', value: 12 },
-      ]
+  if (ranked.length > 0) {
+    return ranked
+  }
+
+  return Array.from(users.values())
+    .filter((u) => (u.level ?? 7) >= 6 || (u.job_title && (u.job_title.includes('مفتش') || u.job_title.includes('قائم'))))
+    .slice(0, 5)
+    .map((u) => ({
+      detail: u.job_title ?? 'قائم بالمرور',
+      label: u.full_name ?? 'مفتش ميداني',
+      value: 0,
+    }))
 }
 
 function buildMonthlyTrend(missions: MissionRow[]): ChartItem[] {

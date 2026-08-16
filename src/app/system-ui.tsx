@@ -168,9 +168,6 @@ function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [setupMessage, setSetupMessage] = useState('')
-  const [setupLoading, setSetupLoading] = useState(false)
-  const [selectedDemo, setSelectedDemo] = useState<string | null>(null)
 
   useEffect(() => {
     const rememberedEmail = window.localStorage.getItem('maamouriyat_remembered_email')
@@ -226,43 +223,6 @@ function LoginScreen() {
     }
   }
 
-  async function handleSetupDemoUsers() {
-    setSetupLoading(true)
-    setSetupMessage('')
-    setError('')
-    try {
-      const res = await fetch('/api/setup-demo-users', { method: 'POST' })
-      const data = await res.json()
-      setSetupLoading(false)
-      if (data.success) {
-        setSetupMessage('تم تفعيل وتجهيز الحسابات التجريبية بنجاح! (كلمة المرور الإفتراضية: 123456)')
-        setEmail('admin@admin.com')
-        setPassword('123456')
-        setSelectedDemo('admin@admin.com')
-      } else {
-        setError(data.error || 'فشل تهيئة الحسابات')
-      }
-    } catch (err: any) {
-      setSetupLoading(false)
-      setError('تعذر الاتصال بمسار تهيئة الحسابات')
-    }
-  }
-
-  function fillDemoAccount(demoEmail: string, demoRoleName: string) {
-    setEmail(demoEmail)
-    setPassword('123456')
-    setSelectedDemo(demoEmail)
-    setError('')
-    setSetupMessage(`تم اختيار حساب (${demoRoleName}) بنجاح! يمكنك الدخول الآن ✨`)
-  }
-
-  const demoAccounts = [
-    { label: '👑 مدير النظام', email: 'admin@admin.com', name: 'أحمد محمود العشري' },
-    { label: '🩺 مفتش صحي', email: 'inspector@inspector.com', name: 'سارة خالد البشري' },
-    { label: '📋 مشرف ميداني', email: 'supervisor@supervisor.com', name: 'محمد علي سليم' },
-    { label: '🏢 مدير تفتيش', email: 'director@director.com', name: 'مدير إدارة التفتيش' },
-  ]
-
   return (
     <main className="login-screen-popup-wrapper">
       <Style />
@@ -271,71 +231,79 @@ function LoginScreen() {
 
       {/* Floating Centered 2-Column Popup Modal Dialog Container */}
       <div className="login-modal-card-popup" role="dialog" aria-modal="true">
-        {/* Right Column: Healthcare Image & Motivational Welcome Note */}
+        {/* Right Column: Modern Governmental Presentation Panel (Clean & Borderless) */}
         <section className="login-hero-panel-right">
           <div className="hero-image-overlay" />
+          <div className="hero-pattern-glow" />
+
           <div className="hero-content">
-            <div className="hero-badge">
-              <MinistryLogo size="panel" />
-              <span>جمهورية مصر العربية - وزارة الصحة والسكان</span>
+            {/* Top Official Header Badge */}
+            <div className="hero-official-badge">
+              <div className="official-logo-box">
+                <MinistryLogo size="panel" />
+              </div>
+              <div className="official-text-group">
+                <span className="republic-text">جمهورية مصر العربية</span>
+                <h3 className="ministry-text">وزارة الصحة والسكان</h3>
+              </div>
             </div>
 
+            {/* Quranic Verse Box - Seamless Calligraphy */}
             <div className="quran-quote-box">
-              <span className="quran-icon">🌿</span>
               <blockquote className="quran-quote">
                 « وَقُلِ اعْمَلُوا فَسَيَرَى اللَّهُ عَمَلَكُمْ وَرَسُولُهُ وَالْمُؤْمِنُونَ »
               </blockquote>
+              <span className="quran-verse-ref">سورة التوبة — آية ١٠٥</span>
             </div>
 
+            {/* Main System Title & Motivational Welcome Note */}
             <div className="hero-main-title">
+              <div className="system-official-tag">
+                <span className="pulse-indicator" />
+                <span>المنظومة الوطنية الموحدة</span>
+              </div>
               <h1>نظام حوكمة المأموريات الميدانية 🩺</h1>
               <p className="hero-subtext">
                 أهلاً بك 👋 نتمنى لك يوماً موفقاً ومجهوداً كبيراً مقدراً في خدمة الوطن والرعاية الصحية 💙✨
               </p>
             </div>
 
+            {/* Features / Operational Pillars */}
             <div className="hero-features-list">
-              <div className="feature-pill"><span>⚡</span> متابعة وحوكمة دقيقة</div>
-              <div className="feature-pill"><span>🏥</span> ربط مباشر بالمنشآت</div>
-              <div className="feature-pill"><span>🛡️</span> أعلى معايير الجودة</div>
+              <div className="feature-pill">
+                <span className="pill-icon">⚡</span>
+                <span className="pill-title">متابعة وحوكمة دقيقة</span>
+              </div>
+              <div className="feature-pill">
+                <span className="pill-icon">🏥</span>
+                <span className="pill-title">ربط مباشر بالمنشآت</span>
+              </div>
+              <div className="feature-pill">
+                <span className="pill-icon">🛡️</span>
+                <span className="pill-title">أعلى معايير الجودة</span>
+              </div>
+            </div>
+
+            {/* Security Assurance Tag */}
+            <div className="hero-security-assurance">
+              <span>🔒 بوابة رسمية آمنة • مخصصة للكوادر المصرح لها</span>
             </div>
           </div>
         </section>
 
-        {/* Left Column: Interactive Login Form & Hints */}
+        {/* Left Column: Official Login Form */}
         <form className="login-form-panel-left" onSubmit={handleLogin}>
           <div className="form-header">
             <div className="header-logo-row">
               <MinistryLogo size="panel" />
               <div>
                 <h2>تسجيل الدخول للمنظومة 🔐</h2>
-                <p className="subhead">البوابة الرقمية المركزية لقطاع الطب العلاجي</p>
+                <p className="subhead">البوابة الرقمية المركزية لرقمنة المرور علي المنشات الصحية</p>
               </div>
             </div>
           </div>
 
           {error && <div className="alert alert-danger">{error}</div>}
-          {setupMessage && <div className="alert alert-success">{setupMessage}</div>}
-
-          {/* Interactive Demo Hints Chips */}
-          <div className="demo-hints-container">
-            <div className="hints-header">
-              <span>💡 تلميحات الحسابات التجريبية (اضغط للتعبئة التلقائية):</span>
-            </div>
-            <div className="demo-chips-grid">
-              {demoAccounts.map((acc) => (
-                <button
-                  key={acc.email}
-                  type="button"
-                  onClick={() => fillDemoAccount(acc.email, acc.label)}
-                  className={`demo-chip ${selectedDemo === acc.email ? 'active' : ''}`}
-                  title={`${acc.name} (${acc.email})`}
-                >
-                  <span className="chip-label">{acc.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Email Field */}
           <div className="input-group">
@@ -394,22 +362,15 @@ function LoginScreen() {
           <button className="primary-action-btn" disabled={loading} type="submit">
             {loading ? (
               <span className="btn-spinner-row">
-                <span className="spinner" /> جاري تسجيل الدخول...
+                <span className="spinner" /> جاري التحقق والدخول...
               </span>
             ) : (
               'تسجيل الدخول إلى المنظومة 🚀'
             )}
           </button>
 
-          <div className="setup-trigger-box">
-            <button
-              type="button"
-              onClick={handleSetupDemoUsers}
-              disabled={setupLoading}
-              className="setup-link-btn"
-            >
-              {setupLoading ? '⚡ جاري تفعيل وتأكيد حسابات التجربة...' : '🔄 إعادة تهيئة وتفعيل حسابات التجربة'}
-            </button>
+          <div className="form-security-footer">
+            <span>🛡️ نظام حكومي مشفر ومحمي وفق أحدث بروتوكولات الأمان الرقمي</span>
           </div>
         </form>
       </div>
@@ -451,35 +412,30 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
     async function resolveUserEmail() {
       if (supabase) {
         try {
-          const { data: { user } } = await supabase.auth.getUser()
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+          if (sessionError || !session) return
+
+          const user = session.user
           if (user) {
             setUserEmail(user.email ?? user.id)
-            if (user.user_metadata?.must_change_password !== false) {
+            if (user.user_metadata?.must_change_password === true) {
               setMustChangePassword(true)
             }
             const { data: profileData } = await supabase
               .from('users')
-              .select('id, level, full_name, job_title, department')
+              .select('id, org_level, level, full_name, job_title, organization_id, department, organizations:organization_id(name)')
               .eq('auth_id', user.id)
               .maybeSingle()
             if (profileData) {
               setProfileName(profileData.full_name)
               setProfileJobTitle(profileData.job_title)
-              setProfileDepartment(profileData.department)
+              const orgName = (profileData.organizations as any)?.name || profileData.department || 'ديوان عام وزارة الصحة والسكان'
+              setProfileDepartment(orgName)
 
-              const level = profileData.level ?? 7
-              const role = level === 0 ? 'techadmin' : level === 1 ? 'superadmin' : level === 2 ? 'central' : level === 3 ? 'generalmanager' : level === 4 ? 'creator' : level === 5 ? 'financial' : 'inspector'
+              const { orgLevelToRole } = await import('@/lib/roles')
+              const role = orgLevelToRole(profileData.level ?? profileData.org_level ?? 7, profileData.job_title)
               document.cookie = `maamouriyat_user_role=${role}; path=/; max-age=86400; SameSite=Lax`
               setCurrentRole(role)
-
-              const { data: userPermission } = await supabase
-                .from('user_permissions')
-                .select('allowed_pages')
-                .eq('user_id', profileData.id)
-                .maybeSingle()
-
-              const normalizedOverride = normalizeNavigationKeys(userPermission?.allowed_pages)
-              setNavigationOverride(normalizedOverride.length > 0 ? normalizedOverride : null)
             }
           }
         } catch {}
@@ -496,34 +452,35 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
     async function loadNotifications() {
       if (supabase) {
         try {
-          const { data: { user } } = await supabase.auth.getUser()
-          if (user) {
-            const { data, error } = await supabase
-              .from('notifications')
-              .select('*')
-              .eq('is_read', false)
-              .order('sent_at', { ascending: false })
-              .limit(10)
-            
-            if (!error && data) {
-              setNotificationsList(data.map(n => ({
-                href: n.mission_id ? `/dashboard/missions` : `/dashboard/violations`,
-                meta: new Date(n.sent_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
-                text: n.body,
-                title: n.title,
-                tone: n.type === 'mission_assigned' ? 'blue' : 'red',
-                is_read: n.is_read
-              })))
-            }
+          const { data: { session } } = await supabase.auth.getSession()
+          if (!session?.user) return
+
+          const user = session.user
+          const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('is_read', false)
+            .order('created_at', { ascending: false })
+            .limit(10)
+          
+          if (!error && data) {
+            setNotificationsList(data.map(n => ({
+              href: n.mission_id ? `/dashboard/missions` : `/dashboard/violations`,
+              meta: new Date(n.created_at || n.sent_at || Date.now()).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+              text: n.body,
+              title: n.title,
+              tone: n.type === 'mission_assigned' ? 'blue' : 'red',
+              is_read: n.is_read
+            })))
           }
         } catch (e) {
-          console.error(e)
+          // silently handle network/auth blips
         }
       }
     }
 
     loadNotifications()
-    const interval = setInterval(loadNotifications, 10000)
+    const interval = setInterval(loadNotifications, 15000)
     return () => clearInterval(interval)
   }, [currentRole])
 
@@ -767,7 +724,7 @@ function AppShell({ children, initialRole, view }: { children: React.ReactNode; 
                   }}>
                     <span style={{ fontSize: '13px' }}>🏢</span>
                     <span style={{ fontSize: '11.5px', color: '#42555d', fontWeight: 'bold' }}>
-                      {profileDepartment || 'الإدارة المركزية للطب العلاجي'}
+                      {profileDepartment || 'ديوان عام وزارة الصحة والسكان'}
                     </span>
                   </div>
 
@@ -1271,20 +1228,62 @@ function Navigation({
 }) {
   const roleInfo = getRoleDefinition(role)
   const allowedKeys = allowedKeysOverride ?? getRoleNavigation(role ?? 'inspector')
+
+  const getContextualLabel = (key: NavigationKey, r: UserRole | null) => {
+    if (key === 'dashboard') {
+      if (r === 'inspector') return 'الرئيسية (مؤشرات أدائي)'
+      if (r === 'creator') return 'لوحة الإدارة الصحية'
+      if (r === 'directorate') return 'لوحة مديرية الشئون الصحية'
+      if (r === 'generalmanager') return 'لوحة الإدارة العامة'
+      if (r === 'central') return 'لوحة الإدارة المركزية'
+      if (r === 'sector') return 'لوحة القطاع المركزي'
+      if (r === 'techadmin') return 'لوحة الدعم الفني'
+      return 'لوحة المتابعة المركزية'
+    }
+    if (key === 'missions') {
+      if (r === 'inspector') return 'مأمورياتي المكلف بها'
+      if (r === 'creator') return 'مأموريات وتكليفات الإدارة'
+      if (r === 'directorate') return 'مأموريات المحافظة'
+      if (r === 'sector' || r === 'central' || r === 'generalmanager') return 'مأموريات القطاع'
+      return 'المأموريات الميدانية'
+    }
+    if (key === 'violations') {
+      if (r === 'inspector') return 'المخالفات المرصودة'
+      if (r === 'creator') return 'مخالفات منشآت الإدارة'
+      if (r === 'directorate') return 'مخالفات منشآت المحافظة'
+      if (r === 'sector') return 'مخالفات منشآت القطاع'
+      return 'المخالفات الميدانية'
+    }
+    if (key === 'facilities') {
+      if (r === 'directorate') return 'منشآت المحافظة'
+      if (r === 'sector') return 'منشآت القطاع'
+      return 'المنشآت الصحية'
+    }
+    if (key === 'users') {
+      if (r === 'sector') return 'كوادر ومفتشو القطاع'
+      return 'إدارة الكوادر والموظفين'
+    }
+    return navigationDefinitions[key]?.label || key
+  }
+
   const items = allowedKeys.map((key: NavigationKey) => ({
     key,
-    ...navigationDefinitions[key],
+    icon: navigationDefinitions[key].icon,
+    href: navigationDefinitions[key].href,
+    label: getContextualLabel(key, role),
   }))
 
   return (
     <div className="sheet-nav">
-      <span className="role-nav-label">{roleInfo.homeLabel}</span>
+      <span className="role-nav-label">
+        {roleInfo.name} — {roleInfo.jobTitle}
+      </span>
       {items.map((item: any) => (
         <NavItem
           href={item.href}
           icon={item.icon}
           key={item.key}
-          label={item.key === 'dashboard' ? roleInfo.homeLabel : item.label}
+          label={item.label}
           onClick={onNavigate}
         />
       ))}
@@ -1403,7 +1402,8 @@ export function DashboardScreen() {
         return
       }
       try {
-        const { data: { user } } = await supabase.auth.getUser()
+        const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user
         if (!user) {
           setLoading(false)
           return
@@ -1416,98 +1416,95 @@ export function DashboardScreen() {
           .eq('auth_id', user.id)
           .maybeSingle()
 
-        if (profile) {
+        if (profile?.id) {
           setProfileName(profile.full_name || user.email || 'قائم بالمرور')
           setProfileJob(profile.job_title || 'مفتش صحي')
 
-          // 2. Get real stats for this user
-          // Completed missions (completed / approved / done)
-          const { count: completedCount } = await supabase
-            .from('missions')
-            .select('id', { count: 'exact', head: true })
-            .eq('assigned_user_id', profile.id)
-            .in('status', ['completed', 'approved', 'done'])
+          try {
+            // Completed missions
+            const { count: completedCount } = await supabase
+              .from('missions')
+              .select('id', { count: 'exact', head: true })
+              .in('status', ['completed', 'approved', 'done'])
 
-          // In progress (assigned / in_progress / executing / under_review)
-          const { count: inProgressCount } = await supabase
-            .from('missions')
-            .select('id', { count: 'exact', head: true })
-            .eq('assigned_user_id', profile.id)
-            .in('status', ['assigned', 'in_progress', 'executing', 'under_review'])
+            // In progress
+            const { count: inProgressCount } = await supabase
+              .from('missions')
+              .select('id', { count: 'exact', head: true })
+              .in('status', ['assigned', 'in_progress', 'executing', 'under_review'])
 
-          // Late missions (scheduled_date < today and status not in completed/approved/done)
-          const todayStr = new Date().toISOString().split('T')[0]
-          const { data: maybeLateMissions } = await supabase
-            .from('missions')
-            .select('id, status, scheduled_date')
-            .eq('assigned_user_id', profile.id)
-            .lt('scheduled_date', todayStr)
+            // Late missions
+            const todayStr = new Date().toISOString().split('T')[0]
+            const { data: maybeLateMissions } = await supabase
+              .from('missions')
+              .select('id, status, scheduled_date')
+              .lt('scheduled_date', todayStr)
 
-          const lateCount = maybeLateMissions
-            ? maybeLateMissions.filter(m => !['completed', 'approved', 'done'].includes(m.status)).length
-            : 0
+            const lateCount = maybeLateMissions
+              ? maybeLateMissions.filter(m => !['completed', 'approved', 'done'].includes(m.status)).length
+              : 0
 
-          // Facilities count (total active facilities in system)
-          const { count: facilityCount } = await supabase
-            .from('facilities')
-            .select('id', { count: 'exact', head: true })
-            .eq('is_active', true)
+            // Facilities count
+            const { count: facilityCount } = await supabase
+              .from('facilities')
+              .select('id', { count: 'exact', head: true })
+              .eq('is_active', true)
 
-          setStats([
-            { label: 'المأموريات المنجزة', value: String(completedCount || 0), tone: 'green', icon: CheckCircle2 },
-            { label: 'قيد التنفيذ', value: String(inProgressCount || 0), tone: 'blue', icon: ClipboardList },
-            { label: 'مأموريات متأخرة', value: String(lateCount || 0), tone: 'red', icon: AlertTriangle },
-            { label: 'إجمالي المنشآت', value: String(facilityCount || 0), tone: 'amber', icon: Building2 },
-          ])
+            setStats([
+              { label: 'المأموريات المنجزة', value: String(completedCount || 0), tone: 'green', icon: CheckCircle2 },
+              { label: 'قيد التنفيذ', value: String(inProgressCount || 0), tone: 'blue', icon: ClipboardList },
+              { label: 'مأموريات متأخرة', value: String(lateCount || 0), tone: 'red', icon: AlertTriangle },
+              { label: 'إجمالي المنشآت', value: String(facilityCount || 0), tone: 'amber', icon: Building2 },
+            ])
 
-          // 3. Get latest 5 assigned missions
-          const { data: latestMissions } = await supabase
-            .from('missions')
-            .select(`
-              id,
-              serial_number,
-              status,
-              scheduled_date,
-              violation_count,
-              facilities:target_facility_id(name),
-              users:assigned_user_id(full_name)
-            `)
-            .eq('assigned_user_id', profile.id)
-            .order('scheduled_date', { ascending: false })
-            .limit(5)
+            // Latest 5 missions
+            const { data: latestMissions } = await supabase
+              .from('missions')
+              .select(`
+                id,
+                serial_number,
+                status,
+                scheduled_date,
+                violation_count,
+                facilities:target_facility_id(name)
+              `)
+              .order('scheduled_date', { ascending: false })
+              .limit(5)
 
-          if (latestMissions) {
-            setMissionsList(latestMissions.map((m: any) => {
-              const facilityObj = Array.isArray(m.facilities) ? m.facilities[0] : m.facilities
-              const userObj = Array.isArray(m.users) ? m.users[0] : m.users
-              
-              let statusText = 'قيد الانتظار'
-              let statusTone = 'amber'
-              const s = (m.status || '').toLowerCase()
-              if (['completed', 'approved', 'done'].includes(s)) {
-                statusText = 'مكتملة'
-                statusTone = 'green'
-              } else if (['assigned', 'in_progress', 'executing'].includes(s)) {
-                statusText = 'قيد التنفيذ'
-                statusTone = 'blue'
-              } else if (s === 'under_review') {
-                statusText = 'بانتظار الاعتماد'
-                statusTone = 'amber'
-              } else if (s === 'rejected') {
-                statusText = 'مرفوضة'
-                statusTone = 'red'
-              }
+            if (latestMissions) {
+              setMissionsList(latestMissions.map((m: any) => {
+                const facilityObj = Array.isArray(m.facilities) ? m.facilities[0] : m.facilities
+                
+                let statusText = 'قيد الانتظار'
+                let statusTone = 'amber'
+                const s = (m.status || '').toLowerCase()
+                if (['completed', 'approved', 'done'].includes(s)) {
+                  statusText = 'مكتملة'
+                  statusTone = 'green'
+                } else if (['assigned', 'in_progress', 'executing'].includes(s)) {
+                  statusText = 'قيد التنفيذ'
+                  statusTone = 'blue'
+                } else if (s === 'under_review') {
+                  statusText = 'بانتظار الاعتماد'
+                  statusTone = 'amber'
+                } else if (s === 'rejected') {
+                  statusText = 'مرفوضة'
+                  statusTone = 'red'
+                }
 
-              return {
-                id: m.serial_number,
-                facility: facilityObj?.name || 'منشأة غير محددة',
-                inspector: userObj?.full_name || profile.full_name || 'مفتش',
-                date: m.scheduled_date ? formatDateArabic(m.scheduled_date) : '',
-                status: statusText,
-                tone: statusTone,
-                violations: m.violation_count || 0
-              }
-            }))
+                return {
+                  id: m.serial_number || m.id,
+                  facility: facilityObj?.name || 'منشأة غير محددة',
+                  inspector: profile.full_name || 'مفتش',
+                  date: m.scheduled_date ? formatDateArabic(m.scheduled_date) : '',
+                  status: statusText,
+                  tone: statusTone,
+                  violations: m.violation_count || 0
+                }
+              }))
+            }
+          } catch (err) {
+            console.error('Error fetching dashboard stats:', err)
           }
         }
       } catch (err) {
@@ -1734,15 +1731,12 @@ function Style() {
         position: relative;
         z-index: 10;
         width: 100%;
-        max-width: 1050px;
+        max-width: 1080px;
         display: grid;
-        grid-template-columns: 1.15fr 1fr;
-        background: rgba(255, 255, 255, 0.96);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.85);
+        grid-template-columns: 1.18fr 1fr;
+        background: #ffffff;
         border-radius: 28px;
-        box-shadow: 0 30px 70px -15px rgba(0, 109, 119, 0.25), 0 0 1px 1px rgba(255, 255, 255, 0.9) inset;
+        box-shadow: 0 25px 60px -15px rgba(0, 75, 82, 0.28), 0 0 0 1px rgba(0, 109, 119, 0.08);
         overflow: hidden;
         animation: popupZoomIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
@@ -1750,7 +1744,7 @@ function Style() {
       @keyframes popupZoomIn {
         from {
           opacity: 0;
-          transform: scale(0.94) translateY(18px);
+          transform: scale(0.95) translateY(16px);
         }
         to {
           opacity: 1;
@@ -1758,7 +1752,7 @@ function Style() {
         }
       }
 
-      /* Right Column: Hero Healthcare Panel */
+      /* Right Column: Modern Governmental Presentation Panel (Clean & Borderless) */
       .login-hero-panel-right {
         position: relative;
         background-image: url('/healthcare-hero.jpg');
@@ -1767,7 +1761,7 @@ function Style() {
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        padding: 40px 32px;
+        padding: 34px 30px;
         color: white;
         overflow: hidden;
       }
@@ -1775,8 +1769,17 @@ function Style() {
       .hero-image-overlay {
         position: absolute;
         inset: 0;
-        background: linear-gradient(160deg, rgba(0, 75, 82, 0.88) 0%, rgba(0, 109, 119, 0.82) 45%, rgba(13, 148, 136, 0.85) 100%);
-        backdrop-filter: blur(2px);
+        background: linear-gradient(155deg, rgba(3, 38, 43, 0.93) 0%, rgba(6, 68, 75, 0.88) 45%, rgba(13, 108, 102, 0.91) 100%);
+        backdrop-filter: blur(1.5px);
+      }
+
+      .hero-pattern-glow {
+        position: absolute;
+        inset: 0;
+        background: 
+          radial-gradient(circle at 85% 15%, rgba(20, 184, 166, 0.18) 0%, transparent 45%),
+          radial-gradient(circle at 15% 85%, rgba(16, 185, 129, 0.14) 0%, transparent 45%);
+        pointer-events: none;
       }
 
       .hero-content {
@@ -1784,119 +1787,231 @@ function Style() {
         z-index: 2;
         display: flex;
         flex-direction: column;
-        gap: 24px;
+        gap: 16px;
         height: 100%;
         justify-content: space-between;
       }
 
-      .hero-badge {
+      /* Official Ministerial Header - Borderless & Clean */
+      .hero-official-badge {
         display: flex;
         align-items: center;
         gap: 12px;
-        background: rgba(255, 255, 255, 0.15);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        padding: 8px 16px;
-        border-radius: 100px;
-        width: fit-content;
-        font-size: 0.85rem;
-        font-weight: 500;
-        color: #f0fdf4;
+        background: none;
+        border: none;
+        padding: 0;
+        box-shadow: none;
       }
 
-      .quran-quote-box {
-        background: rgba(255, 255, 255, 0.14);
-        border-right: 4px solid #34d399;
-        border-radius: 14px;
-        padding: 16px 20px;
-        backdrop-filter: blur(8px);
+      .official-logo-box {
         display: flex;
-        gap: 12px;
-        align-items: flex-start;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.96);
+        padding: 4px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
       }
 
-      .quran-icon {
-        font-size: 1.4rem;
+      .official-text-group {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .republic-text {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #99f6e4;
+        letter-spacing: 0.02em;
+        opacity: 0.95;
+      }
+
+      .ministry-text {
+        margin: 0;
+        font-size: 0.96rem;
+        font-weight: 800;
+        color: #ffffff;
+        line-height: 1.25;
+      }
+
+      .sector-text {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #ccfbf1;
+        opacity: 0.9;
+      }
+
+      /* Quranic Verse Box - Seamless, Centered & Borderless */
+      .quran-quote-box {
+        background: none;
+        border: none;
+        padding: 2px 0;
+        box-shadow: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 3px;
       }
 
       .quran-quote {
         margin: 0;
-        font-size: 1.05rem;
-        line-height: 1.65;
+        font-size: 0.9rem;
+        line-height: 1.7;
         font-weight: 700;
         color: #ecfdf5;
-        font-family: Cairo, Tajawal, sans-serif;
+        font-family: Cairo, Tajawal, 'Segoe UI', sans-serif;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+      }
+
+      .quran-verse-ref {
+        font-size: 0.66rem;
+        font-weight: 600;
+        color: #99f6e4;
+        opacity: 0.8;
+      }
+
+      /* Hero Main Title & Greeting - Borderless */
+      .hero-main-title {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .system-official-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(16, 185, 129, 0.16);
+        border: none;
+        padding: 3px 10px;
+        border-radius: 100px;
+        font-size: 0.68rem;
+        font-weight: 700;
+        color: #a7f3d0;
+        width: fit-content;
+      }
+
+      .pulse-indicator {
+        width: 6px;
+        height: 6px;
+        background: #34d399;
+        border-radius: 50%;
+        box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7);
+        animation: pulseDot 2s infinite;
+      }
+
+      @keyframes pulseDot {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 5px rgba(52, 211, 153, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
       }
 
       .hero-main-title h1 {
-        font-size: 1.75rem;
-        margin: 0 0 10px 0;
+        font-size: 1.3rem;
+        margin: 0;
         font-weight: 800;
         color: #ffffff;
-        line-height: 1.3;
+        line-height: 1.35;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
       }
 
       .hero-subtext {
-        font-size: 0.95rem;
-        line-height: 1.7;
+        font-size: 0.8rem;
+        line-height: 1.65;
         color: #e0f2fe;
         margin: 0;
+        font-weight: 500;
+        background: none;
+        border: none;
+        padding: 0;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       }
 
+      /* Hero Features List - Seamless & Clean */
       .hero-features-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
       }
 
       .feature-pill {
-        background: rgba(255, 255, 255, 0.18);
-        border: 1px solid rgba(255, 255, 255, 0.25);
-        padding: 6px 14px;
-        border-radius: 100px;
-        font-size: 0.8rem;
+        background: rgba(255, 255, 255, 0.07);
+        border: none;
+        padding: 7px 8px;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 2px;
+        transition: all 0.2s ease;
+      }
+
+      .feature-pill:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .pill-icon {
+        font-size: 1.05rem;
+      }
+
+      .pill-title {
+        font-size: 0.7rem;
+        font-weight: 700;
         color: #ffffff;
+        line-height: 1.25;
+      }
+
+      .hero-security-assurance {
+        font-size: 0.68rem;
+        font-weight: 600;
+        color: #a7f3d0;
+        text-align: center;
+        opacity: 0.85;
         display: flex;
         align-items: center;
-        gap: 6px;
+        justify-content: center;
+        gap: 5px;
       }
 
       /* Left Column: Form Panel */
       .login-form-panel-left {
-        padding: 40px 36px;
+        padding: 38px 32px;
         display: flex;
         flex-direction: column;
         justify-content: center;
-        gap: 20px;
+        gap: 18px;
         background: #ffffff;
       }
 
       .header-logo-row {
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: 14px;
       }
 
       .header-logo-row h2 {
         margin: 0;
-        font-size: 1.5rem;
-        font-weight: 800;
+        font-size: 1.35rem;
+        font-weight: 900;
         color: #0f172a;
       }
 
       .header-logo-row .subhead {
-        margin: 4px 0 0 0;
-        font-size: 0.85rem;
+        margin: 3px 0 0 0;
+        font-size: 0.78rem;
         color: #64748b;
+        font-weight: 600;
       }
 
       /* Alerts */
       .alert {
-        padding: 12px 16px;
-        border-radius: 12px;
-        font-size: 0.875rem;
-        font-weight: 500;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-size: 0.82rem;
+        font-weight: 600;
         line-height: 1.5;
       }
 
@@ -1910,61 +2025,6 @@ function Style() {
         background: #f0fdf4;
         color: #166534;
         border: 1px solid #bbf7d0;
-      }
-
-      /* Demo Chips Hints */
-      .demo-hints-container {
-        background: #f8fafc;
-        border: 1px dashed #cbd5e1;
-        border-radius: 14px;
-        padding: 14px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .hints-header {
-        font-size: 0.8rem;
-        font-weight: 700;
-        color: #475569;
-      }
-
-      .demo-chips-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 8px;
-      }
-
-      .demo-chip {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        padding: 8px 12px;
-        border-radius: 10px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-      }
-
-      .demo-chip:hover {
-        background: #f1f5f9;
-        border-color: #006d77;
-        transform: translateY(-1px);
-      }
-
-      .demo-chip.active {
-        background: #e0f2fe;
-        border-color: #0284c7;
-        color: #0369a1;
-        font-weight: bold;
-        box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
-      }
-
-      .chip-label {
-        font-size: 0.8rem;
-        font-weight: 600;
       }
 
       /* Inputs */
@@ -2112,24 +2172,12 @@ function Style() {
         to { transform: rotate(360deg); }
       }
 
-      .setup-trigger-box {
+      .form-security-footer {
         text-align: center;
-        margin-top: 4px;
-      }
-
-      .setup-link-btn {
-        background: none;
-        border: none;
-        color: #0284c7;
-        font-size: 0.85rem;
+        padding-top: 6px;
+        font-size: 0.78rem;
         font-weight: 600;
-        cursor: pointer;
-        transition: color 0.15s;
-        text-decoration: underline;
-      }
-
-      .setup-link-btn:hover {
-        color: #0369a1;
+        color: #64748b;
       }
 
       /* POPUP BACKDROP OVERLAY */
@@ -2302,19 +2350,89 @@ function Style() {
         font-weight: 600;
       }
 
-      /* Responsive Media Query */
+      /* Responsive Mobile Optimization */
       @media (max-width: 900px) {
+        .login-screen-popup-wrapper {
+          padding: 16px 12px;
+          align-items: center;
+        }
+
         .login-modal-card-popup {
           grid-template-columns: 1fr;
+          max-width: 480px;
+          border-radius: 22px;
         }
 
+        /* Compact Header on Mobile */
         .login-hero-panel-right {
-          min-height: 280px;
-          padding: 28px 20px;
+          min-height: auto;
+          padding: 16px 18px;
+          gap: 8px;
         }
 
+        .hero-content {
+          gap: 8px;
+        }
+
+        .hero-official-badge {
+          justify-content: center;
+          text-align: center;
+        }
+
+        .official-logo-box {
+          padding: 3px;
+        }
+
+        .republic-text {
+          font-size: 0.65rem;
+        }
+
+        .ministry-text {
+          font-size: 0.88rem;
+        }
+
+        .quran-quote-box {
+          padding: 0;
+          margin-top: 2px;
+        }
+
+        .quran-quote {
+          font-size: 0.78rem;
+          line-height: 1.5;
+        }
+
+        .quran-verse-ref {
+          font-size: 0.62rem;
+        }
+
+        /* Hide bulky duplicate sections on mobile to keep form visible immediately */
+        .hero-main-title,
+        .hero-features-list,
+        .hero-security-assurance {
+          display: none !important;
+        }
+
+        /* Streamlined Mobile Form */
         .login-form-panel-left {
-          padding: 28px 20px;
+          padding: 20px 18px 24px;
+          gap: 14px;
+        }
+
+        .header-logo-row {
+          justify-content: center;
+          text-align: center;
+        }
+
+        .header-logo-row .ministry-logo {
+          display: none; /* Already present in top header */
+        }
+
+        .header-logo-row h2 {
+          font-size: 1.25rem;
+        }
+
+        .header-logo-row .subhead {
+          font-size: 0.75rem;
         }
       }
 

@@ -37,31 +37,17 @@ export default async function MissionsPage() {
     redirect('/login')
   }
 
-  // Fetch profile to get level
+  // جلب المستوى التنظيمي الجديد
   const { data: profile } = await supabase
     .from('users')
-    .select('level')
+    .select('org_level, level, job_title')
     .eq('auth_id', authUser.user.id)
     .single()
 
-  let liveRoleName: string | null = null
-  if (profile) {
-    if (profile.level === 7) {
-      liveRoleName = 'inspector'
-    } else if (profile.level === 5) {
-      liveRoleName = 'financial'
-    } else if (profile.level === 4) {
-      liveRoleName = 'creator'
-    } else if (profile.level === 3) {
-      liveRoleName = 'generalmanager'
-    } else if (profile.level === 2 || profile.level === 1) {
-      liveRoleName = 'central'
-    } else if (profile.level === 0) {
-      liveRoleName = 'techadmin'
-    }
-  }
-  const currentRole = levelToRole(profile?.level ?? 7)
-  const canCreateMission = currentRole !== 'financial' && currentRole !== 'inspector'
+  const effectiveLevel = profile?.level ?? profile?.org_level ?? 7
+  const { orgLevelToRole, canCreateMissions } = await import('@/lib/roles')
+  const currentRole = orgLevelToRole(effectiveLevel, profile?.job_title)
+  const canCreateMission = currentRole !== 'inspector' && canCreateMissions(effectiveLevel)
 
   let liveMissions: any[] = []
   let loadError = ''
@@ -73,21 +59,18 @@ export default async function MissionsPage() {
         id,
         serial_number,
         assigned_user_id,
+        primary_inspector_id,
         status,
         priority,
         scheduled_date,
         destination_type,
         visit_purpose,
-        destination_changed,
         notes,
-        execution_notes,
         checkin_lat,
         checkin_lng,
         gps_verified,
         users:assigned_user_id(full_name),
-        facilities:target_facility_id(name, address),
-        governorates:target_governorate_id(name),
-        organizational_units:org_unit_id(name)
+        facilities:target_facility_id(name, facility_type, governorate, health_admin, village_city)
       `)
       .order('scheduled_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -101,30 +84,21 @@ export default async function MissionsPage() {
     loadError = e.message || 'فشل تحميل المأموريات من خادم البيانات.'
   }
 
-  // In production mode: Map Supabase rows to standard format
-  const finalMissionsList = liveMissions.map((lm: any) => {
-    const usersObj = Array.isArray(lm.users) ? lm.users[0] : lm.users
-    const facilityObj = Array.isArray(lm.facilities) ? lm.facilities[0] : lm.facilities
-    const govObj = Array.isArray(lm.governorates) ? lm.governorates[0] : lm.governorates
-    const orgUnitObj = Array.isArray(lm.organizational_units) ? lm.organizational_units[0] : lm.organizational_units
-
+  const initialMissions = liveMissions.map((lm: any) => {
     return {
       id: lm.id,
       serialNumber: lm.serial_number,
-      visitPurpose: lm.visit_purpose || 'تفتيش دوري',
-      status: lm.status || 'assigned',
-      priority: lm.priority || 'normal',
-      scheduledDate: lm.scheduled_date,
-      endDate: lm.scheduled_date, // fallback
-      employeeNames: usersObj?.full_name || 'غير حدد',
-      orgUnitName: orgUnitObj?.name || 'إدارة التفتيش',
-      destinationName: lm.destination_type === 'governorate' 
-        ? (govObj?.name || 'محافظة غير محددة') 
-        : `${facilityObj?.name || 'منشأة غير محددة'} - ${facilityObj?.address || ''}`,
-      destinationType: (lm.destination_type as 'facility' | 'governorate') || 'facility',
-      facilityType: null,
-      notes: lm.notes || lm.execution_notes,
-      assignedUserId: lm.assigned_user_id,
+      destinationType: (lm.destination_type || 'facility') as 'facility' | 'governorate',
+      destinationName: lm.facilities?.name || 'مأمورية ميدانية عامة',
+      facilityType: lm.facilities?.facility_type || 'منشأة صحية',
+      orgUnitName: lm.facilities?.governorate ? `${lm.facilities.governorate} - ${lm.facilities.health_admin || ''}` : 'ديوان عام الوزارة',
+      employeeNames: lm.users?.full_name || 'قائم بالمرور',
+      scheduledDate: lm.scheduled_date || new Date().toISOString().slice(0, 10),
+      endDate: lm.scheduled_date || new Date().toISOString().slice(0, 10),
+      status: lm.status || 'scheduled',
+      priority: lm.priority || 'medium',
+      visitPurpose: lm.visit_purpose || lm.notes || 'تفتيش ومتابعة ميدانية',
+      notes: lm.notes || lm.visit_purpose || '',
       gpsVerified: lm.gps_verified || false,
       checkinLat: lm.checkin_lat || null,
       checkinLng: lm.checkin_lng || null
@@ -136,8 +110,10 @@ export default async function MissionsPage() {
       <main className={styles.page}>
         <header className={`${styles.header} missions-page-header`} style={{ borderBottom: '1px solid #cfdcde', paddingBottom: '16px', marginBottom: '10px' }}>
           <div>
-            <p style={{ margin: 0, fontSize: '13px', color: '#78909c', fontWeight: 'bold' }}>قطاع الطب العلاجي - وزارة الصحة المصرية</p>
-            <h1 style={{ margin: '4px 0 0', fontSize: '26px', color: '#102027', fontWeight: '800' }}>تكليفات ومتابعة المأموريات الميدانية</h1>
+            <p style={{ margin: 0, fontSize: '13px', color: '#78909c', fontWeight: 'bold' }}>وزارة الصحة والسكان - جمهورية مصر العربية</p>
+            <h1 style={{ margin: '4px 0 0', fontSize: '26px', color: '#102027', fontWeight: '800' }}>
+              {currentRole === 'inspector' ? 'مأمورياتي وتكليفاتي الميدانية' : 'تكليفات ومتابعة المأموريات الميدانية'}
+            </h1>
           </div>
           {canCreateMission && (
             <Link className={styles.primaryLink} href="/dashboard/missions/new" style={{
@@ -162,7 +138,7 @@ export default async function MissionsPage() {
           </div>
         )}
 
-        <MissionsPortal initialMissions={finalMissionsList} roleName={liveRoleName} />
+        <MissionsPortal initialMissions={initialMissions} roleName={currentRole} />
       </main>
     </DashboardShell>
   )

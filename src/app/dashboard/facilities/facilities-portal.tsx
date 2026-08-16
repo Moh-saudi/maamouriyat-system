@@ -24,15 +24,33 @@ import {
 import { type FacilityAffiliationOption, type FacilityAffiliationType } from '@/lib/facility-affiliations'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import { realEgyptianMinistryUnits } from '@/lib/real-facilities'
+import {
+  STANDARD_FACILITY_TYPES,
+  formatFacilityType,
+  getFacilityTypeColor,
+} from '@/lib/facility-types'
 
 export type FacilityItem = {
   id: string
   name: string
   facility_type: string
-  address: string
+  address?: string          // قديم — اختياري
   is_active: boolean | null
   latitude?: number
   longitude?: number
+  // حقول الهيكل الجديد
+  governorate?: string | null
+  health_admin?: string | null
+  urban_rural?: string | null
+  village_city?: string | null
+  population?: number | null
+  land_area?: number | null
+  building_area?: number | null
+  year_built?: number | null
+  year_renovated?: number | null
+  organization_id?: string | null
+  sector_id?: string | null
+  // حقول قديمة للتوافق
   governorate_id?: string | null
   governorates?: { name: string } | null
 }
@@ -107,8 +125,12 @@ export type UserRow = {
   id: string
   full_name: string
   job_title: string | null
-  level: number
-  department: string | null
+  // حقول الهيكل الجديد
+  org_level?: number
+  organization_id?: string | null
+  // حقول قديمة للتوافق
+  level?: number
+  department?: string | null
   is_active: boolean | null
   email?: string | null
   phone?: string | null
@@ -118,20 +140,28 @@ export type UserRow = {
 
 export function FacilitiesPortal({
   initialFacilities,
-  initialAffiliations,
-  facilityStoreReady,
+  initialAffiliations = [],
+  initialOrganizations = [],
+  facilityStoreReady = false,
   role = 'superadmin',
-  initialUsers = []
+  initialUsers = [],
+  userOrgLevel = 7
 }: {
   initialFacilities: FacilityItem[]
-  initialAffiliations: FacilityAffiliationOption[]
-  facilityStoreReady: boolean
+  initialAffiliations?: FacilityAffiliationOption[]
+  initialOrganizations?: Array<{
+    id: string; name: string; level: number; level_label: string;
+    governorate: string | null; health_admin: string | null;
+    sector_id: string | null; code: string | null
+  }>
+  facilityStoreReady?: boolean
   role?: string | null
   initialUsers?: UserRow[]
+  userOrgLevel?: number
 }) {
   const supabase = createBrowserSupabaseClient()
   const isWritable = role === 'superadmin' || role === 'techadmin'
-  const canCreateMissionAssignment = role !== 'financial' && role !== 'inspector'
+  const canCreateMissionAssignment = role !== 'inspector'
   const [activeTab, setActiveTab] = useState<'directory' | 'affiliations' | 'ministry_structure'>('directory')
   const [selectedUnitId, setSelectedUnitId] = useState<string>('therapeutic-sector')
   const [unitSearchQuery, setUnitSearchQuery] = useState('')
@@ -174,7 +204,7 @@ export function FacilitiesPortal({
     
     // Filter to only include actual leaders/managers (prevent regular inspectors/pharmacists from being directors)
     const leaders = deptUsers.filter(u => 
-      u.level <= 3 || 
+      (u.org_level ?? u.level ?? 7) <= 3 || 
       u.job_title?.includes('مدير') || 
       u.job_title?.includes('رئيس') || 
       u.job_title?.includes('مشرف') || 
@@ -186,7 +216,7 @@ export function FacilitiesPortal({
       const aIsManager = a.job_title?.includes('مدير') || a.job_title?.includes('رئيس') ? 1 : 0
       const bIsManager = b.job_title?.includes('مدير') || b.job_title?.includes('رئيس') ? 1 : 0
       if (aIsManager !== bIsManager) return bIsManager - aIsManager
-      return a.level - b.level
+      return (a.org_level ?? a.level ?? 7) - (b.org_level ?? b.level ?? 7)
     })
     
     const manager = sorted[0]
@@ -197,8 +227,8 @@ export function FacilitiesPortal({
     // Sector-wide fallback for top-level sector head (must be a leader)
     if (activeUnit.id === 'therapeutic-sector') {
       const sectorHead = initialUsers.find(u => 
-        (u.level === 2 || u.job_title?.includes('رئيس قطاع')) && 
-        (u.level <= 3 || u.job_title?.includes('رئيس') || u.job_title?.includes('مدير'))
+        ((u.org_level ?? u.level ?? 7) === 2 || u.job_title?.includes('رئيس قطاع')) && 
+        ((u.org_level ?? u.level ?? 7) <= 3 || u.job_title?.includes('رئيس') || u.job_title?.includes('مدير'))
       )
       if (sectorHead) return `${sectorHead.full_name} (${sectorHead.job_title || 'رئيس القطاع'})`
     }
@@ -226,6 +256,7 @@ export function FacilitiesPortal({
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedType, setSelectedType] = useState('all')
   const [selectedGov, setSelectedGov] = useState('all')
+  const [selectedAdmin, setSelectedAdmin] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
 
   // Selected card state for highlights
@@ -245,15 +276,32 @@ export function FacilitiesPortal({
 
   // Form states
   const [facName, setFacName] = useState('')
-  const [facType, setFacType] = useState('مستشفى عام')
-  const [facGov, setFacGov] = useState('القاهرة')
+  const [facType, setFacType] = useState('family_medicine_center')
+  const [facGov, setFacGov] = useState('أسيوط')
+  const [facHealthAdmin, setFacHealthAdmin] = useState('')
+  const [facUrbanRural, setFacUrbanRural] = useState<'ريف' | 'حضر'>('ريف')
+  const [facVillageCity, setFacVillageCity] = useState('')
+  const [facPopulation, setFacPopulation] = useState('')
+  const [facLandArea, setFacLandArea] = useState('')
+  const [facBuildingArea, setFacBuildingArea] = useState('')
+  const [facYearBuilt, setFacYearBuilt] = useState('')
+  const [facYearRenovated, setFacYearRenovated] = useState('')
   const [facAddress, setFacAddress] = useState('')
-  const [facLat, setFacLat] = useState('30.0444')
-  const [facLon, setFacLon] = useState('31.2357')
+  const [facLat, setFacLat] = useState('27.1809')
+  const [facLon, setFacLon] = useState('31.1837')
   const [facActive, setFacActive] = useState(true)
   const [formError, setFormError] = useState('')
   const [formSuccess, setFormSuccess] = useState('')
   const [formLoading, setFormLoading] = useState(false)
+
+  // Derived health admins for selected governorate in drawer
+  const availableHealthAdmins = useMemo(() => {
+    const orgs = initialOrganizations.filter(
+      (o) => o.level === 6 && o.governorate === facGov && o.health_admin
+    )
+    const set = new Set(orgs.map((o) => o.health_admin as string))
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'))
+  }, [initialOrganizations, facGov])
 
   // Affiliations management state
   const [affiliations, setAffiliations] = useState<FacilityAffiliationOption[]>(initialAffiliations)
@@ -278,7 +326,7 @@ export function FacilitiesPortal({
     if (!existingLink) {
       const link = document.createElement('link')
       link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
       link.crossOrigin = ''
       document.head.appendChild(link)
     }
@@ -287,7 +335,7 @@ export function FacilitiesPortal({
     const existingScript = document.querySelector('script[src*="leaflet.js"]')
     if (!existingScript) {
       const script = document.createElement('script')
-      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
       script.crossOrigin = ''
       script.onload = () => {
         setLeafletLoaded(true)
@@ -307,7 +355,7 @@ export function FacilitiesPortal({
 
   // Facility metadata calculations
   const totalGovs = useMemo(() => {
-    const set = new Set(facilities.map((f) => f.governorates?.name).filter(Boolean))
+    const set = new Set(facilities.map((f) => f.governorate || f.governorates?.name).filter(Boolean))
     return set.size
   }, [facilities])
 
@@ -317,44 +365,73 @@ export function FacilitiesPortal({
   }, [facilities])
 
   const governoratesList = useMemo(() => {
-    const set = new Set(facilities.map((f) => f.governorates?.name).filter(Boolean))
-    return Array.from(set).sort()
+    const set = new Set(facilities.map((f) => f.governorate || f.governorates?.name).filter(Boolean))
+    return Array.from(set).sort((a, b) => (a as string).localeCompare(b as string, 'ar'))
   }, [facilities])
+
+  const healthAdminsForSelectedGov = useMemo(() => {
+    if (selectedGov === 'all') return []
+    const set = new Set<string>()
+    facilities
+      .filter((f) => (f.governorate || f.governorates?.name) === selectedGov)
+      .forEach((f) => {
+        if (f.health_admin) set.add(f.health_admin)
+      })
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'ar'))
+  }, [facilities, selectedGov])
 
   // Filter physical facilities list
   const filteredFacilities = useMemo(() => {
-    return facilities.filter((facility) => {
-      // 0. Hierarchy: hide higher level facilities from lower level roles
-      const type = facility.facility_type || '';
-      
-      if (role === 'generalmanager') {
-        // General Manager cannot see Warehouses (restricted to techadmin/superadmin/central)
-        if (type.includes('مخزن')) return false;
-      } else if (role === 'creator' || role === 'financial') {
-        // Specialists/Financial cannot see specialized tertiary hospitals or warehouses
-        if (type.includes('تخصصي') || type.includes('الرعاية الصحية') || type.includes('مخزن') || type.includes('تعليمي')) return false;
-      } else if (role === 'inspector') {
-        // Inspectors can only see general hospitals and PHCs
-        if (type.includes('تخصصي') || type.includes('الرعاية الصحية') || type.includes('مخزن') || type.includes('تعليمي') || type.includes('تأمين')) return false;
-      }
+    const q = searchQuery.trim().toLowerCase()
+    const targetType = selectedType.trim().toLowerCase()
+    const targetGov = selectedGov.trim().toLowerCase()
+    const targetAdmin = selectedAdmin.trim().toLowerCase()
 
+    return facilities.filter((facility) => {
+      const facName = (facility.name || '').trim().toLowerCase()
+      const facGov = (facility.governorate || facility.governorates?.name || '').trim().toLowerCase()
+      const facAdmin = (facility.health_admin || '').trim().toLowerCase()
+      const facVillage = (facility.village_city || '').trim().toLowerCase()
+      const facType = (facility.facility_type || '').trim().toLowerCase()
+      const facTypeLabel = formatFacilityType(facility.facility_type).trim().toLowerCase()
+
+      // 1. Text Search matching
       const matchesSearch =
-        facility.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        facility.address.toLowerCase().includes(searchQuery.toLowerCase())
+        !q ||
+        facName.includes(q) ||
+        facGov.includes(q) ||
+        facAdmin.includes(q) ||
+        facVillage.includes(q) ||
+        facTypeLabel.includes(q) ||
+        facType.includes(q) ||
+        (facility.address ?? '').toLowerCase().includes(q)
       
-      const matchesType = selectedType === 'all' || facility.facility_type === selectedType
+      // 2. Type Filter matching (matches key or arabic label)
+      const matchesType =
+        targetType === 'all' ||
+        facType === targetType ||
+        facTypeLabel === targetType ||
+        facType === formatFacilityType(selectedType).toLowerCase()
       
+      // 3. Governorate matching
       const matchesGov =
-        selectedGov === 'all' || facility.governorates?.name === selectedGov
+        targetGov === 'all' ||
+        facGov === targetGov
+
+      // 4. Administration matching
+      const matchesAdmin =
+        targetAdmin === 'all' ||
+        facAdmin === targetAdmin
       
+      // 5. Status matching
       const matchesStatus =
         statusFilter === 'all' ||
         (statusFilter === 'active' && facility.is_active !== false) ||
         (statusFilter === 'inactive' && facility.is_active === false)
 
-      return matchesSearch && matchesType && matchesGov && matchesStatus
+      return matchesSearch && matchesType && matchesGov && matchesAdmin && matchesStatus
     })
-  }, [facilities, searchQuery, selectedType, selectedGov, statusFilter, role])
+  }, [facilities, searchQuery, selectedType, selectedGov, selectedAdmin, statusFilter])
 
   // Sorted affiliations for presentation
   const sortedAffiliations = useMemo(() => {
@@ -435,13 +512,8 @@ export function FacilitiesPortal({
       const lat = facility.latitude ?? 30.0444
       const lon = facility.longitude ?? 31.2357
 
-      // Colors based on category for advanced visualization wow
-      const iconColor = facility.facility_type.includes('مخزن') ? '#e74c3c' // Red (Warehouse!)
-                       : facility.facility_type.includes('مركز طبي') || facility.facility_type.includes('طب أسرة') || facility.facility_type.includes('رعاية صحية أولية') ? '#1abc9c' // Teal/Turquoise (PHC!)
-                       : facility.facility_type.includes('تخصصي') ? '#9b59b6' // Purple
-                       : facility.facility_type.includes('تعليمي') ? '#e67e22' // Orange
-                       : facility.facility_type.includes('تأمين') ? '#2980b9'  // Blue
-                       : '#2ecc71' // Green (General/Other Hospitals)
+      // Colors based on category from central facility-types config
+      const iconColor = getFacilityTypeColor(facility.facility_type)
 
       const customIcon = L.divIcon({
         className: 'custom-div-icon',
@@ -451,15 +523,19 @@ export function FacilitiesPortal({
         popupAnchor: [0, -10]
       })
 
+      const govDisplay = facility.governorate || facility.governorates?.name || 'غير محددة'
+      const adminDisplay = facility.health_admin ? ` - إدارة ${facility.health_admin}` : ''
+      const villageDisplay = facility.village_city ? ` (${facility.village_city})` : ''
+
       const marker = L.marker([lat, lon], { icon: customIcon })
         .addTo(map)
         .bindPopup(`
-          <div style="direction: rtl; text-align: right; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; min-width: 180px; padding: 2px;">
-            <strong style="font-size: 13.5px; color: #102027; display: block; margin-bottom: 3px; font-weight: 700;">${facility.name}</strong>
-            <span style="font-size: 10px; color: ${iconColor}; background: ${iconColor}1A; padding: 2px 8px; border-radius: 12px; display: inline-block; font-weight: bold; margin-bottom: 8px; border: 1px solid ${iconColor}4D;">${facility.facility_type}</span>
-            <div style="font-size: 11.5px; color: #546e7a; line-height: 1.4; margin-bottom: 4px;">${facility.address}</div>
+          <div style="direction: rtl; text-align: right; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-width: 200px; padding: 4px;">
+            <strong style="font-size: 13.5px; color: #102027; display: block; margin-bottom: 4px; font-weight: 700;">${facility.name}</strong>
+            <span style="font-size: 10px; color: ${iconColor}; background: ${iconColor}1A; padding: 2px 8px; border-radius: 12px; display: inline-block; font-weight: bold; margin-bottom: 8px; border: 1px solid ${iconColor}4D;">${formatFacilityType(facility.facility_type)}</span>
+            <div style="font-size: 11.5px; color: #546e7a; line-height: 1.4; margin-bottom: 4px;">الموقع: ${govDisplay}${adminDisplay}${villageDisplay}</div>
             <div style="font-size: 10.5px; color: #90a4ae; border-top: 1px solid #eceff1; padding-top: 5px; margin-top: 5px; display: flex; justify-content: space-between;">
-              <span>المحافظة: ${facility.governorates?.name || 'غير محددة'}</span>
+              <span>الإحداثيات: ${lat.toFixed(4)}, ${lon.toFixed(4)}</span>
               <a href="https://maps.google.com/?q=${lat},${lon}" target="_blank" rel="noopener noreferrer" style="color: var(--brand); font-weight: bold; text-decoration: none;">خرائط Google ↗</a>
             </div>
           </div>
@@ -510,11 +586,20 @@ export function FacilitiesPortal({
     setDrawerMode('create')
     setEditingFacility(null)
     setFacName('')
-    setFacType('مستشفى عام')
-    setFacGov('القاهرة')
+    setFacType('family_medicine_center')
+    const firstGov = governoratesList[0] || 'أسيوط'
+    setFacGov(firstGov)
+    setFacHealthAdmin('')
+    setFacUrbanRural('ريف')
+    setFacVillageCity('')
+    setFacPopulation('')
+    setFacLandArea('')
+    setFacBuildingArea('')
+    setFacYearBuilt('')
+    setFacYearRenovated('')
     setFacAddress('')
-    setFacLat('30.0444')
-    setFacLon('31.2357')
+    setFacLat('27.1809')
+    setFacLon('31.1837')
     setFacActive(true)
     setFormError('')
     setFormSuccess('')
@@ -522,15 +607,23 @@ export function FacilitiesPortal({
   }
 
   const handleOpenEditDrawer = (facility: FacilityItem, e: React.MouseEvent) => {
-    e.stopPropagation() // Avoid card focusing trigger
+    e.stopPropagation()
     setDrawerMode('edit')
     setEditingFacility(facility)
     setFacName(facility.name)
     setFacType(facility.facility_type)
-    setFacGov(facility.governorates?.name || 'القاهرة')
-    setFacAddress(facility.address)
-    setFacLat((facility.latitude ?? 30.0444).toString())
-    setFacLon((facility.longitude ?? 31.2357).toString())
+    setFacGov(facility.governorate || facility.governorates?.name || 'أسيوط')
+    setFacHealthAdmin(facility.health_admin || '')
+    setFacUrbanRural((facility.urban_rural as any) || 'ريف')
+    setFacVillageCity(facility.village_city || '')
+    setFacPopulation(facility.population ? String(facility.population) : '')
+    setFacLandArea(facility.land_area ? String(facility.land_area) : '')
+    setFacBuildingArea(facility.building_area ? String(facility.building_area) : '')
+    setFacYearBuilt(facility.year_built ? String(facility.year_built) : '')
+    setFacYearRenovated(facility.year_renovated ? String(facility.year_renovated) : '')
+    setFacAddress(facility.address ?? '')
+    setFacLat((facility.latitude ?? 27.1809).toString())
+    setFacLon((facility.longitude ?? 31.1837).toString())
     setFacActive(facility.is_active !== false)
     setFormError('')
     setFormSuccess('')
@@ -540,7 +633,6 @@ export function FacilitiesPortal({
   const handleCloseDrawer = () => {
     setDrawerOpen(false)
     setEditingFacility(null)
-    // Remove dynamic pulsing guide pin
     if (tempMarkerRef.current) {
       tempMarkerRef.current.remove()
       tempMarkerRef.current = null
@@ -554,39 +646,51 @@ export function FacilitiesPortal({
     setFormSuccess('')
 
     const nameVal = facName.trim()
-    const addressVal = facAddress.trim()
     const latVal = parseFloat(facLat)
     const lonVal = parseFloat(facLon)
 
-    if (!nameVal || !addressVal || isNaN(latVal) || isNaN(lonVal)) {
-      setFormError('الرجاء إدخال قيم صحيحة لكافة الحقول وتحديد الموقع.')
+    if (!nameVal || isNaN(latVal) || isNaN(lonVal)) {
+      setFormError('الرجاء إدخال اسم المنشأة وتحديد إحداثيات الموقع بشكل صحيح.')
       return
     }
 
     setFormLoading(true)
 
-    // A. EDIT MODE
-    if (drawerMode === 'edit' && editingFacility) {
-      if (facilityStoreReady && supabase && editingFacility.id) {
-        try {
-          // 1. Resolve Governorate ID if DB connected
-          const { data: govData } = await supabase
-            .from('governorates')
-            .select('id')
-            .eq('name', facGov)
-            .single()
+    // Resolve target Organization (Health Admin Level 6)
+    const matchedOrg = initialOrganizations.find(
+      (o) => o.level === 6 && o.governorate === facGov && (facHealthAdmin ? o.health_admin === facHealthAdmin : true)
+    ) || initialOrganizations.find(
+      (o) => o.level === 5 && o.governorate === facGov
+    )
 
+    const orgId = matchedOrg?.id || '00000000-0000-0000-0000-000000000010'
+    const phcSectorId = '00000000-0000-0000-0000-000000000010'
+
+    const payload = {
+      name: nameVal,
+      facility_type: facType,
+      governorate: facGov,
+      health_admin: facHealthAdmin || facGov,
+      urban_rural: facUrbanRural || null,
+      village_city: facVillageCity || null,
+      population: facPopulation ? parseInt(facPopulation) : null,
+      land_area: facLandArea ? parseFloat(facLandArea) : null,
+      building_area: facBuildingArea ? parseFloat(facBuildingArea) : null,
+      year_built: facYearBuilt ? parseInt(facYearBuilt) : null,
+      year_renovated: facYearRenovated ? parseInt(facYearRenovated) : null,
+      latitude: latVal,
+      longitude: lonVal,
+      organization_id: orgId,
+      sector_id: phcSectorId,
+      is_active: facActive,
+    }
+
+    if (drawerMode === 'edit' && editingFacility) {
+      if (supabase && editingFacility.id) {
+        try {
           const { error: updateError } = await supabase
             .from('facilities')
-            .update({
-              name: nameVal,
-              facility_type: facType,
-              address: addressVal,
-              latitude: latVal,
-              longitude: lonVal,
-              is_active: facActive,
-              governorate_id: govData?.id || null
-            })
+            .update(payload)
             .eq('id', editingFacility.id)
 
           if (updateError) {
@@ -601,65 +705,30 @@ export function FacilitiesPortal({
         }
       }
 
-      // Update state locally
       setFacilities((current) =>
         current.map((item) =>
           item.id === editingFacility.id
-            ? {
-                ...item,
-                name: nameVal,
-                facility_type: facType,
-                address: addressVal,
-                latitude: latVal,
-                longitude: lonVal,
-                is_active: facActive,
-                governorates: { name: facGov }
-              }
+            ? { ...item, ...payload }
             : item
         )
       )
 
       setFormSuccess('تم تحديث بيانات المنشأة وموضعها الجغرافي بنجاح.')
-      
-      // Auto focus map
       setTimeout(() => {
         handleFocusFacility({
           id: editingFacility.id,
-          name: nameVal,
-          facility_type: facType,
-          address: addressVal,
-          latitude: latVal,
-          longitude: lonVal,
-          is_active: facActive,
-          governorates: { name: facGov }
+          ...payload
         })
       }, 500)
 
     } else {
-      // B. CREATE MODE
-      const newId = `fac-new-${Date.now()}`
-      let dbId = newId
+      let dbId = `fac-new-${Date.now()}`
 
-      if (facilityStoreReady && supabase) {
+      if (supabase) {
         try {
-          // 1. Resolve Governorate ID
-          const { data: govData } = await supabase
-            .from('governorates')
-            .select('id')
-            .eq('name', facGov)
-            .single()
-
           const { data, error: insertError } = await supabase
             .from('facilities')
-            .insert({
-              name: nameVal,
-              facility_type: facType,
-              address: addressVal,
-              latitude: latVal,
-              longitude: lonVal,
-              is_active: facActive,
-              governorate_id: govData?.id || null
-            })
+            .insert(payload)
             .select('id')
             .single()
 
@@ -678,26 +747,16 @@ export function FacilitiesPortal({
 
       const newFacility: FacilityItem = {
         id: dbId,
-        name: nameVal,
-        facility_type: facType,
-        address: addressVal,
-        latitude: latVal,
-        longitude: lonVal,
-        is_active: facActive,
-        governorates: { name: facGov }
+        ...payload
       }
 
-      // Append state
       setFacilities((current) => [newFacility, ...current])
-      setFormSuccess('تم تسجيل وإدراج المنشأة الطبية الجديدة بالخريطة بنجاح.')
-
-      // Auto focus map
+      setFormSuccess('تمت إضافة وتسكين المنشأة الطبية الجديدة بالدليل بنجاح.')
       setTimeout(() => {
         handleFocusFacility(newFacility)
       }, 500)
     }
 
-    setFormLoading(false)
     setTimeout(() => {
       handleCloseDrawer()
     }, 1500)
@@ -970,19 +1029,19 @@ export function FacilitiesPortal({
               <div style={{ background: '#f8fbfb', border: '1px solid #cfdcde', padding: '12px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Activity size={20} style={{ color: '#1abc9c' }} />
                 <div>
-                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>مراكز الرعاية الأولية</span>
+                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>مراكز طب الأسرة</span>
                   <strong style={{ fontSize: '15px', color: '#102027', fontWeight: 'bold' }}>
-                    {facilities.filter((f) => f.facility_type.includes('مركز طبي') || f.facility_type.includes('طب أسرة')).length} مركزاً
+                    {facilities.filter((f) => f.facility_type === 'family_medicine_center' || f.name.includes('مركز')).length} مركزاً
                   </strong>
                 </div>
               </div>
 
               <div style={{ background: '#f8fbfb', border: '1px solid #cfdcde', padding: '12px 16px', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Warehouse size={20} style={{ color: '#e74c3c' }} />
+                <Building2 size={20} style={{ color: '#3498db' }} />
                 <div>
-                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>مخازن الإمداد والتموين</span>
+                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>الوحدات ومكاتب الصحة</span>
                   <strong style={{ fontSize: '15px', color: '#102027', fontWeight: 'bold' }}>
-                    {facilities.filter((f) => f.facility_type.includes('مخزن')).length} مخازن
+                    {facilities.filter((f) => f.facility_type === 'health_unit' || f.facility_type === 'health_office' || f.facility_type === 'child_care' || f.name.includes('وحدة') || f.name.includes('مكتب')).length} وحدة
                   </strong>
                 </div>
               </div>
@@ -1092,13 +1151,16 @@ export function FacilitiesPortal({
                     >
                       <option value="all">كل الفئات والأنواع ({facilityTypes.length})</option>
                       {facilityTypes.map((type) => (
-                        <option key={type} value={type}>{type}</option>
+                        <option key={type} value={type}>{formatFacilityType(type)}</option>
                       ))}
                     </select>
 
                     {/* Governorate Filter */}
                     <select
-                      onChange={(e) => setSelectedGov(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedGov(e.target.value)
+                        setSelectedAdmin('all')
+                      }}
                       style={{
                         minHeight: '36px',
                         border: '1px solid #cfdcde',
@@ -1115,6 +1177,30 @@ export function FacilitiesPortal({
                         <option key={gov} value={gov}>{gov}</option>
                       ))}
                     </select>
+
+                    {/* Health Admin Filter (appears when Governorate is selected) */}
+                    {selectedGov !== 'all' && healthAdminsForSelectedGov.length > 0 && (
+                      <select
+                        onChange={(e) => setSelectedAdmin(e.target.value)}
+                        style={{
+                          minHeight: '36px',
+                          border: '1px solid #1abc9c',
+                          borderRadius: '8px',
+                          padding: '0 8px',
+                          fontSize: '12px',
+                          background: '#f0fcf9',
+                          outline: 'none',
+                          fontWeight: 'bold',
+                          color: '#16725a'
+                        }}
+                        value={selectedAdmin}
+                      >
+                        <option value="all">كل إدارات {selectedGov} ({healthAdminsForSelectedGov.length})</option>
+                        {healthAdminsForSelectedGov.map((adm) => (
+                          <option key={adm} value={adm}>إدارة {adm}</option>
+                        ))}
+                      </select>
+                    )}
 
                     {/* Status Filter */}
                     <select
@@ -1134,6 +1220,37 @@ export function FacilitiesPortal({
                       <option value="active">نشطة فقط</option>
                       <option value="inactive">غير نشطة فقط</option>
                     </select>
+
+                    {/* Active Filter summary & Reset */}
+                    {(searchQuery || selectedType !== 'all' || selectedGov !== 'all' || selectedAdmin !== 'all' || statusFilter !== 'all') && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--brand)', fontWeight: 'bold' }}>
+                          النتائج المطابقة: {filteredFacilities.length} منشأة
+                        </span>
+                        <button
+                          onClick={() => {
+                            setSearchQuery('')
+                            setSelectedType('all')
+                            setSelectedGov('all')
+                            setSelectedAdmin('all')
+                            setStatusFilter('all')
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 0,
+                            color: '#e74c3c',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            padding: '2px 6px',
+                            textDecoration: 'underline'
+                          }}
+                          type="button"
+                        >
+                          إعادة تعيين الفلاتر ↺
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1147,14 +1264,7 @@ export function FacilitiesPortal({
                 }}>
                   {filteredFacilities.map((facility) => {
                     const isSelected = selectedFacilityId === facility.id
-                    
-                    // Standard color map
-                    const typeColor = facility.facility_type.includes('مخزن') ? '#e74c3c' // Red (Warehouse!)
-                                     : facility.facility_type.includes('مركز طبي') || facility.facility_type.includes('طب أسرة') || facility.facility_type.includes('رعاية صحية أولية') ? '#1abc9c' // Teal/Turquoise (PHC!)
-                                     : facility.facility_type.includes('تخصصي') ? '#9b59b6' // Purple
-                                     : facility.facility_type.includes('تعليمي') ? '#e67e22' // Orange
-                                     : facility.facility_type.includes('تأمين') ? '#2980b9'  // Blue
-                                     : '#2ecc71'; // Green
+                    const typeColor = getFacilityTypeColor(facility.facility_type)
 
                     return (
                       <div
@@ -1163,10 +1273,10 @@ export function FacilitiesPortal({
                         onClick={() => handleFocusFacility(facility)}
                         style={{
                           background: isSelected ? '#f0fcf9' : 'white',
-                          border: isSelected ? '1px solid var(--brand)' : '1px solid var(--line)',
+                          border: isSelected ? '1.5px solid var(--brand)' : '1px solid var(--line)',
                           borderRadius: '12px',
                           padding: '12px',
-                          boxShadow: isSelected ? '0 4px 12px rgba(22,160,133,0.1)' : 'var(--shadow)',
+                          boxShadow: isSelected ? '0 4px 14px rgba(22,160,133,0.15)' : 'var(--shadow)',
                           cursor: 'pointer',
                           display: 'flex',
                           flexDirection: 'column',
@@ -1175,14 +1285,17 @@ export function FacilitiesPortal({
                           position: 'relative'
                         }}
                       >
+                        {/* Title & Status */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px' }}>
-                          <strong style={{ fontSize: '13px', color: isSelected ? 'var(--brand)' : '#102027', fontWeight: 'bold', paddingLeft: '24px' }}>{facility.name}</strong>
+                          <strong style={{ fontSize: '13.5px', color: isSelected ? 'var(--brand)' : '#102027', fontWeight: 'bold' }}>
+                            {facility.name}
+                          </strong>
                           <span style={{
-                            fontSize: '9px',
+                            fontSize: '9.5px',
                             fontWeight: 'bold',
                             color: facility.is_active !== false ? '#27ae60' : '#c0392b',
                             background: facility.is_active !== false ? '#eafaf1' : '#fdedec',
-                            padding: '1px 6px',
+                            padding: '2px 8px',
                             borderRadius: '8px',
                             whiteSpace: 'nowrap'
                           }}>
@@ -1190,51 +1303,121 @@ export function FacilitiesPortal({
                           </span>
                         </div>
 
+                        {/* Badges: Type, Governorate, Admin, Village/City */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                           <span style={{
-                            fontSize: '10px',
+                            fontSize: '10.5px',
                             color: typeColor,
                             background: `${typeColor}15`,
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                            fontWeight: 'bold'
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontWeight: 'bold',
+                            border: `1px solid ${typeColor}33`
                           }}>
-                            {facility.facility_type}
+                            {formatFacilityType(facility.facility_type)}
                           </span>
                           
                           <span style={{
-                            fontSize: '10px',
-                            color: '#546e7a',
+                            fontSize: '10.5px',
+                            color: '#37474f',
                             background: '#f1f5f7',
-                            padding: '1px 6px',
-                            borderRadius: '4px'
+                            padding: '2px 8px',
+                            borderRadius: '6px',
+                            fontWeight: '600'
                           }}>
-                            📍 {facility.governorates?.name || 'غير محددة'}
+                            📍 {facility.governorate || facility.governorates?.name || 'مصر'}
+                            {facility.health_admin ? ` • إدارة ${facility.health_admin}` : ''}
                           </span>
+
+                          {facility.village_city && (
+                            <span style={{
+                              fontSize: '10.5px',
+                              color: '#546e7a',
+                              background: '#eef2f5',
+                              padding: '2px 8px',
+                              borderRadius: '6px'
+                            }}>
+                              🏡 {facility.village_city} {facility.urban_rural ? `(${facility.urban_rural})` : ''}
+                            </span>
+                          )}
                         </div>
 
+                        {/* Rich Subtitle Metadata Grid */}
+                        {(facility.population || facility.land_area || facility.building_area || facility.year_built || facility.year_renovated) && (
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                            gap: '6px',
+                            background: isSelected ? '#e6f7f3' : '#f8fbfb',
+                            border: '1px solid #e2ecee',
+                            borderRadius: '8px',
+                            padding: '8px 10px',
+                            fontSize: '11px',
+                            color: '#546e7a',
+                            lineHeight: '1.4'
+                          }}>
+                            {facility.population ? (
+                              <div>
+                                <span style={{ color: '#90a4ae', display: 'block', fontSize: '9.5px' }}>تعداد السكان المخدوم:</span>
+                                <strong style={{ color: '#263238' }}>{facility.population.toLocaleString('ar-EG')} نسمة</strong>
+                              </div>
+                            ) : null}
+
+                            {facility.land_area || facility.building_area ? (
+                              <div>
+                                <span style={{ color: '#90a4ae', display: 'block', fontSize: '9.5px' }}>المساحة (م²):</span>
+                                <strong style={{ color: '#263238' }}>
+                                  {facility.land_area ? `الأرض: ${facility.land_area}` : ''} 
+                                  {facility.building_area ? ` • المباني: ${facility.building_area}` : ''}
+                                </strong>
+                              </div>
+                            ) : null}
+
+                            {facility.year_built || facility.year_renovated ? (
+                              <div>
+                                <span style={{ color: '#90a4ae', display: 'block', fontSize: '9.5px' }}>الإنشاء والتطوير:</span>
+                                <strong style={{ color: '#263238' }}>
+                                  {facility.year_built ? `إنشاء: ${facility.year_built}` : ''}
+                                  {facility.year_renovated ? ` • تطوير: ${facility.year_renovated}` : ''}
+                                </strong>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+
+                        {/* Coordinates & Google Maps Link */}
                         <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          fontSize: '10.5px',
+                          color: '#78909c',
                           borderTop: '1px dashed #eceff1',
                           paddingTop: '6px',
-                          fontSize: '11px',
-                          color: '#78909c',
-                          textOverflow: 'ellipsis',
-                          overflow: 'hidden',
-                          whiteSpace: 'nowrap',
-                          paddingLeft: isWritable ? '76px' : '44px'
+                          marginTop: '2px'
                         }}>
-                          {facility.address}
+                          <span>🌐 {facility.latitude ? `${facility.latitude.toFixed(4)}, ${facility.longitude?.toFixed(4)}` : 'الموقع مسجل'}</span>
+                          {facility.latitude && facility.longitude && (
+                            <a
+                              href={`https://maps.google.com/?q=${facility.latitude},${facility.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: 'var(--brand)', fontWeight: 'bold', textDecoration: 'none' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              خرائط Google ↗
+                            </a>
+                          )}
                         </div>
 
-                        {/* Hover Edit & Delete action buttons */}
+                        {/* Edit & Delete Actions */}
                         {isWritable && (
                           <div
                             style={{
-                              position: 'absolute',
-                              left: '12px',
-                              bottom: '10px',
                               display: 'flex',
-                              gap: '6px'
+                              justifyContent: 'flex-end',
+                              gap: '6px',
+                              paddingTop: '4px'
                             }}
                             onClick={(e) => e.stopPropagation()}
                           >
@@ -1245,18 +1428,19 @@ export function FacilitiesPortal({
                                 color: '#546e7a',
                                 border: '1px solid #cfdcde',
                                 borderRadius: '6px',
-                                width: '26px',
-                                height: '26px',
+                                padding: '4px 8px',
+                                fontSize: '11px',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
+                                gap: '4px',
                                 cursor: 'pointer',
                                 transition: 'all 0.1s'
                               }}
                               title="تعديل المنشأة"
                               type="button"
                             >
-                              <Edit2 size={12} />
+                              <Edit2 size={11} />
+                              تعديل
                             </button>
                             <button
                               onClick={(e) => handleDeleteFacility(facility.id, e)}
@@ -1265,11 +1449,11 @@ export function FacilitiesPortal({
                                 color: '#e74c3c',
                                 border: '1px solid #fadbd8',
                                 borderRadius: '6px',
-                                width: '26px',
-                                height: '26px',
+                                padding: '4px 8px',
+                                fontSize: '11px',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
+                                gap: '4px',
                                 cursor: 'pointer',
                                 transition: 'all 0.1s'
                               }}
@@ -1278,7 +1462,8 @@ export function FacilitiesPortal({
                               onMouseEnter={(e) => e.currentTarget.style.background = '#fcdbd9'}
                               onMouseLeave={(e) => e.currentTarget.style.background = '#fcedec'}
                             >
-                              <Trash2 size={12} />
+                              <Trash2 size={11} />
+                              حذف
                             </button>
                           </div>
                         )}
@@ -1474,10 +1659,10 @@ export function FacilitiesPortal({
 
                   {/* Name */}
                   <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
-                    اسم الصرح الطبي / المنشأة *
+                    اسم المنشأة الصحية *
                     <input
                       onChange={(e) => setFacName(e.target.value)}
-                      placeholder="مثال: مستشفى المنصورة الدولي"
+                      placeholder="مثال: وحدة طب أسرة عرب العطيات"
                       required
                       style={{
                         minHeight: '38px',
@@ -1508,53 +1693,159 @@ export function FacilitiesPortal({
                       }}
                       value={facType}
                     >
-                      {FACILITY_CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>{cat}</option>
+                      {STANDARD_FACILITY_TYPES.map((t) => (
+                        <option key={t.key} value={t.key}>
+                          {t.label} {t.category ? `(${t.category})` : ''}
+                        </option>
                       ))}
                     </select>
                   </label>
 
-                  {/* Governorate */}
-                  <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
-                    المحافظة الجغرافية *
-                    <select
-                      onChange={(e) => setFacGov(e.target.value)}
-                      style={{
-                        minHeight: '38px',
-                        border: '1px solid #cfdcde',
-                        borderRadius: '8px',
-                        padding: '0 6px',
-                        fontSize: '12.5px',
-                        outline: 'none',
-                        background: 'white'
-                      }}
-                      value={facGov}
-                    >
-                      {EGYPTIAN_GOVERNORATES.map((gov) => (
-                        <option key={gov} value={gov}>{gov}</option>
-                      ))}
-                    </select>
-                  </label>
+                  {/* Governorate & Health Admin Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                      المحافظة *
+                      <select
+                        onChange={(e) => {
+                          setFacGov(e.target.value)
+                          setFacHealthAdmin('')
+                        }}
+                        style={{
+                          minHeight: '38px',
+                          border: '1px solid #cfdcde',
+                          borderRadius: '8px',
+                          padding: '0 6px',
+                          fontSize: '12.5px',
+                          outline: 'none',
+                          background: 'white'
+                        }}
+                        value={facGov}
+                      >
+                        {governoratesList.map((gov) => (
+                          <option key={gov} value={gov}>{gov}</option>
+                        ))}
+                      </select>
+                    </label>
 
-                  {/* Address */}
-                  <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
-                    العنوان التفصيلي (الشارع والحي) *
-                    <input
-                      onChange={(e) => setFacAddress(e.target.value)}
-                      placeholder="مثال: شارع عبد السلام عارف، المنصورة"
-                      required
-                      style={{
-                        minHeight: '38px',
-                        border: '1px solid #cfdcde',
-                        borderRadius: '8px',
-                        padding: '0 10px',
-                        fontSize: '12.5px',
-                        outline: 'none'
-                      }}
-                      type="text"
-                      value={facAddress}
-                    />
-                  </label>
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                      الإدارة الصحية
+                      {availableHealthAdmins.length > 0 ? (
+                        <select
+                          onChange={(e) => setFacHealthAdmin(e.target.value)}
+                          style={{
+                            minHeight: '38px',
+                            border: '1px solid #cfdcde',
+                            borderRadius: '8px',
+                            padding: '0 6px',
+                            fontSize: '12.5px',
+                            outline: 'none',
+                            background: 'white'
+                          }}
+                          value={facHealthAdmin}
+                        >
+                          <option value="">اختر الإدارة...</option>
+                          {availableHealthAdmins.map((adm) => (
+                            <option key={adm} value={adm}>{adm}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          onChange={(e) => setFacHealthAdmin(e.target.value)}
+                          placeholder="اسم الإدارة الصحية"
+                          style={{
+                            minHeight: '38px',
+                            border: '1px solid #cfdcde',
+                            borderRadius: '8px',
+                            padding: '0 10px',
+                            fontSize: '12.5px',
+                            outline: 'none'
+                          }}
+                          type="text"
+                          value={facHealthAdmin}
+                        />
+                      )}
+                    </label>
+                  </div>
+
+                  {/* Urban/Rural & Village/City */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '10px' }}>
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                      النطاق
+                      <select
+                        onChange={(e) => setFacUrbanRural(e.target.value as any)}
+                        style={{
+                          minHeight: '38px',
+                          border: '1px solid #cfdcde',
+                          borderRadius: '8px',
+                          padding: '0 6px',
+                          fontSize: '12.5px',
+                          outline: 'none',
+                          background: 'white'
+                        }}
+                        value={facUrbanRural}
+                      >
+                        <option value="ريف">ريف</option>
+                        <option value="حضر">حضر</option>
+                      </select>
+                    </label>
+
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                      اسم القرية / المدينة
+                      <input
+                        onChange={(e) => setFacVillageCity(e.target.value)}
+                        placeholder="مثال: قرية بنى ابراهيم"
+                        style={{
+                          minHeight: '38px',
+                          border: '1px solid #cfdcde',
+                          borderRadius: '8px',
+                          padding: '0 10px',
+                          fontSize: '12.5px',
+                          outline: 'none'
+                        }}
+                        type="text"
+                        value={facVillageCity}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Population & Areas */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                      تعداد السكان
+                      <input
+                        onChange={(e) => setFacPopulation(e.target.value)}
+                        placeholder="مثال: 12500"
+                        style={{
+                          minHeight: '38px',
+                          border: '1px solid #cfdcde',
+                          borderRadius: '8px',
+                          padding: '0 10px',
+                          fontSize: '12.5px',
+                          outline: 'none'
+                        }}
+                        type="number"
+                        value={facPopulation}
+                      />
+                    </label>
+
+                    <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                      مساحة الأرض (م²)
+                      <input
+                        onChange={(e) => setFacLandArea(e.target.value)}
+                        placeholder="مثال: 950"
+                        style={{
+                          minHeight: '38px',
+                          border: '1px solid #cfdcde',
+                          borderRadius: '8px',
+                          padding: '0 10px',
+                          fontSize: '12.5px',
+                          outline: 'none'
+                        }}
+                        type="number"
+                        value={facLandArea}
+                      />
+                    </label>
+                  </div>
 
                   {/* Coordinates Grid */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -1562,7 +1853,7 @@ export function FacilitiesPortal({
                       خط العرض (Latitude) *
                       <input
                         onChange={(e) => setFacLat(e.target.value)}
-                        placeholder="30.0444"
+                        placeholder="27.1809"
                         required
                         style={{
                           minHeight: '38px',
@@ -1581,7 +1872,7 @@ export function FacilitiesPortal({
                       خط الطول (Longitude) *
                       <input
                         onChange={(e) => setFacLon(e.target.value)}
-                        placeholder="31.2357"
+                        placeholder="31.1837"
                         required
                         style={{
                           minHeight: '38px',

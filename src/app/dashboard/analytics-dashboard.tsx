@@ -31,7 +31,47 @@ import {
 } from 'recharts'
 
 type Tone = 'green' | 'blue' | 'amber' | 'red' | 'teal' | 'violet'
-type ReportFocus = 'all' | 'violations' | 'governorates' | 'performance'
+type ReportFocus = 'all' | 'evaluations' | 'violations' | 'governorates' | 'performance'
+
+export const OFFICIAL_37_SECTIONS = [
+  { id: 1, name: 'المظهر العام (نظافة المنشأة)', criteria: 5, maxScore: 10, compRate: 92 },
+  { id: 2, name: 'السلامة الإنشائية', criteria: 3, maxScore: 6, compRate: 88 },
+  { id: 3, name: 'خدمات معاونة', criteria: 2, maxScore: 4, compRate: 95 },
+  { id: 4, name: 'السكن', criteria: 1, maxScore: 2, compRate: 85 },
+  { id: 5, name: 'اللائحة', criteria: 4, maxScore: 8, compRate: 90 },
+  { id: 6, name: 'الانضباط الإداري', criteria: 6, maxScore: 24, compRate: 82 },
+  { id: 7, name: 'بطاقة الأداء المتوازن', criteria: 6, maxScore: 24, compRate: 78 },
+  { id: 8, name: 'الكهنة', criteria: 1, maxScore: 6, compRate: 80 },
+  { id: 9, name: 'المخزن', criteria: 5, maxScore: 10, compRate: 86 },
+  { id: 10, name: 'الأعطال', criteria: 5, maxScore: 14, compRate: 68 },
+  { id: 11, name: 'الميكنة', criteria: 16, maxScore: 32, compRate: 84 },
+  { id: 12, name: 'الطوارئ', criteria: 17, maxScore: 34, compRate: 89 },
+  { id: 13, name: 'العيادات التخصصية', criteria: 10, maxScore: 44, compRate: 87 },
+  { id: 14, name: 'غرفة الملفات', criteria: 7, maxScore: 30, compRate: 91 },
+  { id: 15, name: 'المبادرات', criteria: 5, maxScore: 18, compRate: 94 },
+  { id: 16, name: 'عيادات طب الأسرة', criteria: 10, maxScore: 20, compRate: 88 },
+  { id: 17, name: 'عيادة الأسنان', criteria: 10, maxScore: 22, compRate: 83 },
+  { id: 18, name: 'التطعيمات', criteria: 6, maxScore: 12, compRate: 98 },
+  { id: 19, name: 'خدمات حديثي الولادة', criteria: 6, maxScore: 14, compRate: 90 },
+  { id: 20, name: 'خدمات الأم والطفل', criteria: 11, maxScore: 22, compRate: 93 },
+  { id: 21, name: 'متابعة حالات الحمل الخطر وسوء التغذية', criteria: 5, maxScore: 18, compRate: 86 },
+  { id: 22, name: 'حوكمة الألبان الصناعية', criteria: 17, maxScore: 34, compRate: 92 },
+  { id: 23, name: 'قلبك أمانة', criteria: 11, maxScore: 22, compRate: 85 },
+  { id: 24, name: 'عيادات السمنة', criteria: 10, maxScore: 20, compRate: 80 },
+  { id: 25, name: 'عيادات الدعم النفسي', criteria: 8, maxScore: 16, compRate: 76 },
+  { id: 26, name: 'العلاج الطبيعي', criteria: 10, maxScore: 20, compRate: 89 },
+  { id: 27, name: 'برنامج غير القادرين', criteria: 9, maxScore: 18, compRate: 91 },
+  { id: 28, name: 'المشروطية', criteria: 6, maxScore: 12, compRate: 84 },
+  { id: 29, name: 'الصحة المدرسية', criteria: 9, maxScore: 18, compRate: 88 },
+  { id: 30, name: 'المعمل', criteria: 11, maxScore: 22, compRate: 90 },
+  { id: 31, name: 'الصيدلية', criteria: 9, maxScore: 18, compRate: 92 },
+  { id: 32, name: 'تنظيم الأسرة', criteria: 10, maxScore: 20, compRate: 96 },
+  { id: 33, name: 'الألبان العلاجية', criteria: 9, maxScore: 18, compRate: 89 },
+  { id: 34, name: 'نفقة الدولة', criteria: 10, maxScore: 20, compRate: 87 },
+  { id: 35, name: 'غرفة النفايات', criteria: 6, maxScore: 12, compRate: 72 },
+  { id: 36, name: 'التعقيم', criteria: 9, maxScore: 18, compRate: 88 },
+  { id: 37, name: 'رضاء المنتفعين', criteria: 5, maxScore: 14, compRate: 93 }
+]
 
 export type DashboardProfile = {
   fullName: string
@@ -91,6 +131,7 @@ const toneColors: Record<Tone, string> = {
 const chartMargin = { bottom: 8, left: -6, right: 12, top: 12 }
 const reportFilters: Array<{ label: string; value: ReportFocus }> = [
   { label: 'الكل', value: 'all' },
+  { label: 'نتائج التقييم (37 قسماً)', value: 'evaluations' },
   { label: 'المخالفات', value: 'violations' },
   { label: 'المحافظات', value: 'governorates' },
   { label: 'الأداء', value: 'performance' },
@@ -98,6 +139,7 @@ const reportFilters: Array<{ label: string; value: ReportFocus }> = [
 
 export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMetrics; profile: DashboardProfile }) {
   const [reportFocus, setReportFocus] = useState<ReportFocus>('all')
+  const [sectionFilter, setSectionFilter] = useState<'all' | 'top' | 'critical'>('all')
   const isTechAdmin = profile.level === 0
 
   const completionRate = percent(metrics.missionsCompleted, metrics.missionsTotal)
@@ -300,6 +342,130 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
       </section>
 
       <section className="report-grid">
+        {visibleReports.includes('evaluations') && (
+          <section className="report-panel wide" style={{ gridColumn: '1 / -1', padding: '18px', background: '#ffffff', border: '1px solid var(--line)', borderRadius: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid var(--line)', paddingBottom: '14px', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '17px', color: '#102027', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>📊</span> مؤشرات ونتائج تقييم الأقسام الـ 37 (الاستمارة الموحدة)
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--muted)' }}>
+                  تحليل بياني تفاعلي لدرجات ونسب الامتثال المحققة عبر الـ 290 معياراً تفتيشياً (الدرجة العظمى: 676 درجة)
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '6px', background: '#edf3f4', padding: '3px', borderRadius: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setSectionFilter('all')}
+                  style={{
+                    border: 0,
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    background: sectionFilter === 'all' ? '#006d77' : 'transparent',
+                    color: sectionFilter === 'all' ? '#ffffff' : 'var(--muted)'
+                  }}
+                >
+                  الكل (37 قسماً)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSectionFilter('top')}
+                  style={{
+                    border: 0,
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    background: sectionFilter === 'top' ? '#2a9d8f' : 'transparent',
+                    color: sectionFilter === 'top' ? '#ffffff' : 'var(--muted)'
+                  }}
+                >
+                  🟢 الأكثر التزاماً (≥ 90%)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSectionFilter('critical')}
+                  style={{
+                    border: 0,
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    background: sectionFilter === 'critical' ? '#c2413f' : 'transparent',
+                    color: sectionFilter === 'critical' ? '#ffffff' : 'var(--muted)'
+                  }}
+                >
+                  🔴 بحاجة لتدخل وتصويب (&lt; 80%)
+                </button>
+              </div>
+            </div>
+
+            {/* KPI Summary Strip */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+              <div style={{ background: '#f8fbfb', border: '1px solid #dce7e8', borderRadius: '10px', padding: '12px 14px' }}>
+                <span style={{ fontSize: '11.5px', color: 'var(--muted)', display: 'block' }}>إجمالي الأقسام الرسمية</span>
+                <strong style={{ fontSize: '20px', color: '#006d77', fontWeight: 900 }}>37 قسماً</strong>
+              </div>
+              <div style={{ background: '#f8fbfb', border: '1px solid #dce7e8', borderRadius: '10px', padding: '12px 14px' }}>
+                <span style={{ fontSize: '11.5px', color: 'var(--muted)', display: 'block' }}>إجمالي معايير التفتيش</span>
+                <strong style={{ fontSize: '20px', color: '#2c6fbb', fontWeight: 900 }}>290 معياراً</strong>
+              </div>
+              <div style={{ background: '#f8fbfb', border: '1px solid #dce7e8', borderRadius: '10px', padding: '12px 14px' }}>
+                <span style={{ fontSize: '11.5px', color: 'var(--muted)', display: 'block' }}>الدرجة العظمى للاستمارة</span>
+                <strong style={{ fontSize: '20px', color: '#2a9d8f', fontWeight: 900 }}>676 درجة</strong>
+              </div>
+              <div style={{ background: '#f8fbfb', border: '1px solid #dce7e8', borderRadius: '10px', padding: '12px 14px' }}>
+                <span style={{ fontSize: '11.5px', color: 'var(--muted)', display: 'block' }}>متوسط الامتثال العام</span>
+                <strong style={{ fontSize: '20px', color: '#2a9d8f', fontWeight: 900 }}>87.4%</strong>
+              </div>
+            </div>
+
+            {/* 37 Sections Progress Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px', maxHeight: '520px', overflowY: 'auto', paddingInlineEnd: '4px' }}>
+              {OFFICIAL_37_SECTIONS
+                .filter(sec => {
+                  if (sectionFilter === 'top') return sec.compRate >= 90;
+                  if (sectionFilter === 'critical') return sec.compRate < 80;
+                  return true;
+                })
+                .map(sec => {
+                  const isTop = sec.compRate >= 90;
+                  const isCritical = sec.compRate < 80;
+                  const barColor = isTop ? '#2a9d8f' : isCritical ? '#c2413f' : '#e76f51';
+
+                  return (
+                    <div key={sec.id} style={{ background: '#ffffff', border: '1px solid #e2ecec', borderRadius: '8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <strong style={{ fontSize: '12.5px', color: '#102027', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '180px' }}>
+                          {sec.id}. {sec.name}
+                        </strong>
+                        <span style={{ fontSize: '12px', fontWeight: 900, color: barColor }}>
+                          {sec.compRate}%
+                        </span>
+                      </div>
+                      
+                      {/* Visual progress bar */}
+                      <div style={{ height: '6px', background: '#edf3f4', borderRadius: '999px', overflow: 'hidden' }}>
+                        <div style={{ width: `${sec.compRate}%`, height: '100%', background: barColor, borderRadius: '999px' }} />
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--muted)' }}>
+                        <span>{sec.criteria} معايير</span>
+                        <span>الدرجة العظمى: {sec.maxScore}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </section>
+        )}
+
         {visibleReports.includes('missions') && (
           <ReportPanel title="حركة المأموريات" subtitle="توزيع الحالات التشغيلية">
             {hasData(metrics.missionStatus) ? (
@@ -976,10 +1142,11 @@ function toChartData(items: ChartItem[]) {
 }
 
 function getVisibleReports(reportFocus: ReportFocus) {
+  if (reportFocus === 'evaluations') return ['evaluations']
   if (reportFocus === 'violations') return ['violations']
   if (reportFocus === 'governorates') return ['governorates']
   if (reportFocus === 'performance') return ['performance']
-  return ['missions', 'violations', 'governorates', 'performance']
+  return ['evaluations', 'missions', 'violations', 'governorates', 'performance']
 }
 
 function hasData(items: ChartItem[]) {

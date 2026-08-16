@@ -16,8 +16,166 @@ function getAdminClient() {
   })
 }
 
-// 1. GET: Fetch checklists (bypassing RLS for client initial loading)
+// 1. GET: Fetch form templates, sections, and criteria scoped by Sector & Role
 export async function GET() {
+  try {
+    const adminClient = getAdminClient()
+
+    // 1. Resolve User Context if authenticated
+    let userContext = {
+      level: 1,
+      roleTitle: 'مدير النظام (ديوان الوزارة)',
+      orgName: 'وزارة الصحة والسكان',
+      sectorId: null as string | null,
+      sectorName: 'كافة قطاعات الوزارة',
+      canEdit: true,
+      canCustomize: true
+    }
+
+    try {
+      const supabaseServer = await createServerSupabaseClient()
+      if (supabaseServer) {
+        const { data: { user } } = await supabaseServer.auth.getUser()
+        if (user) {
+          const { data: userProfile } = await adminClient
+            .from('users')
+            .select(`
+              id, full_name, org_level, organization_id, sector_id,
+              organizations:organization_id (id, name, level)
+            `)
+            .eq('auth_id', user.id)
+            .maybeSingle()
+
+          if (userProfile) {
+            const level = userProfile.org_level ?? 1
+            const org = userProfile.organizations as any
+
+            let roleTitle = 'مستخدم النظام'
+            if (level === 1) roleTitle = 'المشرف العام (ديوان عام الوزارة)'
+            else if (level === 2) roleTitle = `رئيس القطاع المركزي (${org?.name || 'القطاع'})`
+            else if (level === 3) roleTitle = 'رئيس الإدارة المركزية'
+            else if (level === 4) roleTitle = 'مدير عام الإدارة العامة'
+            else if (level === 5) roleTitle = `مدير مديرية الشئون الصحية (${org?.name || 'المديرية'})`
+            else if (level === 6) roleTitle = `مدير الإدارة الصحية (${org?.name || 'الإدارة'})`
+            else roleTitle = 'مفتش / عضو فريق المرور الميداني'
+
+            let sectorName = 'كافة قطاعات الوزارة'
+            if (userProfile.sector_id) {
+              const { data: secOrg } = await adminClient
+                .from('organizations')
+                .select('name')
+                .eq('id', userProfile.sector_id)
+                .maybeSingle()
+              if (secOrg) sectorName = secOrg.name
+            }
+
+            userContext = {
+              level,
+              roleTitle,
+              orgName: org?.name || 'وزارة الصحة والسكان',
+              sectorId: userProfile.sector_id || null,
+              sectorName,
+              canEdit: level <= 2, // Level 1 Superadmin or Level 2 Sector Head can modify base template
+              canCustomize: level <= 5 // Directorate can add localized criteria
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Checklists GET] Could not resolve session user, defaulting to admin context')
+    }
+
+    // 2. Fetch all Sectors (Level 2)
+    const { data: sectors } = await adminClient
+      .from('organizations')
+      .select('id, name, level')
+      .eq('level', 2)
+      .order('name', { ascending: true })
+
+    // 3. Fetch form templates
+    const { data: templates, error: tmplError } = await adminClient
+      .from('form_templates')
+      .select('id, name, version, description, applicable_sectors, is_base, is_active, created_at, updated_at')
+      .eq('is_active', true)
+      .order('is_base', { ascending: false })
+
+    if (tmplError) {
+      console.error('[Checklists GET tmplError]', tmplError)
+      return NextResponse.json({ error: tmplError.message }, { status: 500 })
+    }
+
+    // 4. Fetch all sections
+    const { data: sections, error: secError } = await adminClient
+      .from('form_sections')
+      .select('id, template_id, name, section_number, max_score, sort_order, is_base, is_active')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+
+    if (secError) {
+      console.error('[Checklists GET secError]', secError)
+      return NextResponse.json({ error: secError.message }, { status: 500 })
+    }
+
+    // 5. Fetch all criteria
+    const { data: criteria, error: critError } = await adminClient
+      .from('form_criteria')
+      .select(`
+        id, section_id, template_id, criterion_text,
+        score_type, score_0_label, score_mid_label, score_mid_value,
+        score_max_label, score_max_value, requires_photo, requires_note,
+        sort_order, is_base, is_active
+      `)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .range(0, 999)
+
+    if (critError) {
+      console.error('[Checklists GET critError]', critError)
+      return NextResponse.json({ error: critError.message }, { status: 500 })
+    }
+
+    // Assemble hierarchical structure
+    const criteriaBySection = new Map<string, any[]>()
+    for (const c of criteria || []) {
+      if (!criteriaBySection.has(c.section_id)) {
+        criteriaBySection.set(c.section_id, [])
+      }
+      criteriaBySection.get(c.section_id)!.push(c)
+    }
+
+    const sectionsByTemplate = new Map<string, any[]>()
+    for (const s of sections || []) {
+      const secWithCriteria = {
+        ...s,
+        criteria: criteriaBySection.get(s.id) || []
+      }
+      if (!sectionsByTemplate.has(s.template_id)) {
+        sectionsByTemplate.set(s.template_id, [])
+      }
+      sectionsByTemplate.get(s.template_id)!.push(secWithCriteria)
+    }
+
+    const result = (templates || []).map((t) => ({
+      ...t,
+      updated_by_name: 'ديوان عام الوزارة - قطاع الرعاية الصحية الأولية وتنمية الأسرة',
+      sections: sectionsByTemplate.get(t.id) || []
+    }))
+
+    return NextResponse.json({
+      userContext,
+      sectors: sectors || [],
+      templates: result,
+      totalSections: sections?.length || 0,
+      totalCriteria: criteria?.length || 0
+    })
+  } catch (err: any) {
+    console.error('[Checklists GET exception]', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
+
+// 2. POST: Add a new custom criterion or section
+export async function POST(request: Request) {
   try {
     const supabaseServer = await createServerSupabaseClient()
     if (!supabaseServer) {
@@ -29,368 +187,71 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const adminClient = getAdminClient()
-    let { data, error } = await adminClient
-      .from('checklists')
-      .select(`
-        id,
-        name,
-        description,
-        org_unit_id,
-        checklist_sections (
-          id,
-          name,
-          checklist_items (
-            id,
-            text,
-            answer_type,
-            is_required,
-            violation_priority,
-            correction_dept
-          )
-        )
-      `)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-
-    if (error && (error.code === '42703' || error.code === 'PGRST204' || error.message.includes('org_unit_id'))) {
-      console.warn('[Checklists API GET] org_unit_id column does not exist on checklists table. Falling back to query without it.')
-      const fallbackQuery = await adminClient
-        .from('checklists')
-        .select(`
-          id,
-          name,
-          description,
-          checklist_sections (
-            id,
-            name,
-            checklist_items (
-              id,
-              text,
-              answer_type,
-              is_required,
-              violation_priority,
-              correction_dept
-            )
-          )
-        `)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-
-      data = (fallbackQuery.data || []).map((item: any) => ({
-        ...item,
-        org_unit_id: null
-      })) as any
-      error = fallbackQuery.error
-    }
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json(data || [])
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// 2. POST: Create a checklist, its section, and items
-export async function POST(request: Request) {
-  try {
-    const supabaseServer = await createServerSupabaseClient()
-    if (!supabaseServer) {
-      return NextResponse.json({ error: 'Database client not initialized' }, { status: 500 })
-    }
-
-    const { data: { user: caller }, error: authError } = await supabaseServer.auth.getUser()
-    if (authError || !caller) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile } = await supabaseServer
-      .from('users')
-      .select('id, level')
-      .eq('auth_id', caller.id)
-      .maybeSingle()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 })
-    }
-
-    let isAllowed = profile.level <= 4
-    if (!isAllowed) {
-      const { data: userPermission } = await supabaseServer
-        .from('user_permissions')
-        .select('allowed_pages')
-        .eq('user_id', profile.id)
-        .maybeSingle()
-
-      if (Array.isArray(userPermission?.allowed_pages) && userPermission.allowed_pages.includes('checklists')) {
-        isAllowed = true
-      }
-    }
-
-    if (!isAllowed) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 })
-    }
-
-    const { title, dept, type, items, org_unit_id } = await request.json()
-    if (!title || !dept || !type || !Array.isArray(items) || !items.length) {
-      return NextResponse.json({ error: 'Invalid or incomplete checklist payload' }, { status: 400 })
-    }
-
+    const body = await request.json()
     const adminClient = getAdminClient()
 
-    // A. Create main checklist entry
-    let insertPayload: any = {
-      name: title,
-      facility_type: 'general',
-      description: `${dept}|${type}`,
-      org_unit_id: org_unit_id || null,
-      created_by: profile.id,
-      is_active: true
-    }
-
-    let { data: newChk, error: chkErr } = await adminClient
-      .from('checklists')
-      .insert(insertPayload)
-      .select('id')
-      .single()
-
-    if (chkErr && (chkErr.code === '42703' || chkErr.code === 'PGRST204' || chkErr.message.includes('org_unit_id'))) {
-      console.warn('[Checklists API POST] org_unit_id column does not exist on checklists table. Falling back to insert without it.')
-      delete insertPayload.org_unit_id
-      const fallbackInsert = await adminClient
-        .from('checklists')
-        .insert(insertPayload)
-        .select('id')
+    if (body.action === 'add_criterion') {
+      const { section_id, template_id, criterion_text, score_max_value } = body
+      const { data, error } = await adminClient
+        .from('form_criteria')
+        .insert({
+          section_id,
+          template_id: template_id || '00000000-0000-0000-0000-000000001000',
+          criterion_text,
+          score_type: body.score_type || 'binary',
+          score_0_label: 'غير مطابق',
+          score_max_label: 'مطابق',
+          score_max_value: score_max_value || 2,
+          is_base: false,
+          is_active: true
+        })
+        .select()
         .single()
-      newChk = fallbackInsert.data
-      chkErr = fallbackInsert.error
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ success: true, data })
     }
 
-    if (chkErr || !newChk) {
-      return NextResponse.json({ error: `Failed to create checklist: ${chkErr?.message}` }, { status: 500 })
+    if (body.action === 'add_section') {
+      const { template_id, name } = body
+      const { data, error } = await adminClient
+        .from('form_sections')
+        .insert({
+          template_id: template_id || '00000000-0000-0000-0000-000000001000',
+          name,
+          section_number: body.section_number || 99,
+          sort_order: body.sort_order || 99,
+          is_base: false,
+          is_active: true
+        })
+        .select()
+        .single()
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ success: true, data })
     }
 
-    // B. Create section
-    const { data: newSec, error: secErr } = await adminClient
-      .from('checklist_sections')
-      .insert({
-        checklist_id: newChk.id,
-        name: title,
-        sort_order: 0
-      })
-      .select('id')
-      .single()
+    if (body.action === 'create_template') {
+      const { name, version, description, applicable_sectors } = body
+      const { data, error } = await adminClient
+        .from('form_templates')
+        .insert({
+          name,
+          version: version || '1.0',
+          description: description || null,
+          applicable_sectors: applicable_sectors || null,
+          applicable_levels: [5, 6, 7],
+          is_base: false,
+          is_active: true
+        })
+        .select()
+        .single()
 
-    if (secErr || !newSec) {
-      return NextResponse.json({ error: `Failed to create checklist section: ${secErr?.message}` }, { status: 500 })
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ success: true, data })
     }
 
-    // C. Create items
-    const itemsPayload = items.map((item: any, idx: number) => ({
-      checklist_id: newChk.id,
-      section_id: newSec.id,
-      text: item.text.trim(),
-      answer_type: item.answer_type || 'yes_no',
-      is_required: item.is_required ?? true,
-      violation_priority: item.violation_priority || 'medium',
-      correction_dept: item.correction_dept || dept,
-      sort_order: idx
-    }))
-
-    const { error: itemsErr } = await adminClient
-      .from('checklist_items')
-      .insert(itemsPayload)
-
-    if (itemsErr) {
-      return NextResponse.json({ error: `Failed to create checklist items: ${itemsErr.message}` }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, id: newChk.id })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// 3. DELETE: Remove a checklist by ID
-export async function DELETE(request: Request) {
-  try {
-    const supabaseServer = await createServerSupabaseClient()
-    if (!supabaseServer) {
-      return NextResponse.json({ error: 'Database client not initialized' }, { status: 500 })
-    }
-
-    const { data: { user: caller }, error: authError } = await supabaseServer.auth.getUser()
-    if (authError || !caller) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile } = await supabaseServer
-      .from('users')
-      .select('id, level')
-      .eq('auth_id', caller.id)
-      .maybeSingle()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    let isAllowed = profile.level <= 4
-    if (!isAllowed) {
-      const { data: userPermission } = await supabaseServer
-        .from('user_permissions')
-        .select('allowed_pages')
-        .eq('user_id', profile.id)
-        .maybeSingle()
-
-      if (Array.isArray(userPermission?.allowed_pages) && userPermission.allowed_pages.includes('checklists')) {
-        isAllowed = true
-      }
-    }
-
-    if (!isAllowed) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 })
-    }
-
-    const { url } = request
-    const urlObj = new URL(url)
-    const id = urlObj.searchParams.get('id')
-
-    if (!id) {
-      return NextResponse.json({ error: 'Checklist ID is required' }, { status: 400 })
-    }
-
-    const adminClient = getAdminClient()
-    const { error } = await adminClient
-      .from('checklists')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// 4. PUT: Update an existing checklist template
-export async function PUT(request: Request) {
-  try {
-    const supabaseServer = await createServerSupabaseClient()
-    if (!supabaseServer) {
-      return NextResponse.json({ error: 'Database client not initialized' }, { status: 500 })
-    }
-
-    const { data: { user: caller }, error: authError } = await supabaseServer.auth.getUser()
-    if (authError || !caller) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: profile } = await supabaseServer
-      .from('users')
-      .select('id, level')
-      .eq('auth_id', caller.id)
-      .maybeSingle()
-
-    if (!profile) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 })
-    }
-
-    let isAllowed = profile.level <= 4
-    if (!isAllowed) {
-      const { data: userPermission } = await supabaseServer
-        .from('user_permissions')
-        .select('allowed_pages')
-        .eq('user_id', profile.id)
-        .maybeSingle()
-
-      if (Array.isArray(userPermission?.allowed_pages) && userPermission.allowed_pages.includes('checklists')) {
-        isAllowed = true
-      }
-    }
-
-    if (!isAllowed) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 })
-    }
-
-    const { id, title, dept, type, items, org_unit_id } = await request.json()
-    if (!id || !title || !dept || !type || !Array.isArray(items) || !items.length) {
-      return NextResponse.json({ error: 'Invalid or incomplete checklist payload' }, { status: 400 })
-    }
-
-    const adminClient = getAdminClient()
-
-    // A. Update checklists main entry
-    let updatePayload: any = {
-      name: title,
-      description: `${dept}|${type}`,
-      org_unit_id: org_unit_id || null
-    }
-
-    let { error: chkErr } = await adminClient
-      .from('checklists')
-      .update(updatePayload)
-      .eq('id', id)
-
-    if (chkErr && (chkErr.code === '42703' || chkErr.code === 'PGRST204' || chkErr.message.includes('org_unit_id'))) {
-      console.warn('[Checklists API PUT] org_unit_id column does not exist on checklists table. Falling back to update without it.')
-      delete updatePayload.org_unit_id
-      const fallbackUpdate = await adminClient
-        .from('checklists')
-        .update(updatePayload)
-        .eq('id', id)
-      chkErr = fallbackUpdate.error
-    }
-
-    if (chkErr) {
-      return NextResponse.json({ error: `Failed to update checklist: ${chkErr.message}` }, { status: 500 })
-    }
-
-    // B. Clean old sections and items (cascades)
-    await adminClient.from('checklist_items').delete().eq('checklist_id', id)
-    await adminClient.from('checklist_sections').delete().eq('checklist_id', id)
-
-    // C. Create new section
-    const { data: newSec, error: secErr } = await adminClient
-      .from('checklist_sections')
-      .insert({
-        checklist_id: id,
-        name: title,
-        sort_order: 0
-      })
-      .select('id')
-      .single()
-
-    if (secErr || !newSec) {
-      return NextResponse.json({ error: `Failed to create checklist section: ${secErr?.message}` }, { status: 500 })
-    }
-
-    // D. Create new items
-    const itemsPayload = items.map((item: any, idx: number) => ({
-      checklist_id: id,
-      section_id: newSec.id,
-      text: item.text.trim(),
-      answer_type: item.answer_type || 'yes_no',
-      is_required: item.is_required ?? true,
-      violation_priority: item.violation_priority || 'medium',
-      correction_dept: item.correction_dept || dept,
-      sort_order: idx
-    }))
-
-    const { error: itemsErr } = await adminClient
-      .from('checklist_items')
-      .insert(itemsPayload)
-
-    if (itemsErr) {
-      return NextResponse.json({ error: `Failed to create checklist items: ${itemsErr.message}` }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }

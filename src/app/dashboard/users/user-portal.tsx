@@ -32,12 +32,13 @@ type FacilityOption = {
 }
 
 function levelLabel(level: number) {
-  if (level === 1) return 'سوبر أدمن المنظومة'
-  if (level === 2) return 'رئيس إدارة مركزية'
-  if (level === 3) return 'مدير عام إدارة عامة'
-  if (level === 4) return 'موظف مختص بالتشغيل'
-  if (level === 5) return 'مستخدم مالي ومراجع'
-  return 'مفتش قائم بالمرور'
+  if (level === 1) return 'المستوى 1 — ديوان عام الوزارة (مدير المنظومة)'
+  if (level === 2) return 'المستوى 2 — رئيس قطاع مركزي'
+  if (level === 3) return 'المستوى 3 — رئيس إدارة مركزية'
+  if (level === 4) return 'المستوى 4 — مدير عام إدارة عامة'
+  if (level === 5) return 'المستوى 5 — مديرية الشئون الصحية بالمحافظة'
+  if (level === 6) return 'المستوى 6 — مدير إدارة صحية بالمركز'
+  return 'المستوى 7 — مفتش صحي ميداني (قائم بالمرور)'
 }
 
 function levelToneColors(level: number) {
@@ -46,7 +47,8 @@ function levelToneColors(level: number) {
   if (level === 2) return { text: '#e65100', bg: '#fff3e0', border: '#ffe0b2' } // Central President
   if (level === 3) return { text: '#4a148c', bg: '#f3e5f5', border: '#e1bee7' } // General Manager
   if (level === 4) return { text: '#0d47a1', bg: '#e3f2fd', border: '#bbdefb' } // Specialist
-  if (level === 5) return { text: '#004d40', bg: '#e0f2f1', border: '#b2dfdb' } // Financial
+  if (level === 5) return { text: '#004d40', bg: '#e0f2f1', border: '#b2dfdb' } // Directorate
+  if (level === 6) return { text: '#0277bd', bg: '#e1f5fe', border: '#b3e5fc' } // Health Admin
   return { text: '#1b5e20', bg: '#e8f5e9', border: '#c8e6c9' } // Inspector
 }
 
@@ -72,7 +74,8 @@ function UserAvatar({ name, level }: { name: string; level: number }) {
   if (level === 2) roleBadge = '🏛️'
   if (level === 3) roleBadge = '💼'
   if (level === 4) roleBadge = '⚙️'
-  if (level === 5) roleBadge = '🪙'
+  if (level === 5) roleBadge = '📍'
+  if (level === 6) roleBadge = '🏥'
   if (level === 7) roleBadge = '🔍'
 
   // Render a customized premium SVG vector based on the staff role/level
@@ -98,8 +101,8 @@ function UserAvatar({ name, level }: { name: string; level: number }) {
           <circle cx="22" cy="36" r="2" fill="#ffffff" opacity="0.8" />
         </svg>
       )
-    } else if (level === 5) {
-      // Financial Auditor - Glasses and clean ledger silhouette
+    } else if (level === 5 || level === 6) {
+      // Directorate / Health Admin Manager
       return (
         <svg viewBox="0 0 64 64" fill="currentColor" style={{ width: '85%', height: '85%', color: 'rgba(255,255,255,0.95)' }}>
           <circle cx="32" cy="22" r="10" />
@@ -174,10 +177,12 @@ function UserAvatar({ name, level }: { name: string; level: number }) {
 export function UserPortal({
   initialUsers,
   facilities = [],
+  organizations = [],
   currentUserLevel = 7,
 }: {
   initialUsers: UserRow[]
-  facilities?: FacilityOption[]
+  facilities?: any[]
+  organizations?: any[]
   currentUserLevel?: number
 }) {
   const router = useRouter()
@@ -187,19 +192,27 @@ export function UserPortal({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid')
   const [selectedDetailUser, setSelectedDetailUser] = useState<UserRow | null>(null)
 
-  const [orgUnits, setOrgUnits] = useState<any[]>([])
+  const [localOrgs, setLocalOrgs] = useState<any[]>(organizations)
+  const [facilitySearch, setFacilitySearch] = useState('')
+  const [editFacilitySearch, setEditFacilitySearch] = useState('')
 
   useEffect(() => {
-    async function loadOrgUnits() {
-      if (!supabase) return
-      const { data } = await supabase
-        .from('organizational_units')
-        .select('id, name')
-        .order('sort_order', { ascending: true })
-      if (data) setOrgUnits(data)
+    if (organizations && organizations.length > 0) {
+      setLocalOrgs(organizations)
+    } else {
+      const loadOrgs = async () => {
+        if (!supabase) return
+        const { data } = await supabase
+          .from('organizations')
+          .select('id, name, level, level_label, governorate, health_admin, sector_id')
+          .eq('is_active', true)
+          .order('level')
+          .order('name')
+        if (data) setLocalOrgs(data)
+      }
+      loadOrgs()
     }
-    loadOrgUnits()
-  }, [supabase])
+  }, [organizations, supabase])
 
   const handleExportToExcel = () => {
     // CSV columns headers
@@ -424,6 +437,61 @@ export function UserPortal({
     }).sort((a, b) => a.level - b.level || a.full_name.localeCompare(b.full_name, 'ar'))
   }, [users, searchQuery, filterTab, currentUserLevel])
 
+  // Dynamic Facility Filtering based on chosen Organization and Facility Search
+  const filteredFacilitiesForAdd = useMemo(() => {
+    let list = facilities
+    if (orgUnitId) {
+      const org = localOrgs.find(o => o.id === orgUnitId)
+      if (org) {
+        if (org.health_admin) {
+          const adm = org.health_admin.trim().toLowerCase()
+          list = list.filter(f => (f.health_admin || '').trim().toLowerCase() === adm)
+        } else if (org.governorate) {
+          const gov = org.governorate.trim().toLowerCase()
+          list = list.filter(f => (f.governorate || '').trim().toLowerCase() === gov)
+        }
+      }
+    }
+    if (facilitySearch.trim()) {
+      const q = facilitySearch.trim().toLowerCase()
+      list = list.filter(f =>
+        (f.name || '').toLowerCase().includes(q) ||
+        (f.health_admin || '').toLowerCase().includes(q) ||
+        (f.governorate || '').toLowerCase().includes(q) ||
+        (f.facility_type || '').toLowerCase().includes(q) ||
+        (f.village_city || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [facilities, orgUnitId, localOrgs, facilitySearch])
+
+  const filteredFacilitiesForEdit = useMemo(() => {
+    let list = facilities
+    if (editOrgUnitId) {
+      const org = localOrgs.find(o => o.id === editOrgUnitId)
+      if (org) {
+        if (org.health_admin) {
+          const adm = org.health_admin.trim().toLowerCase()
+          list = list.filter(f => (f.health_admin || '').trim().toLowerCase() === adm)
+        } else if (org.governorate) {
+          const gov = org.governorate.trim().toLowerCase()
+          list = list.filter(f => (f.governorate || '').trim().toLowerCase() === gov)
+        }
+      }
+    }
+    if (editFacilitySearch.trim()) {
+      const q = editFacilitySearch.trim().toLowerCase()
+      list = list.filter(f =>
+        (f.name || '').toLowerCase().includes(q) ||
+        (f.health_admin || '').toLowerCase().includes(q) ||
+        (f.governorate || '').toLowerCase().includes(q) ||
+        (f.facility_type || '').toLowerCase().includes(q) ||
+        (f.village_city || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [facilities, editOrgUnitId, localOrgs, editFacilitySearch])
+
   async function handleAddUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
@@ -445,13 +513,17 @@ export function UserPortal({
       return
     }
 
+    if (!orgUnitId) {
+      setError('يرجى اختيار الإدارة أو الجهة التنظيمية التابع لها الموظف.')
+      return
+    }
+
     setLoading(true)
 
-    // Resolve facility dropdown
+    // Resolve facility and organization names
+    const selectedOrg = localOrgs.find(o => o.id === orgUnitId)
     const selectedFac = facilities.find(f => f.id === facilityId)
-    const finalDepartment = selectedFac ? selectedFac.name : department || 'ديوان عام الوزارة'
-
-
+    const finalDepartment = selectedFac ? selectedFac.name : selectedOrg?.name || department || 'ديوان عام الوزارة'
 
     if (!supabase) {
       setError('إعداد قاعدة بيانات Supabase غير متوفر حالياً.')
@@ -470,11 +542,14 @@ export function UserPortal({
           full_name: name,
           job_title: job || null,
           level,
+          org_level: level,
           department: finalDepartment,
           phone: userPhone || null,
           financial_code: finCode || null,
           facility_id: facilityId || null,
-          org_unit_id: orgUnitId || null
+          organization_id: orgUnitId,
+          org_unit_id: orgUnitId,
+          sector_id: selectedOrg?.sector_id || selectedOrg?.id,
         })
       })
 
@@ -488,7 +563,7 @@ export function UserPortal({
 
       if (result.data) {
         setUsers((current) => [result.data as UserRow, ...current])
-        setSuccess('تم ترحيل الموظف الجديد وإنشاء حسابه الفعلي للمصادقة بنجاح.')
+        setSuccess('تم ترحيل الموظف الجديد وتسكينه في الهيكل التنظيمي المعتمد بنجاح.')
         resetForm()
       }
     } catch (err: any) {
@@ -1661,7 +1736,7 @@ export function UserPortal({
               </label>
 
               <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-                الصلاحيات التنظيمية بالمنظومة
+                المستوى التنظيمي والصلاحية بالمنظومة *
                 <select
                   onChange={(event) => setLevel(parseInt(event.target.value))}
                   style={{
@@ -1675,12 +1750,13 @@ export function UserPortal({
                   }}
                   value={level}
                 >
-                  <option value={7}>مستوى 7 — قائم بالمرور (مفتش ميداني)</option>
-                  <option value={5}>مستوى 5 — مراجع مالي للمستندات</option>
-                  <option value={4}>مستوى 4 — موظف مختص بالتكليفات</option>
-                  <option value={3}>مستوى 3 — مدير عام الإدارة العامة</option>
-                  <option value={2}>مستوى 2 — رئيس رئيس الإدارة المركزية</option>
-                  <option value={1}>مستوى 1 — سوبر أدمن (مدير المنظومة)</option>
+                  <option value={7}>المستوى 7 — مفتش صحي ميداني (قائم بالمرور والتفتيش)</option>
+                  <option value={6}>المستوى 6 — مدير إدارة صحية بالمركز / المنطقة</option>
+                  <option value={5}>المستوى 5 — مديرية الشئون الصحية بالمحافظة (وكيل وزارة / مدير مديرية)</option>
+                  <option value={4}>المستوى 4 — مدير عام إدارة عامة مركزية</option>
+                  <option value={3}>المستوى 3 — رئيس إدارة مركزية</option>
+                  <option value={2}>المستوى 2 — رئيس قطاع مركزي (الرعاية الأساسية / الطب العلاجي)</option>
+                  <option value={1}>المستوى 1 — ديوان عام الوزارة (مدير النظام العام - Super Admin)</option>
                 </select>
               </label>
             </div>
@@ -1745,64 +1821,110 @@ export function UserPortal({
               </label>
             </div>
 
-            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-              الإدارة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
+            {/* 1. الإدارة التنظيمية التابع لها الموظف */}
+            <div style={{ display: 'grid', gap: '6px' }}>
+              <label style={{ fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                الإدارة أو الجهة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
+              </label>
               <select
                 onChange={(event) => {
                   const unitId = event.target.value
                   setOrgUnitId(unitId)
-                  const unit = orgUnits.find(u => u.id === unitId)
+                  const unit = localOrgs.find(u => u.id === unitId)
                   if (unit) {
                     setDepartment(unit.name)
                   } else {
                     setDepartment('')
                   }
+                  // Reset facility choice on org change
+                  setFacilityId('')
+                  setFacilitySearch('')
                 }}
                 required
                 style={{
                   background: '#f8fbfb',
                   border: '1px solid #cfdcde',
                   borderRadius: '8px',
-                  minHeight: '40px',
+                  minHeight: '42px',
                   padding: '0 8px',
-                  fontSize: '13.5px',
+                  fontSize: '13px',
                   outline: 'none'
                 }}
                 value={orgUnitId}
               >
-                <option value="">-- اختر الإدارة التنظيمية --</option>
-                {orgUnits.map((unit) => (
-                  <option key={unit.id} value={unit.id}>
-                    {unit.name}
-                  </option>
-                ))}
+                <option value="">-- اختر الإدارة أو الجهة التنظيمية (495 جهة مسجلة) --</option>
+                {localOrgs.map((org) => {
+                  let badge = '🏢'
+                  if (org.level === 1) badge = '🏛️'
+                  else if (org.level === 2) badge = '🏢'
+                  else if (org.level === 5) badge = '📍'
+                  else if (org.level === 6) badge = '🏥'
+                  
+                  return (
+                    <option key={org.id} value={org.id}>
+                      {badge} {org.name} {org.governorate ? `(${org.governorate})` : ''} — [{org.level_label || `مستوى ${org.level}`}]
+                    </option>
+                  )
+                })}
               </select>
-            </label>
+            </div>
 
-            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-              الجهة أو المنشأة الطبية التابع لها الموظف الرئيسي *
-              <select
-                onChange={(event) => setFacilityId(event.target.value)}
-                required
+            {/* 2. الجهة أو المنشأة الطبية التابع لها الموظف */}
+            <div style={{ display: 'grid', gap: '6px', background: '#f8fbfb', padding: '14px', borderRadius: '10px', border: '1px solid #dce7e8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '13.5px', color: '#102027', fontWeight: 'bold' }}>
+                  الجهة أو المنشأة الطبية التابع لها الموظف الرئيسي
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--brand)', fontWeight: 'bold' }}>
+                  {filteredFacilitiesForAdd.length} منشأة متوفرة
+                </span>
+              </div>
+
+              {/* Quick Facility Filter */}
+              <input
+                onChange={(e) => setFacilitySearch(e.target.value)}
+                placeholder="🔍 تصفية المنشآت الطبية (ابحث بالاسم، النوع، أو الإدارة)..."
                 style={{
-                  background: '#f8fbfb',
+                  background: 'white',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '6px',
+                  minHeight: '36px',
+                  padding: '0 10px',
+                  fontSize: '12.5px',
+                  outline: 'none'
+                }}
+                type="text"
+                value={facilitySearch}
+              />
+
+              <select
+                onChange={(event) => {
+                  const facId = event.target.value
+                  setFacilityId(facId)
+                  const fac = facilities.find(f => f.id === facId)
+                  if (fac) {
+                    setDepartment(fac.name)
+                  }
+                }}
+                style={{
+                  background: 'white',
                   border: '1px solid #cfdcde',
                   borderRadius: '8px',
                   minHeight: '40px',
                   padding: '0 8px',
-                  fontSize: '13.5px',
+                  fontSize: '13px',
                   outline: 'none'
                 }}
                 value={facilityId}
               >
-                <option value="">-- اختر المنشأة المسجلة --</option>
-                {facilities.map((fac) => (
+                <option value="">-- اختياري: تسكين على منشأة طبية محددة --</option>
+                {filteredFacilitiesForAdd.slice(0, 500).map((fac) => (
                   <option key={fac.id} value={fac.id}>
-                    {fac.name} {fac.address ? `(${fac.address})` : ''}
+                    🏥 {fac.name} {fac.facility_type ? `[${fac.facility_type}]` : ''} {fac.health_admin ? `• ${fac.health_admin}` : ''} {fac.governorate ? `• ${fac.governorate}` : ''}
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
 
             <div className="staff-registration-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-start', marginTop: '4px', borderTop: '1px solid #eef6f6', padding: '16px 22px 0' }}>
               <button
@@ -2308,7 +2430,7 @@ export function UserPortal({
               </label>
 
               <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-                الصلاحيات التنظيمية بالمنظومة
+                المستوى التنظيمي والصلاحية بالمنظومة *
                 <select
                   onChange={(event) => setEditLevel(parseInt(event.target.value))}
                   style={{
@@ -2322,12 +2444,13 @@ export function UserPortal({
                   }}
                   value={editLevel}
                 >
-                  <option value={7}>مستوى 7 — قائم بالمرور (مفتش ميداني)</option>
-                  <option value={5}>مستوى 5 — مراجع مالي للمستندات</option>
-                  <option value={4}>مستوى 4 — موظف مختص بالتكليفات</option>
-                  <option value={3}>مستوى 3 — مدير عام الإدارة العامة</option>
-                  <option value={2}>مستوى 2 — رئيس رئيس الإدارة المركزية</option>
-                  <option value={1}>مستوى 1 — سوبر أدمن (مدير المنظومة)</option>
+                  <option value={7}>المستوى 7 — مفتش صحي ميداني (قائم بالمرور والتفتيش)</option>
+                  <option value={6}>المستوى 6 — مدير إدارة صحية بالمركز / المنطقة</option>
+                  <option value={5}>المستوى 5 — مديرية الشئون الصحية بالمحافظة (وكيل وزارة / مدير مديرية)</option>
+                  <option value={4}>المستوى 4 — مدير عام إدارة عامة مركزية</option>
+                  <option value={3}>المستوى 3 — رئيس إدارة مركزية</option>
+                  <option value={2}>المستوى 2 — رئيس قطاع مركزي (الرعاية الأساسية / الطب العلاجي)</option>
+                  <option value={1}>المستوى 1 — ديوان عام الوزارة (مدير النظام العام - Super Admin)</option>
                 </select>
               </label>
             </div>
@@ -2392,64 +2515,110 @@ export function UserPortal({
               </label>
             </div>
 
-            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-              الإدارة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
+            {/* 1. الإدارة التنظيمية التابع لها الموظف */}
+            <div style={{ display: 'grid', gap: '6px' }}>
+              <label style={{ fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                الإدارة أو الجهة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
+              </label>
               <select
                 onChange={(event) => {
                   const unitId = event.target.value
                   setEditOrgUnitId(unitId)
-                  const unit = orgUnits.find(u => u.id === unitId)
+                  const unit = localOrgs.find(u => u.id === unitId)
                   if (unit) {
                     setEditDepartment(unit.name)
                   } else {
                     setEditDepartment('')
                   }
+                  // Reset facility
+                  setEditFacilityId('')
+                  setEditFacilitySearch('')
                 }}
                 required
                 style={{
                   background: '#f8fbfb',
                   border: '1px solid #cfdcde',
                   borderRadius: '8px',
-                  minHeight: '40px',
+                  minHeight: '42px',
                   padding: '0 8px',
-                  fontSize: '13.5px',
+                  fontSize: '13px',
                   outline: 'none'
                 }}
                 value={editOrgUnitId}
               >
-                <option value="">-- اختر الإدارة التنظيمية --</option>
-                {orgUnits.map((unit) => (
-                  <option key={unit.id} value={unit.id}>
-                    {unit.name}
-                  </option>
-                ))}
+                <option value="">-- اختر الإدارة أو الجهة التنظيمية (495 جهة مسجلة) --</option>
+                {localOrgs.map((org) => {
+                  let badge = '🏢'
+                  if (org.level === 1) badge = '🏛️'
+                  else if (org.level === 2) badge = '🏢'
+                  else if (org.level === 5) badge = '📍'
+                  else if (org.level === 6) badge = '🏥'
+                  
+                  return (
+                    <option key={org.id} value={org.id}>
+                      {badge} {org.name} {org.governorate ? `(${org.governorate})` : ''} — [{org.level_label || `مستوى ${org.level}`}]
+                    </option>
+                  )
+                })}
               </select>
-            </label>
+            </div>
 
-            <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-              الجهة أو المنشأة الطبية التابع لها الموظف الرئيسي *
-              <select
-                onChange={(event) => setEditFacilityId(event.target.value)}
-                required
+            {/* 2. الجهة أو المنشأة الطبية التابع لها الموظف */}
+            <div style={{ display: 'grid', gap: '6px', background: '#f8fbfb', padding: '14px', borderRadius: '10px', border: '1px solid #dce7e8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ fontSize: '13.5px', color: '#102027', fontWeight: 'bold' }}>
+                  الجهة أو المنشأة الطبية التابع لها الموظف الرئيسي
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--brand)', fontWeight: 'bold' }}>
+                  {filteredFacilitiesForEdit.length} منشأة متوفرة
+                </span>
+              </div>
+
+              {/* Quick Facility Filter */}
+              <input
+                onChange={(e) => setEditFacilitySearch(e.target.value)}
+                placeholder="🔍 تصفية المنشآت الطبية (ابحث بالاسم، النوع، أو الإدارة)..."
                 style={{
-                  background: '#f8fbfb',
+                  background: 'white',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '6px',
+                  minHeight: '36px',
+                  padding: '0 10px',
+                  fontSize: '12.5px',
+                  outline: 'none'
+                }}
+                type="text"
+                value={editFacilitySearch}
+              />
+
+              <select
+                onChange={(event) => {
+                  const facId = event.target.value
+                  setEditFacilityId(facId)
+                  const fac = facilities.find(f => f.id === facId)
+                  if (fac) {
+                    setEditDepartment(fac.name)
+                  }
+                }}
+                style={{
+                  background: 'white',
                   border: '1px solid #cfdcde',
                   borderRadius: '8px',
                   minHeight: '40px',
                   padding: '0 8px',
-                  fontSize: '13.5px',
+                  fontSize: '13px',
                   outline: 'none'
                 }}
                 value={editFacilityId}
               >
-                <option value="">-- اختر المنشأة المسجلة --</option>
-                {facilities.map((fac) => (
+                <option value="">-- اختياري: تسكين على منشأة طبية محددة --</option>
+                {filteredFacilitiesForEdit.slice(0, 500).map((fac) => (
                   <option key={fac.id} value={fac.id}>
-                    {fac.name} {fac.address ? `(${fac.address})` : ''}
+                    🏥 {fac.name} {fac.facility_type ? `[${fac.facility_type}]` : ''} {fac.health_admin ? `• ${fac.health_admin}` : ''} {fac.governorate ? `• ${fac.governorate}` : ''}
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold', cursor: 'pointer' }}>
               <input

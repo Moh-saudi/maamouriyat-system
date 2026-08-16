@@ -83,30 +83,13 @@ export async function middleware(req: NextRequest) {
     try {
       const { data: profile } = await supabase
         .from('users')
-        .select('id, level')
+        .select('id, org_level, level, job_title')
         .eq('auth_id', user.id)
         .maybeSingle()
 
       if (profile) {
-        const level = profile.level ?? 7
-        if (level === 0) activeRole = 'techadmin'
-        else if (level === 1) activeRole = 'superadmin'
-        else if (level === 2) activeRole = 'central'
-        else if (level === 3) activeRole = 'generalmanager'
-        else if (level === 4) activeRole = 'creator'
-        else if (level === 5) activeRole = 'financial'
-        else activeRole = 'inspector'
-
-        const { data: userPermission } = await supabase
-          .from('user_permissions')
-          .select('allowed_pages')
-          .eq('user_id', profile.id)
-          .maybeSingle()
-
-        const normalizedOverride = normalizeNavigationKeys(userPermission?.allowed_pages)
-        if (normalizedOverride.length > 0) {
-          allowedPagesOverride = normalizedOverride
-        }
+        const { orgLevelToRole } = await import('./lib/roles')
+        activeRole = orgLevelToRole(profile.level ?? profile.org_level ?? 7, profile.job_title)
       }
     } catch {
       activeRole = 'inspector'
@@ -126,7 +109,8 @@ export async function middleware(req: NextRequest) {
 function canUserOpenPath(role: UserRole, pathname: string, allowedPagesOverride?: readonly NavigationKey[] | null) {
   if (pathname === '/dashboard') return true
   if (pathname === '/dashboard/missions/new' || pathname.startsWith('/dashboard/missions/new/')) {
-    return role !== 'financial' && role !== 'inspector'
+    // المستويات 1-6 يمكنها إنشاء مأموريات؛ المستوى 7 (ميداني) لا ينشئ
+    return role !== 'inspector'
   }
 
   const routeKey = Object.entries(routePrefixes)

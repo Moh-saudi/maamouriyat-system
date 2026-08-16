@@ -41,58 +41,65 @@ export default async function UsersPage() {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('level')
+    .select('id, level, org_level, sector_id, organization_id, job_title')
     .eq('auth_id', user.id)
-    .maybeSingle<{ level: number }>()
+    .maybeSingle<{ id: string; level: number; org_level: number; sector_id: string | null; organization_id: string | null; job_title: string | null }>()
 
-  if (!profile || profile.level > 4) {
+  const callerLevel = profile?.level ?? profile?.org_level ?? 7
+
+  if (!profile || callerLevel > 4) {
     redirect('/dashboard')
   }
 
-  // Attempt to load facilities dynamically
+  const { orgLevelToRole } = await import('@/lib/roles')
+  const currentRole = orgLevelToRole(callerLevel, profile?.job_title)
+  const callerSectorId = profile?.sector_id || profile?.organization_id
+
+  // 1. Load active facilities
   let liveFacilities: any[] = []
   try {
     const { data: facData } = await supabase
       .from('facilities')
-      .select('id, name, address')
+      .select('id, name, facility_type, governorate, health_admin, village_city, organization_id, sector_id')
       .eq('is_active', true)
       .order('name')
+      .limit(4000)
     liveFacilities = facData ?? []
   } catch {
     liveFacilities = []
   }
 
-  // Combine live/local physical health facilities with real ministry departments
-  const baseFacilities = liveFacilities.length ? liveFacilities : realEgyptianMedicalFacilities
-  const facilities = [
-    ...realEgyptianMinistryUnits.map(unit => ({
-      id: unit.id,
-      name: `ديوان عام الوزارة - ${unit.name}`,
-      address: unit.level || 'ديوان عام الوزارة'
-    })),
-    ...baseFacilities.map(fac => ({
-      id: fac.id,
-      name: fac.name,
-      address: fac.address || ''
-    }))
-  ]
+  // 2. Load active organizations (Ministry, Sectors, Directorates, Health Administrations)
+  let liveOrganizations: any[] = []
+  try {
+    const { data: orgData } = await supabase
+      .from('organizations')
+      .select('id, name, level, level_label, governorate, health_admin, sector_id, code')
+      .eq('is_active', true)
+      .order('level')
+      .order('name')
+    liveOrganizations = orgData ?? []
+  } catch {
+    liveOrganizations = []
+  }
 
-  // Safe querying with dynamic column checks
+  const facilities = liveFacilities.length ? liveFacilities : realEgyptianMedicalFacilities
+
+  // 3. Safe querying users with full organizational and facility links
   let usersResult: any = await supabase
     .from('users')
-    .select('id, full_name, job_title, level, department, is_active, email, phone, facility_id, financial_code, created_at, org_unit_id')
+    .select('id, full_name, job_title, level, org_level, department, is_active, email, phone, facility_id, financial_code, created_at, organization_id, sector_id, org_unit_id')
     .order('level')
     .order('full_name')
-    .limit(300)
+    .limit(500)
 
   if (usersResult.error && usersResult.error.code === '42703') {
-    // Column undefined, fall back to safe core columns
     usersResult = await supabase
       .from('users')
       .select('id, full_name, job_title, level, department, is_active, created_at')
       .order('level')
       .order('full_name')
-      .limit(300)
+      .limit(500)
   }
 
   // Fetch all missions to aggregate real counts per user
@@ -129,7 +136,7 @@ export default async function UsersPage() {
     })
   }
 
-  const users = (usersResult.data ?? []).map((u: any) => {
+  let allUsers = (usersResult.data ?? []).map((u: any) => {
     const stats = missionStatsMap[u.id] || { assigned: 0, completed: 0, created: 0, approved: 0 }
     return {
       ...u,
@@ -140,9 +147,35 @@ export default async function UsersPage() {
     }
   }) as UserRow[]
 
+  // Strict Sector Scoping: Level 2..4 only see users and organizations belonging to their sector
+  let scopedUsers = allUsers
+  let scopedOrganizations = liveOrganizations
+  let scopedFacilities = facilities
+
+  if (callerLevel > 1 && callerSectorId) {
+    scopedUsers = allUsers.filter((u: any) => 
+      u.sector_id === callerSectorId || 
+      u.organization_id === callerSectorId || 
+      u.id === profile?.id
+    )
+    scopedOrganizations = liveOrganizations.filter((o: any) => 
+      o.sector_id === callerSectorId || 
+      o.id === callerSectorId
+    )
+    scopedFacilities = facilities.filter((f: any) => 
+      f.sector_id === callerSectorId || 
+      f.organization_id === callerSectorId
+    )
+  }
+
   return (
-    <DashboardShell view="users">
-      <UserPortal initialUsers={users} facilities={facilities} currentUserLevel={profile?.level ?? 7} />
+    <DashboardShell role={currentRole} view="users">
+      <UserPortal 
+        initialUsers={scopedUsers} 
+        facilities={scopedFacilities} 
+        organizations={scopedOrganizations} 
+        currentUserLevel={callerLevel} 
+      />
     </DashboardShell>
   )
 }

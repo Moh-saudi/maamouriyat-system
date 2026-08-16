@@ -45,27 +45,44 @@ export default async function ViolationsPage() {
       description,
       priority,
       status,
-      assigned_to_dept,
-      violation_photo_url,
+      assigned_to_org_id,
+      correction_photo_url,
       correction_deadline,
       created_at,
       facilities:facility_id(name),
-      missions:mission_id(id,serial_number)
+      missions:mission_id(id,serial_number),
+      organizations:assigned_to_org_id(name)
     `)
     .order('created_at', { ascending: false })
     .limit(200)
 
-  const violations = ((data ?? []) as unknown as ViolationRow[]).map((row) => ({
-    ...row,
+  const violations: ViolationRow[] = ((data ?? []) as any[]).map((row) => ({
+    id: row.id,
+    description: row.description || 'مخالفة مرصودة بالمرور',
+    priority: row.priority,
+    status: row.status,
+    assigned_to_dept: row.organizations?.name || null,
+    violation_photo_url: row.correction_photo_url || null,
+    correction_deadline: row.correction_deadline,
+    created_at: row.created_at,
     facilities: normalizeRelation(row.facilities),
     missions: normalizeRelation(row.missions),
   }))
 
+  const { data: profile } = await supabase
+    .from('users')
+    .select('level, org_level')
+    .eq('auth_id', user.id)
+    .maybeSingle()
+
+  const { orgLevelToRole } = await import('@/lib/roles')
+  const role = orgLevelToRole(profile?.level ?? profile?.org_level ?? 7)
+
   return (
-    <DashboardShell view="violations">
+    <DashboardShell role={role} view="violations">
       <main style={{ display: 'grid', gap: '20px' }}>
         <header style={{ borderBottom: '1px solid #cfdcde', paddingBottom: '16px', marginBottom: '10px' }}>
-          <p style={{ margin: 0, fontSize: '13px', color: '#78909c', fontWeight: 'bold' }}>قطاع الطب العلاجي - وزارة الصحة المصرية</p>
+          <p style={{ margin: 0, fontSize: '13px', color: '#78909c', fontWeight: 'bold' }}>وزارة الصحة والسكان - جمهورية مصر العربية</p>
           <h1 style={{ margin: '4px 0 0', fontSize: '26px', color: '#102027', fontWeight: '800' }}>سجل المخالفات وتوجيهات التصحيح الميداني</h1>
         </header>
 

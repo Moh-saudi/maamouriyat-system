@@ -3,893 +3,1392 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { DashboardShell } from '@/app/system-ui'
-import { defaultCorrectionUnits } from '@/lib/correction-units'
-import { Plus, Trash2, Save, FileText, Check, ShieldAlert, Layers, Edit2 } from 'lucide-react'
+import {
+  ClipboardList,
+  Search,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  Layers,
+  CheckCircle2,
+  AlertCircle,
+  HelpCircle,
+  Sparkles,
+  FileText,
+  ShieldCheck,
+  Filter,
+  RefreshCw,
+  Sliders,
+  CheckSquare,
+  Building2,
+  Calendar,
+  UserCheck,
+  Lock,
+  Unlock,
+  ArrowRight,
+  ChevronLeft,
+  ExternalLink,
+  BookOpen
+} from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 
-type CustomItem = {
+type CriterionItem = {
   id: string
-  text: string
-  answer_type: 'yes_no' | 'dropdown' | 'checkbox' | 'text_short' | 'text_long' | 'rating_10' | 'rating_5' | 'rating_stars'
-  options?: string // Comma-separated list for select or multi-select
-  is_required: boolean
-  violation_priority: 'low' | 'medium' | 'high' | 'critical'
-  correction_dept: string
+  section_id: string
+  template_id: string
+  criterion_text: string
+  guidance?: string | null
+  score_type: string
+  score_0_label: string
+  score_mid_label?: string | null
+  score_mid_value?: number | null
+  score_max_label: string
+  score_max_value: number
+  requires_photo?: boolean
+  requires_note?: boolean
+  sort_order: number
+  is_base: boolean
+  is_active: boolean
 }
 
-type CustomSection = {
+type SectionItem = {
   id: string
-  name: string // اسم استمارة المرور
-  dept_name: string // اسم الإدارة التابعة لها الاستمارة (مثال: إدارة الصيدلة)
-  checklist_type: string // نوع الاستمارة (دوري، مفاجئ، إلخ)
-  org_unit_id?: string | null
-  items: CustomItem[]
+  template_id: string
+  name: string
+  section_number: number
+  sort_order: number
+  max_score?: number
+  is_base: boolean
+  is_active: boolean
+  criteria: CriterionItem[]
+}
+
+type TemplateItem = {
+  id: string
+  name: string
+  version: string
+  description?: string
+  applicable_sectors?: string[] | null
+  is_base: boolean
+  is_active: boolean
+  created_at?: string
+  updated_at?: string
+  updated_by_name?: string
+  sections: SectionItem[]
+}
+
+type SectorItem = {
+  id: string
+  name: string
+  level: number
+}
+
+type UserContext = {
+  level: number
+  roleTitle: string
+  orgName: string
+  sectorId: string | null
+  sectorName: string
+  canEdit: boolean
+  canCustomize: boolean
 }
 
 export default function ChecklistsPage() {
   const router = useRouter()
   const supabase = createBrowserSupabaseClient()
-  const [userRole, setUserRole] = useState<any>('inspector')
-  const [hasChecklistOverride, setHasChecklistOverride] = useState(false)
-  const [checklists, setChecklists] = useState<CustomSection[]>([])
-  const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null)
   
-  // New Checklist Form States
-  const [checklistName, setChecklistName] = useState('')
-  const [deptName, setDeptName] = useState('إدارة مكافحة العدوى')
-  const [checklistType, setChecklistType] = useState('دوري')
+  const [loading, setLoading] = useState(true)
+  const [templates, setTemplates] = useState<TemplateItem[]>([])
+  const [sectors, setSectors] = useState<SectorItem[]>([])
+  const [userContext, setUserContext] = useState<UserContext>({
+    level: 1,
+    roleTitle: 'المشرف العام (ديوان عام الوزارة)',
+    orgName: 'وزارة الصحة والسكان',
+    sectorId: null,
+    sectorName: 'كافة قطاعات الوزارة',
+    canEdit: true,
+    canCustomize: true
+  })
 
-  const [orgUnits, setOrgUnits] = useState<any[]>([])
-  const [selectedOrgUnitId, setSelectedOrgUnitId] = useState<string>('')
-  const [userOrgUnitId, setUserOrgUnitId] = useState<string | null>(null)
-  const [userDeptText, setUserDeptText] = useState<string | null>(null)
-
-  // Memoized filter for allowed organizational units during checklist creation
-  const allowedOrgUnits = useMemo(() => {
-    // superadmin and techadmin see all units
-    if (userRole === 'superadmin' || userRole === 'techadmin') {
-      return orgUnits
-    }
-
-    let matchedUnitId = userOrgUnitId
-
-    // Robust Fallback: if org_unit_id is null but department text is set, resolve matching unit by name
-    if (!matchedUnitId && userDeptText) {
-      const cleanDept = userDeptText.replace('ديوان عام الوزارة - ', '').trim()
-      const matched = orgUnits.find(u => u.name.includes(cleanDept) || cleanDept.includes(u.name))
-      if (matched) {
-        matchedUnitId = matched.id
-      }
-    }
-
-    if (!matchedUnitId) {
-      return orgUnits
-    }
-
-    // Filter to own unit + any subordinate child units recursively
-    const ownUnit = orgUnits.find(u => u.id === matchedUnitId)
-    const result = ownUnit ? [ownUnit] : []
-
-    const getSubordinates = (parentId: string) => {
-      const children = orgUnits.filter(u => u.parent_id === parentId)
-      children.forEach(child => {
-        result.push(child)
-        getSubordinates(child.id)
-      })
-    }
-
-    getSubordinates(matchedUnitId)
-    return result
-  }, [orgUnits, userRole, userOrgUnitId, userDeptText])
-
-  // Pre-select own unit if user is not superadmin/techadmin
-  useEffect(() => {
-    if (userRole !== 'superadmin' && userRole !== 'techadmin' && allowedOrgUnits.length > 0) {
-      if (!selectedOrgUnitId) {
-        const ownUnit = allowedOrgUnits[0]
-        setSelectedOrgUnitId(ownUnit.id)
-        setDeptName(ownUnit.name)
-      }
-    }
-  }, [allowedOrgUnits, userRole, selectedOrgUnitId])
+  const [selectedSectorId, setSelectedSectorId] = useState<string>('all')
   
-  const [items, setItems] = useState<CustomItem[]>([
-    {
-      id: `item-cust-${Date.now()}-1`,
-      text: 'هل تلتزم المنشأة ببروتوكولات مكافحة العدوى المقررة؟',
-      answer_type: 'yes_no',
-      options: '',
-      is_required: true,
-      violation_priority: 'medium',
-      correction_dept: 'إدارة مكافحة العدوى',
-    }
-  ])
+  // Navigation State: null = Master Templates View, string = Detail Template View
+  const [openedTemplateId, setOpenedTemplateId] = useState<string | null>(null)
   
-  const [success, setSuccess] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  // Search and filter inside opened template
+  const [searchQuery, setSearchQuery] = useState('')
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
+  const [selectedSectionFilter, setSelectedSectionFilter] = useState<string>('all')
 
-  // Fetch checklists from database
-  const loadData = useCallback(async () => {
-    if (!supabase) return
+  // Modal: Create New Template
+  const [showCreateTemplateModal, setShowCreateTemplateModal] = useState(false)
+  const [newTemplateName, setNewTemplateName] = useState('')
+  const [newTemplateSectorId, setNewTemplateSectorId] = useState('')
+  const [newTemplateDescription, setNewTemplateDescription] = useState('')
+  const [savingTemplate, setSavingTemplate] = useState(false)
 
+  // Modal: Add Criterion inside template
+  const [showAddCriterionModal, setShowAddCriterionModal] = useState(false)
+  const [targetSectionId, setTargetSectionId] = useState('')
+  const [newCriterionText, setNewCriterionText] = useState('')
+  const [newScoreMaxValue, setNewScoreMaxValue] = useState(2)
+  const [savingCriterion, setSavingCriterion] = useState(false)
+
+  // Modal: Add Section inside template
+  const [showAddSectionModal, setShowAddSectionModal] = useState(false)
+  const [newSectionName, setNewSectionName] = useState('')
+  const [savingSection, setSavingSection] = useState(false)
+
+  // Load Data
+  const loadTemplates = useCallback(async () => {
+    setLoading(true)
     try {
-      // Fetch organizational units
-      const { data: units } = await supabase
-        .from('organizational_units')
-        .select('id, name, parent_id, level')
-        .order('sort_order', { ascending: true })
-      
-      if (units) {
-        setOrgUnits(units)
-      }
-
-      // 1. Fetch user profile level to establish role permissions
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('id, level, org_unit_id, department')
-          .eq('auth_id', user.id)
-          .maybeSingle()
-        
-        if (profile) {
-          const level = profile.level ?? 7
-          let activeRole: any = 'inspector'
-          if (level === 0) activeRole = 'techadmin'
-          else if (level === 1) activeRole = 'superadmin'
-          else if (level === 2) activeRole = 'central'
-          else if (level === 3) activeRole = 'generalmanager'
-          else if (level === 4) activeRole = 'creator'
-          else if (level === 5) activeRole = 'financial'
-          setUserRole(activeRole)
-          setUserOrgUnitId(profile.org_unit_id || null)
-          setUserDeptText(profile.department || null)
-
-          const { data: userPermission } = await supabase
-            .from('user_permissions')
-            .select('allowed_pages')
-            .eq('user_id', profile.id)
-            .maybeSingle()
-
-          setHasChecklistOverride(Array.isArray(userPermission?.allowed_pages) && userPermission.allowed_pages.includes('checklists'))
+      const res = await fetch('/api/admin/checklists')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.templates && data.templates.length > 0) {
+          setTemplates(data.templates)
         }
-      }
-
-      // 2. Fetch active checklist templates from our secure server API
-      const apiRes = await fetch('/api/admin/checklists')
-      if (!apiRes.ok) {
-        console.error('Error fetching checklists from server API')
-        return
-      }
-      const dbChecklists = await apiRes.json()
-
-      if (dbChecklists) {
-        const mapped: CustomSection[] = dbChecklists.map((chk: any) => {
-          const [dept, type] = (chk.description || '').split('|')
-          const allItems: CustomItem[] = []
-          
-          chk.checklist_sections?.forEach((section: any) => {
-            section.checklist_items?.forEach((item: any) => {
-              allItems.push({
-                id: item.id,
-                text: item.text,
-                answer_type: (item.answer_type || 'yes_no') as any,
-                is_required: item.is_required ?? true,
-                violation_priority: (item.violation_priority || 'medium') as any,
-                correction_dept: item.correction_dept || ''
-              })
-            })
-          })
-
-          return {
-            id: chk.id,
-            name: chk.name,
-            dept_name: dept || 'المرور العام',
-            checklist_type: type || 'دوري',
-            org_unit_id: chk.org_unit_id || null,
-            items: allItems
+        if (data.sectors) {
+          setSectors(data.sectors)
+          if (data.sectors.length > 0 && !newTemplateSectorId) {
+            setNewTemplateSectorId(data.sectors[0].id)
           }
-        })
-        setChecklists(mapped)
+        }
+        if (data.userContext) {
+          setUserContext(data.userContext)
+          if (data.userContext.sectorId) {
+            setSelectedSectorId(data.userContext.sectorId)
+          }
+        }
       }
     } catch (err) {
-      console.error('Checklist loading failure:', err)
-    }
-  }, [supabase])
-
-  // Load active database role and custom checklists
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  // Check if current user has permission to design checklists
-  const hasPermission = useMemo(() => {
-    return hasChecklistOverride || ['superadmin', 'central', 'generalmanager', 'creator', 'techadmin'].includes(userRole)
-  }, [hasChecklistOverride, userRole])
-
-  function handleAddItem() {
-    setItems((current) => [
-      ...current,
-      {
-        id: `item-cust-${Date.now()}-${current.length + 1}`,
-        text: '',
-        answer_type: 'yes_no',
-        options: '',
-        is_required: true,
-        violation_priority: 'medium',
-        correction_dept: deptName,
-      }
-    ])
-  }
-
-  function handleRemoveItem(index: number) {
-    if (items.length <= 1) {
-      setError('يجب أن تحتوي استمارة المرور على سؤال واحد على الأقل.')
-      setTimeout(() => setError(''), 5000)
-      return
-    }
-    setItems((current) => current.filter((_, i) => i !== index))
-  }
-
-  function handleItemChange(index: number, key: keyof CustomItem, value: any) {
-    setItems((current) => {
-      const next = [...current]
-      next[index] = { ...next[index], [key]: value }
-      return next
-    })
-  }
-
-  async function handleDeleteChecklist(id: string) {
-    setError('')
-    setSuccess('')
-
-    try {
-      const res = await fetch(`/api/admin/checklists?id=${encodeURIComponent(id)}`, {
-        method: 'DELETE'
-      })
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}))
-        setError(`فشل إلغاء نموذج الاستمارة: ${errData.error || 'خطأ غير معروف'}`)
-        return
-      }
-
-      setSuccess('تم حذف نموذج الاستمارة بنجاح.')
-      loadData()
-      setTimeout(() => setSuccess(''), 4000)
-      router.refresh()
-    } catch (err: any) {
-      setError(`خطأ أثناء الحذف: ${err.message || err}`)
-    }
-  }
-
-  function startEditing(chk: CustomSection) {
-    setEditingChecklistId(chk.id)
-    setChecklistName(chk.name)
-    setDeptName(chk.dept_name)
-    setChecklistType(chk.checklist_type)
-    setSelectedOrgUnitId(chk.org_unit_id || '')
-    setItems(chk.items)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
-  function cancelEditing() {
-    setEditingChecklistId(null)
-    setChecklistName('')
-    setSelectedOrgUnitId('')
-    setItems([
-      {
-        id: `item-cust-${Date.now()}-1`,
-        text: '',
-        answer_type: 'yes_no',
-        options: '',
-        is_required: true,
-        violation_priority: 'medium',
-        correction_dept: deptName,
-      }
-    ])
-  }
-
-  async function handleSaveChecklist(event: React.FormEvent) {
-    event.preventDefault()
-    setError('')
-    setSuccess('')
-
-    const title = checklistName.trim()
-    const dept = deptName.trim()
-    const type = checklistType.trim()
-
-    if (!title) {
-      setError('يرجى كتابة اسم استمارة المرور.')
-      return
-    }
-
-    if (!dept) {
-      setError('يرجى تحديد أو كتابة اسم الإدارة المالكة للاستمارة.')
-      return
-    }
-
-    const hasEmptyText = items.some((item) => !item.text.trim())
-    if (hasEmptyText) {
-      setError('يرجى كتابة نص الأسئلة لجميع بنود الفحص.')
-      return
-    }
-
-    if (!supabase) {
-      setError('إعداد Supabase غير مكتمل.')
-      return
-    }
-
-    setLoading(true)
-
-    try {
-      if (editingChecklistId) {
-        // Update existing checklist via our secure server API
-        const res = await fetch('/api/admin/checklists', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            id: editingChecklistId,
-            title,
-            dept,
-            type,
-            org_unit_id: selectedOrgUnitId || null,
-            items
-          })
-        })
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}))
-          setError(`فشل تعديل نموذج الاستمارة: ${errData.error || 'خطأ غير معروف'}`)
-          setLoading(false)
-          return
-        }
-
-        setSuccess(`تم تعديل وحفظ استمارة المرور "${title}" بنجاح!`)
-        cancelEditing()
-        loadData()
-      } else {
-        // Create new checklist via our secure server API
-        const res = await fetch('/api/admin/checklists', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            title,
-            dept,
-            type,
-            org_unit_id: selectedOrgUnitId || null,
-            items
-          })
-        })
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}))
-          setError(`فشل حفظ نموذج الاستمارة: ${errData.error || 'خطأ غير معروف'}`)
-          setLoading(false)
-          return
-        }
-
-        setSuccess(`تم إنشاء وتعميم استمارة المرور الجديدة "${title}" بنجاح! ستظهر فوراً للمفتشين عند تنفيذ مأمورياتهم الموجهة للقسم المحدد.`)
-        
-        // Reset Form
-        setChecklistName('')
-        setSelectedOrgUnitId('')
-        setItems([
-          {
-            id: `item-cust-${Date.now()}-1`,
-            text: '',
-            answer_type: 'yes_no',
-            options: '',
-            is_required: true,
-            violation_priority: 'medium',
-            correction_dept: dept,
-          }
-        ])
-
-        loadData()
-      }
-      setTimeout(() => setSuccess(''), 8000)
-      router.refresh()
-    } catch (err: any) {
-      setError(`خطأ أثناء الحفظ في قاعدة البيانات: ${err.message || err}`)
+      console.error('Error loading checklist templates:', err)
     } finally {
       setLoading(false)
     }
+  }, [newTemplateSectorId])
+
+  useEffect(() => {
+    loadTemplates()
+  }, [loadTemplates])
+
+  // The template currently opened in detail view
+  const activeTemplate = useMemo(() => {
+    if (!openedTemplateId) return null
+    return templates.find((t) => t.id === openedTemplateId) || null
+  }, [templates, openedTemplateId])
+
+  const sections = activeTemplate?.sections || []
+
+  // Filter templates list on Master view
+  const filteredTemplates = useMemo(() => {
+    if (selectedSectorId === 'all') return templates
+    return templates.filter((t) => {
+      if (!t.applicable_sectors || t.applicable_sectors.length === 0) return true
+      return t.applicable_sectors.includes(selectedSectorId)
+    })
+  }, [templates, selectedSectorId])
+
+  // Filter sections & criteria inside the opened template
+  const filteredSections = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return sections
+      .map((section) => {
+        if (selectedSectionFilter !== 'all' && section.id !== selectedSectionFilter) {
+          return null
+        }
+
+        const sectionMatches = section.name.toLowerCase().includes(q)
+        const matchingCriteria = (section.criteria || []).filter((c) => {
+          if (!q) return true
+          return (
+            c.criterion_text.toLowerCase().includes(q) ||
+            (c.guidance || '').toLowerCase().includes(q) ||
+            sectionMatches
+          )
+        })
+
+        if (!q || sectionMatches || matchingCriteria.length > 0) {
+          return {
+            ...section,
+            criteria: q ? matchingCriteria : section.criteria
+          }
+        }
+        return null
+      })
+      .filter(Boolean) as SectionItem[]
+  }, [sections, searchQuery, selectedSectionFilter])
+
+  // Toggle expand section
+  const toggleSection = (id: string) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [id]: !prev[id]
+    }))
   }
 
-  // Filter checklists based on user role and department
-  const filteredChecklists = useMemo(() => {
-    // Only superadmin and techadmin see all checklists
-    if (userRole === 'superadmin' || userRole === 'techadmin') {
-      return checklists
-    }
-    
-    // Regular users (inspectors, creators, financial) see checklists matching their allowed org units recursively,
-    // or checklists with no org_unit_id and no specific department (general checklists).
-    const allowedIds = new Set(allowedOrgUnits.map((u) => u.id))
-    return checklists.filter((chk) => {
-      // 1. Match by org_unit_id if exists
-      if (chk.org_unit_id) {
-        return allowedIds.has(chk.org_unit_id)
-      }
+  const expandAll = () => {
+    const next: Record<string, boolean> = {}
+    sections.forEach((s) => {
+      next[s.id] = true
+    })
+    setExpandedSections(next)
+  }
 
-      // 2. Match general checklists
-      if (!chk.dept_name || chk.dept_name === 'المرور العام' || chk.dept_name === 'عام') {
-        return true
-      }
+  const collapseAll = () => {
+    setExpandedSections({})
+  }
 
-      // 3. Fallback: Match by department name text comparison
-      const cleanChkDept = chk.dept_name.replace('ديوان عام الوزارة - ', '').trim()
-      const matchesName = allowedOrgUnits.some(unit => {
-        const cleanUnitName = unit.name.replace('ديوان عام الوزارة - ', '').trim()
-        return cleanChkDept.includes(cleanUnitName) || cleanUnitName.includes(cleanChkDept)
+  // Create new Template
+  const handleCreateTemplate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newTemplateName.trim()) return
+
+    setSavingTemplate(true)
+    try {
+      const res = await fetch('/api/admin/checklists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create_template',
+          name: newTemplateName.trim(),
+          applicable_sectors: newTemplateSectorId ? [newTemplateSectorId] : null,
+          description: newTemplateDescription.trim(),
+          version: '1.0'
+        })
       })
 
-      return matchesName
-    })
-  }, [checklists, userRole, allowedOrgUnits])
+      if (res.ok) {
+        setShowCreateTemplateModal(false)
+        setNewTemplateName('')
+        setNewTemplateDescription('')
+        await loadTemplates()
+      } else {
+        const data = await res.json()
+        alert('حدث خطأ: ' + (data.error || 'فشل إنشاء الاستمارة'))
+      }
+    } catch (err: any) {
+      alert('خطأ في الاتصال: ' + err.message)
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
 
-  if (!hasPermission) {
-    return (
-      <DashboardShell role={userRole} view="checklists">
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', padding: '24px' }}>
-          <div style={{ background: '#fff1f1', color: '#a02f2f', padding: '24px', borderRadius: '16px', border: '1px solid #f5c2c2', maxWidth: '500px', boxShadow: '0 4px 12px rgba(160, 47, 47, 0.08)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-            <ShieldAlert size={48} style={{ color: '#d32f2f' }} />
-            <h2 style={{ fontSize: '1.4rem', margin: 0, fontWeight: 'bold' }}>غير مصرح بالدخول</h2>
-            <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#6d7f85', margin: 0 }}>
-              عذراً، تصميم وتعديل استمارات ونماذج المرور التفتيشية هو صلاحية حصرية لـ **المدير العام (General Manager)** أو **الموظف المختص المعتمد (Specialist Staff)** بديوان عام الوزارة لضمان وحدة استمارات التقييم ونمطيتها عبر جميع المنشآت الصحية.
-            </p>
-            <span style={{ fontSize: '12px', background: '#fce8e8', color: '#c62828', padding: '4px 12px', borderRadius: '20px', fontWeight: 'bold' }}>
-              دورك الحالي: {userRole === 'inspector' ? 'قائم بالمرور (مفتش ميداني)' : userRole}
-            </span>
-          </div>
-        </div>
-      </DashboardShell>
-    )
+  // Add custom criterion
+  const handleSaveCriterion = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newCriterionText.trim() || !targetSectionId || !activeTemplate) return
+
+    setSavingCriterion(true)
+    try {
+      const res = await fetch('/api/admin/checklists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_criterion',
+          template_id: activeTemplate.id,
+          section_id: targetSectionId,
+          criterion_text: newCriterionText.trim(),
+          score_max_value: Number(newScoreMaxValue) || 2
+        })
+      })
+
+      if (res.ok) {
+        setShowAddCriterionModal(false)
+        setNewCriterionText('')
+        await loadTemplates()
+      } else {
+        const data = await res.json()
+        alert('حدث خطأ: ' + (data.error || 'فشل حفظ المعيار'))
+      }
+    } catch (err: any) {
+      alert('خطأ في الاتصال: ' + err.message)
+    } finally {
+      setSavingCriterion(false)
+    }
+  }
+
+  // Add custom section
+  const handleSaveSection = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newSectionName.trim() || !activeTemplate) return
+
+    setSavingSection(true)
+    try {
+      const res = await fetch('/api/admin/checklists', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_section',
+          template_id: activeTemplate.id,
+          name: newSectionName.trim(),
+          section_number: sections.length + 1
+        })
+      })
+
+      if (res.ok) {
+        setShowAddSectionModal(false)
+        setNewSectionName('')
+        await loadTemplates()
+      } else {
+        const data = await res.json()
+        alert('حدث خطأ: ' + (data.error || 'فشل إضافة القسم'))
+      }
+    } catch (err: any) {
+      alert('خطأ في الاتصال: ' + err.message)
+    } finally {
+      setSavingSection(false)
+    }
   }
 
   return (
-    <DashboardShell role={userRole} view="checklists">
-      <div className="stack" style={{ display: 'grid', gap: '20px', padding: '16px', direction: 'rtl' }}>
+    <DashboardShell>
+      <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         
+        {/* ════════════════════════════════════════════════════════════════════
+            LEVEL 1: MASTER TEMPLATES DIRECTORY (قائمة استمارات المرور)
+        ════════════════════════════════════════════════════════════════════ */}
+        {!activeTemplate && (
+          <>
+            {/* Top Header Banner */}
+            <div style={{
+              background: 'linear-gradient(135deg, #0e4b5a 0%, #16725a 50%, #1abc9c 100%)',
+              borderRadius: '16px',
+              padding: '24px 28px',
+              color: 'white',
+              boxShadow: '0 8px 24px rgba(22, 114, 90, 0.2)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px'
+            }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.2)', padding: '6px', borderRadius: '10px' }}>
+                    <ClipboardList size={22} />
+                  </div>
+                  <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800' }}>
+                    دليل استمارات المرور الميداني للقطاعات الصحية
+                  </h1>
+                </div>
+                <p style={{ margin: 0, fontSize: '13px', opacity: 0.9, lineHeight: '1.6' }}>
+                  المنظومة المركزية لإدارة استمارات ومعايير التفتيش والمطابقة المعتمدة بوزارة الصحة والسكان
+                </p>
+              </div>
 
-
-        {success && <div className="alert success-box" style={{ background: '#eaf8f3', color: '#16725a', padding: '16px', borderRadius: '12px', fontWeight: 'bold', border: '1px solid #c7ebd8', boxShadow: '0 2px 8px rgba(22, 114, 90, 0.05)' }}>{success}</div>}
-        {error && <div className="alert error-box" style={{ background: '#fff1f1', color: '#a02f2f', padding: '16px', borderRadius: '12px', border: '1px solid #f5c2c2', fontWeight: 'bold' }}>{error}</div>}
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
-          
-          {/* Design Section Form */}
-          <form onSubmit={handleSaveChecklist} style={{ background: 'white', padding: '28px', borderRadius: '16px', border: '1px solid var(--line)', boxShadow: 'var(--shadow)', display: 'grid', gap: '20px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.3rem', color: '#102027', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '2px solid #eef6f6', paddingBottom: '12px' }}>
-              <FileText size={22} style={{ color: editingChecklistId ? '#1976d2' : 'var(--brand)' }} />
-              {editingChecklistId ? `تعديل استمارة المرور المحفوظة: ${checklistName}` : 'تصميم وتعميم استمارة فحص تخصصية جديدة'}
-            </h3>
-
-            {/* Checklist Core Info */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', background: '#f8fbfb', padding: '18px', borderRadius: '12px', border: '1px solid #cfdcde' }}>
-              
-              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#42555d', fontWeight: 'bold' }}>
-                اسم استمارة المرور التفتيشية *
-                <input
-                  onChange={(event) => setChecklistName(event.target.value)}
-                  placeholder="مثال: استمارة تدقيق جودة وحفظ الطعوم والأمصال"
-                  required
+              {/* Prominent "+ إنشاء استمارة جديدة" Button */}
+              {userContext.canEdit && (
+                <button
+                  onClick={() => setShowCreateTemplateModal(true)}
                   style={{
                     background: 'white',
-                    border: '1px solid #cfdcde',
+                    color: '#16725a',
+                    border: 0,
+                    borderRadius: '10px',
+                    padding: '10px 20px',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    transition: 'transform 0.15s'
+                  }}
+                  type="button"
+                >
+                  <Plus size={18} />
+                  إنشاء استمارة مرور جديدة ➕
+                </button>
+              )}
+            </div>
+
+            {/* Sector Tabs (For Level 1 / Level 2) */}
+            {userContext.level <= 2 && sectors.length > 0 && (
+              <div style={{
+                background: 'white',
+                borderRadius: '14px',
+                border: '1px solid #e2ecee',
+                padding: '12px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+              }}>
+                <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#546e7a', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Building2 size={15} style={{ color: 'var(--brand)' }} />
+                  تصفية بحسب القطاع:
+                </span>
+                <button
+                  onClick={() => setSelectedSectorId('all')}
+                  style={{
+                    background: selectedSectorId === 'all' ? 'var(--brand)' : '#f1f5f7',
+                    color: selectedSectorId === 'all' ? 'white' : '#37474f',
+                    border: 0,
+                    borderRadius: '20px',
+                    padding: '5px 14px',
+                    fontSize: '11.5px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s'
+                  }}
+                  type="button"
+                >
+                  كافة القطاعات ({templates.length})
+                </button>
+                {sectors.map((sec) => (
+                  <button
+                    key={sec.id}
+                    onClick={() => setSelectedSectorId(sec.id)}
+                    style={{
+                      background: selectedSectorId === sec.id ? 'var(--brand)' : '#f1f5f7',
+                      color: selectedSectorId === sec.id ? 'white' : '#37474f',
+                      border: 0,
+                      borderRadius: '20px',
+                      padding: '5px 14px',
+                      fontSize: '11.5px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s'
+                    }}
+                    type="button"
+                  >
+                    {sec.name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Templates Cards Grid */}
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '60px', color: '#78909c' }}>
+                <RefreshCw size={32} className="animate-spin" style={{ margin: '0 auto 12px', color: 'var(--brand)' }} />
+                <div>جاري تحميل دليل الاستمارات الرسمية...</div>
+              </div>
+            ) : filteredTemplates.length === 0 ? (
+              <div style={{
+                background: 'white',
+                borderRadius: '14px',
+                padding: '40px',
+                textAlign: 'center',
+                color: '#78909c',
+                border: '1px solid #e2ecee'
+              }}>
+                <AlertCircle size={36} style={{ color: '#f39c12', margin: '0 auto 10px' }} />
+                <strong>لا توجد استمارات مسجلة لهذا القطاع حالياً</strong>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '20px' }}>
+                {filteredTemplates.map((template) => {
+                  const secCount = template.sections?.length || 0
+                  const critCount = template.sections?.reduce((acc, s) => acc + (s.criteria?.length || 0), 0) || 0
+
+                  return (
+                    <div
+                      key={template.id}
+                      style={{
+                        background: 'white',
+                        borderRadius: '16px',
+                        border: '1px solid #e2ecee',
+                        padding: '24px',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.04)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: '18px',
+                        transition: 'all 0.2s',
+                        position: 'relative'
+                      }}
+                    >
+                      {/* Card Header */}
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', marginBottom: '12px' }}>
+                          <span style={{
+                            background: '#eaf8f3',
+                            color: '#16725a',
+                            border: '1px solid #c2ebd9',
+                            padding: '3px 10px',
+                            borderRadius: '20px',
+                            fontSize: '11px',
+                            fontWeight: 'bold'
+                          }}>
+                            إصدار {template.version || '1.0'}
+                          </span>
+
+                          <span style={{
+                            background: '#f8fbfb',
+                            color: '#546e7a',
+                            border: '1px solid #cfdcde',
+                            padding: '3px 10px',
+                            borderRadius: '20px',
+                            fontSize: '11px',
+                            fontWeight: '600'
+                          }}>
+                            قطاع الرعاية الصحية الأولية
+                          </span>
+                        </div>
+
+                        <h2 style={{ fontSize: '16px', color: '#102027', fontWeight: '800', margin: '0 0 8px', lineHeight: '1.4' }}>
+                          {template.name}
+                        </h2>
+
+                        <p style={{ fontSize: '12.5px', color: '#78909c', margin: 0, lineHeight: '1.5' }}>
+                          {template.description || 'الاستمارة الموحدة الشاملة لتفتيش وتقييم وحدات ومراكز طب الأسرة والمستشفيات التابعة.'}
+                        </p>
+                      </div>
+
+                      {/* Card Metric Grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '10px',
+                        background: '#f8fbfb',
+                        borderRadius: '10px',
+                        padding: '12px 14px',
+                        border: '1px solid #eef3f4'
+                      }}>
+                        <div>
+                          <span style={{ fontSize: '10.5px', color: '#90a4ae', display: 'block' }}>أقسام التفتيش</span>
+                          <strong style={{ fontSize: '15px', color: '#263238' }}>{secCount} قسماً</strong>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '10.5px', color: '#90a4ae', display: 'block' }}>معايير التقييم</span>
+                          <strong style={{ fontSize: '15px', color: '#263238' }}>{critCount} معياراً</strong>
+                        </div>
+                      </div>
+
+                      {/* Audit info */}
+                      <div style={{ fontSize: '11px', color: '#90a4ae', display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #eceff1', paddingTop: '10px' }}>
+                        <span>📅 الاعتماد: 16 أغسطس 2026</span>
+                        <span>✍️ ديوان عام الوزارة</span>
+                      </div>
+
+                      {/* Action Button: Open Template */}
+                      <button
+                        onClick={() => {
+                          setOpenedTemplateId(template.id)
+                          setExpandedSections({})
+                        }}
+                        style={{
+                          background: 'var(--brand)',
+                          color: 'white',
+                          border: 0,
+                          borderRadius: '10px',
+                          padding: '12px 16px',
+                          fontSize: '13px',
+                          fontWeight: 'bold',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 8px rgba(22,160,133,0.2)',
+                          transition: 'background 0.15s'
+                        }}
+                        type="button"
+                      >
+                        <BookOpen size={16} />
+                        <span>فتح واستعراض معايير الاستمارة</span>
+                        <ChevronLeft size={16} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════════
+            LEVEL 2: DETAIL VIEW INSIDE A SPECIFIC TEMPLATE (داخل الاستمارة)
+        ════════════════════════════════════════════════════════════════════ */}
+        {activeTemplate && (
+          <>
+            {/* Back Button & Template Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #0e4b5a 0%, #16725a 50%, #1abc9c 100%)',
+              borderRadius: '16px',
+              padding: '22px 28px',
+              color: 'white',
+              boxShadow: '0 8px 24px rgba(22, 114, 90, 0.2)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '16px'
+            }}>
+              <div>
+                <button
+                  onClick={() => setOpenedTemplateId(null)}
+                  style={{
+                    background: 'rgba(255,255,255,0.2)',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.3)',
                     borderRadius: '8px',
-                    minHeight: '42px',
-                    padding: '0 12px',
-                    fontSize: '14px',
-                    outline: 'none'
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginBottom: '10px'
+                  }}
+                  type="button"
+                >
+                  <ArrowRight size={14} />
+                  العودة إلى قائمة الاستمارات
+                </button>
+
+                <h1 style={{ margin: '0 0 6px', fontSize: '20px', fontWeight: '800' }}>
+                  {activeTemplate.name}
+                </h1>
+                <p style={{ margin: 0, fontSize: '12.5px', opacity: 0.9 }}>
+                  {activeTemplate.description || 'الاستمارة الموحدة المعتمدة لتفتيش وتقييم منشآت الرعاية الصحية الأولية'} • إصدار {activeTemplate.version}
+                </p>
+              </div>
+
+              {/* Action Buttons: Add Section & Add Criterion */}
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {userContext.canEdit && (
+                  <>
+                    <button
+                      onClick={() => setShowAddSectionModal(true)}
+                      style={{
+                        background: 'rgba(255,255,255,0.2)',
+                        border: '1px solid rgba(255,255,255,0.4)',
+                        color: 'white',
+                        padding: '8px 14px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                      type="button"
+                    >
+                      <Plus size={15} />
+                      إضافة قسم جديد
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (sections.length > 0) {
+                          setTargetSectionId(sections[0].id)
+                          setShowAddCriterionModal(true)
+                        }
+                      }}
+                      style={{
+                        background: 'white',
+                        color: '#16725a',
+                        border: 0,
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                      }}
+                      type="button"
+                    >
+                      <Plus size={15} />
+                      إضافة معيار جديد
+                    </button>
+                  </>
+                )}
+
+                <button
+                  onClick={expandAll}
+                  style={{
+                    background: 'rgba(255,255,255,0.15)',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    color: 'white',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    fontSize: '11.5px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                  type="button"
+                >
+                  توسيع الكل ⤢
+                </button>
+                <button
+                  onClick={collapseAll}
+                  style={{
+                    background: 'rgba(255,255,255,0.15)',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    color: 'white',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    fontSize: '11.5px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer'
+                  }}
+                  type="button"
+                >
+                  طي الكل ⤡
+                </button>
+              </div>
+            </div>
+
+            {/* Audit & Modification Metadata Bar */}
+            <div style={{
+              background: 'white',
+              borderRadius: '14px',
+              border: '1px solid #e2ecee',
+              padding: '14px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '12px',
+              fontSize: '12px',
+              color: '#546e7a',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Calendar size={15} style={{ color: 'var(--brand)' }} />
+                  <span><strong>تاريخ الاعتماد:</strong> 16 أغسطس 2026</span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <UserCheck size={15} style={{ color: '#2980b9' }} />
+                  <span><strong>جهة الاعتماد:</strong> ديوان عام الوزارة - قطاع الرعاية الصحية الأولية وتنمية الأسرة</span>
+                </div>
+              </div>
+
+              <div>
+                {userContext.canEdit ? (
+                  <span style={{
+                    background: '#eafaf1',
+                    color: '#27ae60',
+                    border: '1px solid #c2ebd9',
+                    borderRadius: '20px',
+                    padding: '3px 12px',
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <Unlock size={12} />
+                    تملك صلاحية تعديل واعتماد الاستمارة والمعايير
+                  </span>
+                ) : (
+                  <span style={{
+                    background: '#f8fbfb',
+                    color: '#78909c',
+                    border: '1px solid #cfdcde',
+                    borderRadius: '20px',
+                    padding: '3px 12px',
+                    fontSize: '11px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}>
+                    <Lock size={12} />
+                    استمارة معتمدة رسمياً (صلاحية استعراض وتنفيذ فقط)
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Search & Filter Controls inside template */}
+            <div style={{
+              background: 'white',
+              borderRadius: '14px',
+              padding: '14px 20px',
+              border: '1px solid #e2ecee',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '12px',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                background: '#f8fbfb',
+                border: '1px solid #cfdcde',
+                borderRadius: '10px',
+                padding: '0 12px',
+                flex: '1 1 300px',
+                minHeight: '38px'
+              }}>
+                <Search size={15} style={{ color: '#78909c' }} />
+                <input
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="ابحث في نصوص المعايير أو أسماء الأقسام..."
+                  style={{
+                    border: 0,
+                    background: 'transparent',
+                    outline: 'none',
+                    width: '100%',
+                    fontSize: '12.5px',
+                    color: '#263238'
                   }}
                   type="text"
-                  value={checklistName}
+                  value={searchQuery}
                 />
-              </label>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ background: 'transparent', border: 0, color: '#90a4ae', cursor: 'pointer', fontSize: '12px' }}
+                    type="button"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
 
-              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#42555d', fontWeight: 'bold' }}>
-                الإدارة أو القسم المالك للاستمارة (ثابتة للنموذج) *
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Filter size={15} style={{ color: '#78909c' }} />
                 <select
-                  onChange={(event) => {
-                    const unitId = event.target.value
-                    setSelectedOrgUnitId(unitId)
-                    const unit = orgUnits.find(u => u.id === unitId)
-                    if (unit) {
-                      setDeptName(unit.name)
-                    } else {
-                      setDeptName('')
-                    }
-                  }}
-                  required
+                  onChange={(e) => setSelectedSectionFilter(e.target.value)}
                   style={{
-                    background: 'white',
+                    minHeight: '38px',
                     border: '1px solid #cfdcde',
-                    borderRadius: '8px',
-                    minHeight: '42px',
+                    borderRadius: '10px',
                     padding: '0 12px',
-                    fontSize: '14px',
-                    outline: 'none'
+                    fontSize: '12px',
+                    background: '#f8fbfb',
+                    outline: 'none',
+                    color: '#37474f'
                   }}
-                  value={selectedOrgUnitId}
+                  value={selectedSectionFilter}
                 >
-                  <option value="">-- اختر الإدارة التنظيمية --</option>
-                  {allowedOrgUnits.map((unit) => (
-                    <option key={unit.id} value={unit.id}>
-                      {unit.name}
+                  <option value="all">كل الأقسام التفتيشية ({sections.length})</option>
+                  {sections.map((sec) => (
+                    <option key={sec.id} value={sec.id}>
+                      {sec.section_number}. {sec.name} ({sec.criteria?.length || 0} معيار)
                     </option>
                   ))}
                 </select>
-              </label>
-
-              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#42555d', fontWeight: 'bold' }}>
-                نوع المرور / تصنيف الاستمارة *
-                <select
-                  onChange={(event) => setChecklistType(event.target.value)}
-                  style={{
-                    background: 'white',
-                    border: '1px solid #cfdcde',
-                    borderRadius: '8px',
-                    minHeight: '42px',
-                    padding: '0 12px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                  value={checklistType}
-                >
-                  <option value="دوري">مرور دوري اعتيادي</option>
-                  <option value="مفاجئ">مرور محوكم مفاجئ</option>
-                  <option value="استثنائي">مرور خاص/استثنائي</option>
-                  <option value="توجيهي">مرور توجيهي وإرشادي</option>
-                </select>
-              </label>
-
+              </div>
             </div>
 
-            {/* Questions Builder */}
-            <div style={{ display: 'grid', gap: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong style={{ fontSize: '14px', color: '#102027', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Layers size={18} style={{ color: 'var(--brand)' }} />
-                  صياغة الأسئلة وبنود التقييم التفاعلية ({items.length} بند محوكم)
-                </strong>
-                
-                <button
-                  onClick={handleAddItem}
-                  style={{
-                    background: '#eef6f6',
-                    color: 'var(--brand)',
-                    border: '1px solid #cfdcde',
-                    borderRadius: '8px',
-                    padding: '8px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    fontWeight: 'bold',
-                    transition: 'all 0.2s'
-                  }}
-                  type="button"
-                >
-                  <Plus size={16} />
-                  إضافة بند تقييمي جديد
-                </button>
-              </div>
+            {/* 37 Sections Accordion Tree (CLOSED BY DEFAULT) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {filteredSections.map((section) => {
+                const isExpanded = expandedSections[section.id] || Boolean(searchQuery)
+                const criteriaList = section.criteria || []
 
-              {/* Items Card List */}
-              <div style={{ display: 'grid', gap: '16px' }}>
-                {items.map((item, index) => (
-                  <div key={item.id} style={{ display: 'grid', gap: '12px', background: '#f8fbfb', border: '1px solid #cfdcde', padding: '18px', borderRadius: '12px', position: 'relative', boxShadow: '0 2px 6px rgba(0,0,0,0.01)' }}>
-                    
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--brand)', background: '#eef6f6', padding: '4px 10px', borderRadius: '6px' }}>
-                        البند المحوكم #{index + 1}
-                      </span>
-                      <button
-                        onClick={() => handleRemoveItem(index)}
-                        style={{
-                          background: 'transparent',
-                          color: '#a02f2f',
-                          border: 0,
-                          cursor: 'pointer',
+                return (
+                  <div
+                    key={section.id}
+                    style={{
+                      background: 'white',
+                      borderRadius: '12px',
+                      border: isExpanded ? '1.5px solid #16a085' : '1px solid #e2ecee',
+                      boxShadow: isExpanded ? '0 4px 14px rgba(22, 160, 133, 0.08)' : '0 1px 4px rgba(0,0,0,0.02)',
+                      overflow: 'hidden',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {/* Section Header Accordion Bar (Clicking opens and closes the section) */}
+                    <div
+                      onClick={() => toggleSection(section.id)}
+                      style={{
+                        padding: '14px 18px',
+                        background: isExpanded ? '#f0fcf9' : '#fafcfc',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        userSelect: 'none'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{
+                          background: isExpanded ? 'var(--brand)' : '#cfdcde',
+                          color: isExpanded ? 'white' : '#37474f',
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '4px',
+                          justifyContent: 'center',
                           fontSize: '12px',
                           fontWeight: 'bold'
-                        }}
-                        type="button"
-                        title="حذف هذا البند"
-                      >
-                        <Trash2 size={16} />
-                        حذف البند
-                      </button>
-                    </div>
+                        }}>
+                          {section.section_number}
+                        </span>
+                        <div>
+                          <strong style={{ fontSize: '14px', color: '#102027', display: 'block' }}>{section.name}</strong>
+                          <span style={{ fontSize: '11px', color: '#78909c' }}>
+                            {isExpanded ? 'انقر للطي' : 'انقر لفتح واستعراض المعايير'}
+                          </span>
+                        </div>
+                      </div>
 
-                    {/* Question Text */}
-                    <label style={{ display: 'grid', gap: '4px', fontSize: '13px', color: '#42555d', fontWeight: 'bold' }}>
-                      نص السؤال التفتيشي / بند التقييم *
-                      <input
-                        onChange={(event) => handleItemChange(index, 'text', event.target.value)}
-                        placeholder="اكتب السؤال بوضوح، مثل: هل يتم تدوين درجات الحرارة لثلاجة حفظ الأدوية مرتين يومياً؟"
-                        required
-                        style={{
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{
+                          fontSize: '11px',
                           background: 'white',
                           border: '1px solid #cfdcde',
-                          borderRadius: '8px',
-                          minHeight: '40px',
-                          padding: '0 12px',
-                          fontSize: '13.5px'
-                        }}
-                        type="text"
-                        value={item.text}
-                      />
-                    </label>
-
-                    {/* Question Type Selection */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-                      
-                      <label style={{ display: 'grid', gap: '4px', fontSize: '13px', color: '#42555d', fontWeight: 'bold' }}>
-                        نوع إجابة المفتش (شكل الحقل) *
-                        <select
-                          onChange={(event) => handleItemChange(index, 'answer_type', event.target.value)}
-                          style={{
-                            background: 'white',
-                            border: '1px solid #cfdcde',
-                            borderRadius: '8px',
-                            minHeight: '40px',
-                            padding: '0 8px',
-                            fontSize: '13px'
-                          }}
-                          value={item.answer_type}
-                        >
-                          <option value="yes_no">نعم / لا / لا ينطبق (تفاعلي ذكي)</option>
-                          <option value="dropdown">منيو خيارات منسدلة (محدد مسبقاً)</option>
-                          <option value="checkbox">شيك ليست (مربعات اختيار متعددة)</option>
-                          <option value="text_short">كتابة قصيرة (نص قصير)</option>
-                          <option value="text_long">كتابة طويلة (ملاحظات تفصيلية)</option>
-                          <option value="rating_5">تقييم رقمي (من 1 إلى 5)</option>
-                          <option value="rating_10">تقييم رقمي (من 1 إلى 10)</option>
-                          <option value="rating_stars">تقييم بالنجوم (Star Rating)</option>
-                        </select>
-                      </label>
-
-                      {/* Options input (only for dropdown or checkbox checklist) */}
-                      {(item.answer_type === 'dropdown' || item.answer_type === 'checkbox') && (
-                        <label style={{ display: 'grid', gap: '4px', fontSize: '13px', color: '#42555d', fontWeight: 'bold' }}>
-                          الخيارات المتاحة (مفصولة بفاصلة) *
-                          <input
-                            onChange={(event) => handleItemChange(index, 'options', event.target.value)}
-                            placeholder="مثال: مطابق تماماً, مطابق جزئياً, غير مطابق"
-                            required
-                            style={{
-                              background: 'white',
-                              border: '1px solid #cfdcde',
-                              borderRadius: '8px',
-                              minHeight: '40px',
-                              padding: '0 12px',
-                              fontSize: '13px'
-                            }}
-                            type="text"
-                            value={item.options || ''}
-                          />
-                        </label>
-                      )}
-
-                      <label style={{ display: 'grid', gap: '4px', fontSize: '13px', color: '#42555d' }}>
-                        أولوية المخالفة (في حالة عدم الالتزام)
-                        <select
-                          onChange={(event) => handleItemChange(index, 'violation_priority', event.target.value)}
-                          style={{
-                            background: 'white',
-                            border: '1px solid #cfdcde',
-                            borderRadius: '8px',
-                            minHeight: '40px',
-                            padding: '0 8px',
-                            fontSize: '13px'
-                          }}
-                          value={item.violation_priority}
-                        >
-                          <option value="low">بسيطة (مهلة تصحيح 30 يوم)</option>
-                          <option value="medium">متوسطة (مهلة تصحيح 7 أيام)</option>
-                          <option value="high">عالية (مهلة تصحيح 72 ساعة)</option>
-                          <option value="critical">حرجة فورية (مهلة تصحيح 24 ساعة)</option>
-                        </select>
-                      </label>
-
-                      <label style={{ display: 'grid', gap: '4px', fontSize: '13px', color: '#42555d' }}>
-                        الإدارة المختصة بالتصحيح والتوجيه
-                        <input
-                          list="dept-units"
-                          onChange={(event) => handleItemChange(index, 'correction_dept', event.target.value)}
-                          placeholder="مثال: إدارة مكافحة العدوى"
-                          style={{
-                            background: 'white',
-                            border: '1px solid #cfdcde',
-                            borderRadius: '8px',
-                            minHeight: '40px',
-                            padding: '0 12px',
-                            fontSize: '13px'
-                          }}
-                          type="text"
-                          value={item.correction_dept}
-                        />
-                      </label>
-
-                    </div>
-
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Datalists */}
-            <datalist id="dept-units">
-              {defaultCorrectionUnits.map((name) => (
-                <option key={name} value={name} />
-              ))}
-            </datalist>
-
-            {/* Submit Button */}
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '10px', flexWrap: 'wrap' }}>
-              <button
-                disabled={loading}
-                style={{
-                  background: editingChecklistId ? '#1976d2' : 'var(--brand)',
-                  color: 'white',
-                  border: 0,
-                  borderRadius: '10px',
-                  minHeight: '48px',
-                  padding: '0 28px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  boxShadow: editingChecklistId 
-                    ? '0 4px 12px rgba(25, 118, 210, 0.15)' 
-                    : '0 4px 12px rgba(16, 122, 102, 0.15)',
-                  transition: 'all 0.2s'
-                }}
-                type="submit"
-              >
-                <Save size={18} />
-                {editingChecklistId ? 'حفظ التعديلات وتحديث الاستمارة' : 'حفظ الاستمارة وتعميمها على المفتشين'}
-              </button>
-
-              {editingChecklistId && (
-                <button
-                  onClick={cancelEditing}
-                  style={{
-                    background: '#f5f7f8',
-                    color: '#263238',
-                    border: '1px solid #cfdcde',
-                    borderRadius: '10px',
-                    minHeight: '48px',
-                    padding: '0 24px',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    transition: 'all 0.2s'
-                  }}
-                  type="button"
-                >
-                  إلغاء التعديل
-                </button>
-              )}
-            </div>
-          </form>
-
-          {/* List of Custom Checklists */}
-          <section style={{ background: '#f8fbfb', padding: '24px', borderRadius: '16px', border: '1px solid #cfdcde' }}>
-            <h3 style={{ margin: '0 0 16px 0', fontSize: '1.15rem', color: '#102027', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Check size={20} style={{ color: '#16725a' }} />
-              النماذج المعتمدة المتاحة بالمنظومة ({filteredChecklists.length} استمارة نشطة)
-            </h3>
-            
-            <div style={{ display: 'grid', gap: '14px', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-              {filteredChecklists.map((sec) => (
-                <div key={sec.id} style={{ background: 'white', border: '1px solid #cfdcde', padding: '18px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '12px', justifyContent: 'space-between', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#16725a', background: '#eaf8f3', padding: '2px 8px', borderRadius: '20px' }}>
-                        {sec.checklist_type || 'دوري'}
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <button
-                          onClick={() => startEditing(sec)}
-                          style={{
-                            background: 'transparent',
-                            color: '#1976d2',
-                            border: 0,
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            fontWeight: 'bold'
-                          }}
-                          title="تعديل محتويات الاستمارة"
-                        >
-                          <Edit2 size={13} />
-                          تعديل
-                        </button>
-
-                        <button
-                          onClick={() => handleDeleteChecklist(sec.id)}
-                          style={{
-                            background: 'transparent',
-                            color: '#a02f2f',
-                            border: 0,
-                            cursor: 'pointer',
-                            fontSize: '11px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}
-                          title="حذف الاستمارة"
-                        >
-                          <Trash2 size={14} />
-                          إلغاء النموذج
-                        </button>
+                          padding: '3px 10px',
+                          borderRadius: '12px',
+                          color: '#546e7a',
+                          fontWeight: '600'
+                        }}>
+                          {criteriaList.length} معيار
+                        </span>
+                        {isExpanded ? <ChevronUp size={18} style={{ color: 'var(--brand)' }} /> : <ChevronDown size={18} style={{ color: '#90a4ae' }} />}
                       </div>
                     </div>
-                    <strong style={{ fontSize: '14.5px', color: '#102027', display: 'block', marginBottom: '4px' }}>{sec.name}</strong>
-                    <span style={{ fontSize: '12px', color: 'var(--muted)', display: 'block' }}>
-                      الإدارة: **{sec.dept_name || 'إدارة عامة'}**
-                    </span>
-                    <span style={{ fontSize: '12px', color: 'var(--muted)', display: 'block', marginTop: '2px' }}>
-                      عدد البنود والأسئلة المشمولة: **{sec.items.length} أسئلة**
-                    </span>
-                  </div>
 
-                  <div style={{ borderTop: '1px solid var(--line)', paddingTop: '10px', marginTop: '6px' }}>
-                    <details style={{ cursor: 'pointer' }}>
-                      <summary style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--brand)' }}>استعراض أسئلة النموذج ونوع الحقل...</summary>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px', background: '#f8fbfb', padding: '10px', borderRadius: '6px' }}>
-                        {sec.items.map((item, idx) => {
-                          let typeText = 'أزرار (ملتزم/غير ملتزم)'
-                          if (item.answer_type === 'dropdown') typeText = `منيو منسدلة [${item.options}]`
-                          if (item.answer_type === 'checkbox') typeText = `شيك ليست [${item.options}]`
-                          if (item.answer_type === 'text_short') typeText = 'كتابة قصيرة'
-                          if (item.answer_type === 'text_long') typeText = 'كتابة تفصيلية'
-                          if (item.answer_type === 'rating_5') typeText = 'تقييم رقمي (1-5)'
-                          if (item.answer_type === 'rating_10') typeText = 'تقييم رقمي (1-10)'
-                          if (item.answer_type === 'rating_stars') typeText = 'تقييم بالنجوم'
-                          
-                          return (
-                            <div key={item.id} style={{ fontSize: '11.5px', borderBottom: idx < sec.items.length - 1 ? '1px dashed #e0e0e0' : 'none', paddingBottom: '6px', color: '#37474f' }}>
-                              <strong>س{idx+1}: {item.text}</strong>
-                              <span style={{ display: 'block', fontSize: '10.5px', color: '#78909c', marginTop: '2px' }}>
-                                شكل الإجابة: {typeText} | توجيه: {item.correction_dept} ({item.violation_priority === 'critical' ? 'حرجة' : item.violation_priority === 'high' ? 'عالية' : item.violation_priority === 'medium' ? 'متوسطة' : 'بسيطة'})
-                              </span>
+                    {/* Section Criteria Items (Visible only when expanded) */}
+                    {isExpanded && (
+                      <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid #eef3f4' }}>
+                        {criteriaList.length === 0 ? (
+                          <div style={{ fontSize: '12px', color: '#90a4ae', textAlign: 'center', padding: '10px' }}>
+                            لا توجد معايير في هذا القسم
+                          </div>
+                        ) : (
+                          criteriaList.map((criterion, idx) => (
+                            <div
+                              key={criterion.id}
+                              style={{
+                                background: '#f8fbfb',
+                                border: '1px solid #eef2f3',
+                                borderRadius: '8px',
+                                padding: '12px 14px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                gap: '14px'
+                              }}
+                            >
+                              <div style={{ display: 'flex', gap: '10px', flex: 1 }}>
+                                <span style={{ fontSize: '11.5px', color: '#90a4ae', fontWeight: 'bold', paddingTop: '2px' }}>
+                                  #{idx + 1}
+                                </span>
+                                <div>
+                                  <div style={{ fontSize: '13px', color: '#263238', fontWeight: '600', lineHeight: '1.5' }}>
+                                    {criterion.criterion_text}
+                                  </div>
+                                  {criterion.guidance && (
+                                    <div style={{ fontSize: '11px', color: '#78909c', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      <HelpCircle size={12} />
+                                      <span>دليل التحقق: {criterion.guidance}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Evaluation Scoring Scheme Badge */}
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0 }}>
+                                <span style={{
+                                  fontSize: '10.5px',
+                                  background: '#eaf8f3',
+                                  color: '#16725a',
+                                  border: '1px solid #c2ebd9',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontWeight: 'bold'
+                                }}>
+                                  {criterion.score_max_label} ({criterion.score_max_value} درجات)
+                                </span>
+                                {criterion.score_mid_value != null && (
+                                  <span style={{
+                                    fontSize: '10.5px',
+                                    background: '#fef9e7',
+                                    color: '#b7950b',
+                                    border: '1px solid #f9e79f',
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    fontWeight: 'bold'
+                                  }}>
+                                    {criterion.score_mid_label || 'متوسط'} ({criterion.score_mid_value})
+                                  </span>
+                                )}
+                                <span style={{
+                                  fontSize: '10.5px',
+                                  background: '#fdedec',
+                                  color: '#c0392b',
+                                  border: '1px solid #fadbd8',
+                                  padding: '3px 8px',
+                                  borderRadius: '6px',
+                                  fontWeight: 'bold'
+                                }}>
+                                  {criterion.score_0_label} (0)
+                                </span>
+                              </div>
                             </div>
-                          )
-                        })}
+                          ))
+                        )}
                       </div>
-                    </details>
+                    )}
                   </div>
-                </div>
-              ))}
-
-              {filteredChecklists.length === 0 && (
-                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '32px 0', color: 'var(--muted)', fontSize: '13.5px' }}>
-                  لا توجد استمارات مخصصة منشأة بعد. قم بصياغة استمارتك الأولى وتعميمها من النموذج أعلاه.
-                </div>
-              )}
+                )
+              })}
             </div>
-          </section>
+          </>
+        )}
 
-        </div>
+        {/* ── Modal: Create New Template ── */}
+        {showCreateTemplateModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              maxWidth: '540px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+              direction: 'rtl'
+            }}>
+              <h3 style={{ margin: '0 0 16px', fontSize: '16px', color: '#102027', fontWeight: 'bold' }}>
+                إنشاء وتصميم استمارة مرور قطاعية جديدة
+              </h3>
+
+              <form onSubmit={handleCreateTemplate} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                  اسم استمارة المرور *
+                  <input
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    placeholder="مثال: استمارة المرور والتفتيش على المستشفيات العامة"
+                    required
+                    style={{
+                      minHeight: '38px',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      padding: '0 10px',
+                      fontSize: '12.5px',
+                      outline: 'none'
+                    }}
+                    type="text"
+                    value={newTemplateName}
+                  />
+                </label>
+
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                  القطاع التابع له الاستمارة *
+                  <select
+                    onChange={(e) => setNewTemplateSectorId(e.target.value)}
+                    style={{
+                      minHeight: '38px',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      padding: '0 8px',
+                      fontSize: '12.5px',
+                      outline: 'none',
+                      background: 'white'
+                    }}
+                    value={newTemplateSectorId}
+                  >
+                    {sectors.map((sec) => (
+                      <option key={sec.id} value={sec.id}>{sec.name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                  وصف ونطاق تطبيق الاستمارة
+                  <textarea
+                    onChange={(e) => setNewTemplateDescription(e.target.value)}
+                    placeholder="وصف مختصر للغرض من الاستمارة والمنشآت المستهدفة..."
+                    rows={3}
+                    style={{
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      outline: 'none',
+                      resize: 'vertical'
+                    }}
+                    value={newTemplateDescription}
+                  />
+                </label>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button
+                    onClick={() => setShowCreateTemplateModal(false)}
+                    style={{
+                      background: '#eceff1',
+                      color: '#546e7a',
+                      border: 0,
+                      borderRadius: '8px',
+                      padding: '8px 16px',
+                      fontSize: '12.5px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}
+                    type="button"
+                  >
+                    إلغاء
+                  </button>
+
+                  <button
+                    disabled={savingTemplate}
+                    style={{
+                      background: 'var(--brand)',
+                      color: 'white',
+                      border: 0,
+                      borderRadius: '8px',
+                      padding: '8px 18px',
+                      fontSize: '12.5px',
+                      fontWeight: 'bold',
+                      cursor: savingTemplate ? 'not-allowed' : 'pointer'
+                    }}
+                    type="submit"
+                  >
+                    {savingTemplate ? 'جاري الإنشاء...' : 'إنشاء الاستمارة'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: Add Custom Section ── */}
+        {showAddSectionModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              maxWidth: '480px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+              direction: 'rtl'
+            }}>
+              <h3 style={{ margin: '0 0 16px', fontSize: '16px', color: '#102027', fontWeight: 'bold' }}>
+                إضافة قسم تفتيشي جديد إلى الاستمارة
+              </h3>
+
+              <form onSubmit={handleSaveSection} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                  اسم القسم الجديد *
+                  <input
+                    onChange={(e) => setNewSectionName(e.target.value)}
+                    placeholder="مثال: قسم العيادات المسائية والتخصصية"
+                    required
+                    style={{
+                      minHeight: '38px',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      padding: '0 10px',
+                      fontSize: '12.5px',
+                      outline: 'none'
+                    }}
+                    type="text"
+                    value={newSectionName}
+                  />
+                </label>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button
+                    onClick={() => setShowAddSectionModal(false)}
+                    style={{
+                      background: '#eceff1',
+                      color: '#546e7a',
+                      border: 0,
+                      borderRadius: '8px',
+                      padding: '8px 16px',
+                      fontSize: '12.5px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}
+                    type="button"
+                  >
+                    إلغاء
+                  </button>
+
+                  <button
+                    disabled={savingSection}
+                    style={{
+                      background: 'var(--brand)',
+                      color: 'white',
+                      border: 0,
+                      borderRadius: '8px',
+                      padding: '8px 18px',
+                      fontSize: '12.5px',
+                      fontWeight: 'bold',
+                      cursor: savingSection ? 'not-allowed' : 'pointer'
+                    }}
+                    type="submit"
+                  >
+                    {savingSection ? 'جاري الحفظ...' : 'إضافة القسم'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modal: Add Custom Criterion ── */}
+        {showAddCriterionModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              maxWidth: '540px',
+              width: '100%',
+              padding: '24px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+              direction: 'rtl'
+            }}>
+              <h3 style={{ margin: '0 0 16px', fontSize: '16px', color: '#102027', fontWeight: 'bold' }}>
+                إضافة معيار رقابي جديد إلى الاستمارة
+              </h3>
+
+              <form onSubmit={handleSaveCriterion} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                  القسم التفتيشي التابع له *
+                  <select
+                    onChange={(e) => setTargetSectionId(e.target.value)}
+                    style={{
+                      minHeight: '38px',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      padding: '0 8px',
+                      fontSize: '12.5px',
+                      outline: 'none',
+                      background: 'white'
+                    }}
+                    value={targetSectionId}
+                  >
+                    {sections.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.section_number}. {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                  نص المعيار الرقابي *
+                  <textarea
+                    onChange={(e) => setNewCriterionText(e.target.value)}
+                    placeholder="مثال: هل يتوافر بالمنشأة سجل معتمد لمتابعة درجات حرارة الثلاجات بانتظام؟"
+                    required
+                    rows={3}
+                    style={{
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      padding: '8px 10px',
+                      fontSize: '12.5px',
+                      outline: 'none',
+                      resize: 'vertical'
+                    }}
+                    value={newCriterionText}
+                  />
+                </label>
+
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#37474f', fontWeight: 'bold' }}>
+                  الدرجة القصوى للمعيار عند المطابقة *
+                  <select
+                    onChange={(e) => setNewScoreMaxValue(Number(e.target.value))}
+                    style={{
+                      minHeight: '38px',
+                      border: '1px solid #cfdcde',
+                      borderRadius: '8px',
+                      padding: '0 8px',
+                      fontSize: '12.5px',
+                      outline: 'none',
+                      background: 'white'
+                    }}
+                    value={newScoreMaxValue}
+                  >
+                    <option value={2}>2 درجات (معيار قياسي)</option>
+                    <option value={4}>4 درجات (معيار ذو أولوية عالية)</option>
+                    <option value={6}>6 درجات (معيار حرج / سلامة مرضى)</option>
+                  </select>
+                </label>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                  <button
+                    onClick={() => setShowAddCriterionModal(false)}
+                    style={{
+                      background: '#eceff1',
+                      color: '#546e7a',
+                      border: 0,
+                      borderRadius: '8px',
+                      padding: '8px 16px',
+                      fontSize: '12.5px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
+                    }}
+                    type="button"
+                  >
+                    إلغاء
+                  </button>
+
+                  <button
+                    disabled={savingCriterion}
+                    style={{
+                      background: 'var(--brand)',
+                      color: 'white',
+                      border: 0,
+                      borderRadius: '8px',
+                      padding: '8px 18px',
+                      fontSize: '12.5px',
+                      fontWeight: 'bold',
+                      cursor: savingCriterion ? 'not-allowed' : 'pointer'
+                    }}
+                    type="submit"
+                  >
+                    {savingCriterion ? 'جاري الحفظ...' : 'حفظ المعيار'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
       </div>
     </DashboardShell>
   )

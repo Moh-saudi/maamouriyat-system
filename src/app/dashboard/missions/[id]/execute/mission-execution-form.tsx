@@ -13,8 +13,11 @@ import { SearchableAddableSelect } from '@/app/system-ui'
 type Facility = {
   id: string
   name: string
-  address: string
-  governorate_id: string | null
+  address?: string | null
+  governorate?: string | null
+  health_admin?: string | null
+  facility_type?: string | null
+  governorate_id?: string | null
   latitude?: number | null
   longitude?: number | null
 }
@@ -99,6 +102,13 @@ export function MissionExecutionForm({
     setCorrectionUnit(newName)
   }
   const [changeReason, setChangeReason] = useState(mission.change_reason ?? '')
+
+  const facilityOptions = useMemo(() => {
+    return facilities.map((f: any) => ({
+      value: f.id,
+      label: `${f.name} ${f.governorate ? `(${f.governorate} - ${f.health_admin || f.address || f.facility_type || 'منشأة صحية'})` : (f.address ? `(${f.address})` : '')}`
+    }))
+  }, [facilities])
 
   // Split execution_notes on load if it contains the divider
   const [executionNotes, setExecutionNotes] = useState(() => {
@@ -253,6 +263,11 @@ export function MissionExecutionForm({
   const [newFacilityGovId, setNewFacilityGovId] = useState(mission.target_governorate_id ?? '')
   const [leafletLoaded, setLeafletLoaded] = useState(false)
 
+  // Stepper, Accordion & Mobile Search UX States
+  const [selectedStage, setSelectedStage] = useState<number>(0)
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
+  const [searchQuery, setSearchQuery] = useState<string>('')
+
   // --- Dynamic Client-Side Leaflet Ingestion ---
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -267,7 +282,7 @@ export function MissionExecutionForm({
     if (!existingLink) {
       const link = document.createElement('link')
       link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
       link.crossOrigin = ''
       document.head.appendChild(link)
     }
@@ -275,7 +290,7 @@ export function MissionExecutionForm({
     const existingScript = document.querySelector('script[src*="leaflet.js"]')
     if (!existingScript) {
       const script = document.createElement('script')
-      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
       script.crossOrigin = ''
       script.onload = () => {
         setLeafletLoaded(true)
@@ -472,6 +487,22 @@ export function MissionExecutionForm({
     }
     return initial
   })
+
+  const answeredStats = useMemo(() => {
+    let answered = 0
+    let compliant = 0
+    let nonCompliant = 0
+    Object.values(answers).forEach((ans: any) => {
+      if (ans?.answer !== undefined && ans?.answer !== '' && ans?.answer !== null) {
+        answered++
+        if (ans.answer === 'yes' || ans.answer === true || ans.answer === 'مطابق' || ans.answer === 'ملتزم') compliant++
+        if (ans.answer === 'no' || ans.answer === false || ans.answer === 'غير مطابق' || ans.answer === 'غير ملتزم') nonCompliant++
+      }
+    })
+    const rate = answered > 0 ? Math.round((compliant / answered) * 100) : 0
+    return { answered, compliant, nonCompliant, rate }
+  }, [answers])
+
   const [localCustomChecklists, setLocalCustomChecklists] = useState<any[]>([])
   const [showChecklistBuilder, setShowChecklistBuilder] = useState(false)
   const [newChecklistTitle, setNewChecklistTitle] = useState('')
@@ -482,7 +513,7 @@ export function MissionExecutionForm({
   const [builderSuccess, setBuilderSuccess] = useState('')
   const [builderError, setBuilderError] = useState('')
 
-  // Load custom checklists on mount from our secure server API (which contains a robust schema fallback)
+  // Load official 37 sections & 290 criteria from form_templates API
   useEffect(() => {
     const loadCustomChecklists = async () => {
       try {
@@ -491,39 +522,59 @@ export function MissionExecutionForm({
           console.error('Error fetching checklists from server API')
           return
         }
-        const dbChecklists = await apiRes.json()
+        const resData = await apiRes.json()
+        const templates = resData.templates || (Array.isArray(resData) ? resData : [])
 
-        if (dbChecklists) {
-          const mapped = dbChecklists.map((chk: any) => {
-            const [dept, type] = (chk.description || '').split('|')
-            const allItems: any[] = []
-            
-            chk.checklist_sections?.forEach((section: any) => {
-              section.checklist_items?.forEach((item: any) => {
-                allItems.push({
-                  id: item.id,
-                  text: item.text,
-                  answer_type: item.answer_type || 'yes_no',
-                  is_required: item.is_required ?? true,
-                  violation_priority: item.violation_priority || 'medium',
-                  correction_dept: item.correction_dept || ''
-                })
-              })
+        const mappedSections: any[] = []
+        templates.forEach((tmpl: any) => {
+          (tmpl.sections || []).forEach((sec: any) => {
+            const items = (sec.criteria || sec.checklist_items || []).map((c: any) => {
+              const maxLabel = c.score_max_label || 'مطابق'
+              const midLabel = c.score_mid_label || (c.score_mid_value ? 'مطابق جزئياً' : '')
+              const zeroLabel = c.score_0_label || 'غير مطابق'
+              const hasMid = Boolean(c.score_mid_value || c.score_type === 'ternary' || c.score_type === '3_level')
+
+              let optionsStr = c.options || ''
+              if (!optionsStr) {
+                if (hasMid && midLabel) {
+                  optionsStr = `${maxLabel}, ${midLabel}, ${zeroLabel}, لا ينطبق`
+                } else {
+                  optionsStr = `${maxLabel}, ${zeroLabel}, لا ينطبق`
+                }
+              }
+
+              return {
+                id: c.id,
+                text: c.criterion_text || c.text,
+                answer_type: (hasMid || c.score_type === 'dropdown' || c.score_type === 'ternary') ? 'chips_options' : 'yes_no',
+                is_required: true,
+                violation_priority: (c.score_max_value >= 4 ? 'high' : 'medium') as any,
+                correction_dept: sec.name,
+                options: optionsStr,
+                score_max_value: c.score_max_value || 2,
+                score_mid_value: c.score_mid_value || 1,
+                score_0_label: zeroLabel,
+                score_mid_label: midLabel,
+                score_max_label: maxLabel
+              }
             })
 
-            return {
-              id: chk.id,
-              name: chk.name,
-              dept_name: dept || 'المرور العام',
-              checklist_type: type || 'دوري',
-              org_unit_id: chk.org_unit_id || null,
-              items: allItems
-            }
+            mappedSections.push({
+              id: sec.id,
+              name: sec.name,
+              dept_name: tmpl.name || 'استمارة المرور الموحدة',
+              checklist_type: 'دوري',
+              org_unit_id: null,
+              items
+            })
           })
-          setLocalCustomChecklists(mapped)
+        })
+
+        if (mappedSections.length > 0) {
+          setLocalCustomChecklists(mappedSections)
         }
       } catch (e) {
-        console.error('Error loading database checklists:', e)
+        console.error('Error loading official checklist items:', e)
       }
     }
     loadCustomChecklists()
@@ -563,37 +614,15 @@ export function MissionExecutionForm({
   }, [orgUnits, currentUserOrgUnitId, currentUserDept])
 
   const checklistSections = useMemo(() => {
-    const baseChecklist = getChecklistByDepartment(currentUserDept)
-    
-    // superadmin and techadmin see all custom checklists
-    if (currentUserLevel === 0 || currentUserLevel === 1) {
-      return [...localCustomChecklists, ...baseChecklist]
+    // 1. Display official checklist sections and criteria directly from form_templates
+    if (localCustomChecklists.length > 0) {
+      return localCustomChecklists
     }
 
-    const allowedIds = new Set(allowedOrgUnits.map((u) => u.id))
-    const filteredCustom = localCustomChecklists.filter((c) => {
-      // 1. Match by org_unit_id if exists
-      if (c.org_unit_id) {
-        return allowedIds.has(c.org_unit_id)
-      }
-
-      // 2. Match general checklists
-      if (!c.dept_name || c.dept_name === 'المرور العام' || c.dept_name === 'عام') {
-        return true
-      }
-
-      // 3. Fallback: Match by department name text comparison
-      const cleanChkDept = c.dept_name.replace('ديوان عام الوزارة - ', '').trim()
-      const matchesName = allowedOrgUnits.some(unit => {
-        const cleanUnitName = unit.name.replace('ديوان عام الوزارة - ', '').trim()
-        return cleanChkDept.includes(cleanUnitName) || cleanUnitName.includes(cleanChkDept)
-      })
-
-      return matchesName
-    })
-
-    return [...filteredCustom, ...baseChecklist]
-  }, [currentUserDept, currentUserLevel, allowedOrgUnits, localCustomChecklists])
+    // 2. Fallback to built-in department checklist if API is unavailable
+    const baseChecklist = getChecklistByDepartment(currentUserDept)
+    return baseChecklist
+  }, [currentUserDept, localCustomChecklists])
 
   function addBuilderQuestion() {
     setNewQuestions(prev => [
@@ -1026,6 +1055,41 @@ export function MissionExecutionForm({
       ? `${executionNotes.trim()}\n\n---\n\n📋 توصيات المأمورية المعتمدة:\n${recommendations.trim()}`
       : executionNotes.trim()
 
+    let totalScore = 0
+    let maxScore = 0
+    let criteriaCount = 0
+    let computedViolations = 0
+
+    localCustomChecklists.forEach((sec: any) => {
+      (sec.items || []).forEach((item: any) => {
+        const ans = answers[item.id]?.answer
+        if (ans !== undefined && ans !== null && ans !== '') {
+          criteriaCount++
+          const itemMax = item.score_max_value || 2
+          const itemMid = item.score_mid_value || 1
+
+          if (ans === 'yes' || ans === 'مطابق' || ans === 'مطابق بالكامل' || ans === 'ملتزم' || ans === true) {
+            totalScore += itemMax
+            maxScore += itemMax
+          } else if (ans === 'مطابق جزئياً' || ans === 'متوسط' || ans === 'مقبول') {
+            totalScore += itemMid
+            maxScore += itemMax
+          } else if (ans === 'no' || ans === 'غير مطابق' || ans === 'غير مطابق بالكامل' || ans === 'غير ملتزم' || ans === false) {
+            totalScore += 0
+            maxScore += itemMax
+            computedViolations++
+          } else if (ans === 'na' || ans === 'لا ينطبق' || ans === 'غير منطبق') {
+            // Not applicable
+          } else {
+            totalScore += itemMax
+            maxScore += itemMax
+          }
+        }
+      })
+    })
+
+    const scorePct = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0
+
     const { error: updateError } = await supabase
       .from('missions')
       .update({
@@ -1048,7 +1112,12 @@ export function MissionExecutionForm({
         checkout_lat: status === 'completed' ? inspectorLat : undefined,
         checkout_lng: status === 'completed' ? inspectorLng : undefined,
         checkout_time: status === 'completed' ? now : undefined,
-        gps_verified: gpsVerified
+        gps_verified: gpsVerified,
+        total_score: totalScore,
+        max_score: maxScore,
+        score_pct: scorePct,
+        total_criteria: criteriaCount,
+        violations_count: computedViolations
       })
       .eq('id', mission.id)
 
@@ -1500,17 +1569,21 @@ export function MissionExecutionForm({
             </div>
 
             {!isUnregisteredFacility ? (
-              <label>
-                اختر المنشأة المسجلة *
-                <select value={actualFacilityId} onChange={(event) => handleFacilityChange(event.target.value)}>
-                  <option value="">اختر المنشأة</option>
-                  {facilities.map((facility) => (
-                    <option key={facility.id} value={facility.id}>
-                      {facility.name} - {facility.address}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div style={{ display: 'grid', gap: '6px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>اختر المنشأة التي تم المرور عليها *</span>
+                <SearchableAddableSelect
+                  options={facilityOptions}
+                  value={actualFacilityId}
+                  onChange={(val) => handleFacilityChange(val)}
+                  placeholder="🔍 اكتب اسم المنشأة أو المحافظة للبحث الفوري..."
+                />
+                {selectedFacility && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#006d77', fontWeight: 'bold', background: '#e0f2f1', padding: '6px 12px', borderRadius: '6px', marginTop: '4px' }}>
+                    <span>🏥 المنشأة المحددة:</span>
+                    <span>{selectedFacility.name} {selectedFacility.address ? `— ${selectedFacility.address}` : ''}</span>
+                  </div>
+                )}
+              </div>
             ) : (
               <div style={{
                 background: '#fffbf7',
@@ -1955,263 +2028,296 @@ export function MissionExecutionForm({
           </div>
         )}
 
-        {checklistSections.length > 0 && (
-          <div className={styles.checklistGrid}>
-            {checklistSections.map((section: any) => (
-              <div key={section.id} className={styles.checklistSecCard} style={{ background: 'white', border: '1px solid #cfdcde', borderRadius: '12px', padding: '16px', display: 'grid', gap: '14px', marginBottom: '14px' }}>
-                <h4 style={{ margin: 0, fontSize: '15px', color: '#102027', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #eef6f6', paddingBottom: '8px' }}>
-                  <span>{section.name}</span>
-                  {section.dept_name && (
-                    <span style={{ fontSize: '11px', background: '#eef6f6', color: 'var(--brand)', padding: '2px 8px', borderRadius: '12px' }}>
-                      {section.dept_name} | {section.checklist_type || 'دوري'}
-                    </span>
-                  )}
-                </h4>
-                
-                <div className={styles.checklistItemsList} style={{ display: 'grid', gap: '12px' }}>
-                  {section.items.map((item: any) => {
-                    const currentAnswer = answers[item.id]?.answer || '';
-                    const answerType = item.answer_type || 'yes_no';
-                    const optionsList = item.options
-                      ? item.options.split(',').map((opt: string) => opt.trim()).filter(Boolean)
-                      : [];
+        {checklistSections.length > 0 && (() => {
+          const CHECKLIST_STAGES = [
+            { id: 0, title: 'الكل (37 قسماً)', icon: '📋', start: 1, end: 37 },
+            { id: 1, title: 'البنية والخدمات', icon: '🏢', start: 1, end: 5 },
+            { id: 2, title: 'الحوكمة والمخازن', icon: '📑', start: 6, end: 11 },
+            { id: 3, title: 'الطوارئ والعيادات', icon: '🩺', start: 12, end: 17 },
+            { id: 4, title: 'الأم والطفل والمبادرات', icon: '👶', start: 18, end: 25 },
+            { id: 5, title: 'الخدمات والتعقيم', icon: '💊', start: 26, end: 37 }
+          ];
 
-                    return (
-                      <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: '#f8fbfb', border: '1px solid #cfdcde', borderRadius: '10px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                          <p style={{ margin: 0, fontSize: '13.5px', color: '#37474f', lineHeight: '1.5', fontWeight: 'bold', textAlign: 'right' }}>{item.text}</p>
-                          <span style={{ fontSize: '10px', fontWeight: 'bold', color: item.violation_priority === 'critical' ? '#d32f2f' : item.violation_priority === 'high' ? '#e65100' : '#f57c00', background: item.violation_priority === 'critical' ? '#ffebee' : '#fff3e0', padding: '2px 6px', borderRadius: '4px', flexShrink: 0 }}>
-                            {item.violation_priority === 'critical' ? 'حرجة' : item.violation_priority === 'high' ? 'عالية' : item.violation_priority === 'medium' ? 'متوسطة' : 'بسيطة'}
-                          </span>
-                        </div>
+          // Compute total and answered criteria counts
+          let totalCriteria = 0;
+          let answeredCriteria = 0;
+          checklistSections.forEach((s: any) => {
+            (s.items || []).forEach((it: any) => {
+              totalCriteria++;
+              if (answers[it.id]?.answer !== undefined && answers[it.id]?.answer !== '') {
+                answeredCriteria++;
+              }
+            });
+          });
 
-                        {/* Rendering by Type */}
-                        <div style={{ marginTop: '4px', width: '100%' }}>
-                          
-                          {answerType === 'yes_no' && (
-                            <div className={styles.radioGroup}>
-                              <button
-                                type="button"
-                                className={`${styles.answerBtn} ${currentAnswer === 'yes' ? styles.yesActive : ''}`}
-                                onClick={() => handleAnswerChange(item.id, 'yes', item.violation_priority, item.correction_dept, item.text)}
-                              >
-                                ملتزم
-                              </button>
-                              <button
-                                type="button"
-                                className={`${styles.answerBtn} ${currentAnswer === 'no' ? styles.noActive : ''}`}
-                                onClick={() => handleAnswerChange(item.id, 'no', item.violation_priority, item.correction_dept, item.text)}
-                              >
-                                غير ملتزم
-                              </button>
-                              <button
-                                type="button"
-                                className={`${styles.answerBtn} ${currentAnswer === 'na' ? styles.naActive : ''}`}
-                                onClick={() => handleAnswerChange(item.id, 'na', item.violation_priority, item.correction_dept, item.text)}
-                              >
-                                لا ينطبق
-                              </button>
-                            </div>
-                          )}
+          const progressPct = totalCriteria > 0 ? Math.round((answeredCriteria / totalCriteria) * 100) : 0;
 
-                          {answerType === 'dropdown' && (
-                            <select
-                              value={currentAnswer}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                const isNonCompliant = val.includes('غير') || val.includes('لا') || val.includes('مخالف');
-                                handleAnswerChangeCustom(item.id, val, !isNonCompliant, item.violation_priority, item.correction_dept, item.text);
-                              }}
-                              style={{ width: '100%', minHeight: '38px', borderRadius: '6px', border: '1px solid #cfdcde', padding: '0 8px', fontSize: '13px', background: 'white', outline: 'none' }}
-                            >
-                              <option value="">اختر التقييم...</option>
-                              {optionsList.map((opt: string, oIdx: number) => (
-                                <option key={oIdx} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                          )}
+          // Filter sections based on selected stage and search query
+          const filteredSections = checklistSections.filter((section: any, sIdx: number) => {
+            const secNum = sIdx + 1;
+            
+            if (searchQuery.trim()) {
+              const q = searchQuery.trim().toLowerCase();
+              const nameMatch = section.name.toLowerCase().includes(q);
+              const itemMatch = (section.items || []).some((it: any) => (it.text || '').toLowerCase().includes(q));
+              return nameMatch || itemMatch;
+            }
 
-                          {answerType === 'checkbox' && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: 'white', padding: '10px', borderRadius: '6px', border: '1px solid #cfdcde' }}>
-                              {optionsList.map((opt: string) => {
-                                const isChecked = Array.isArray(currentAnswer) ? currentAnswer.includes(opt) : currentAnswer === opt;
-                                return (
-                                  <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: '#37474f', cursor: 'pointer', userSelect: 'none' }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={(e) => {
-                                        let nextVal: string[];
-                                        if (Array.isArray(currentAnswer)) {
-                                          nextVal = e.target.checked
-                                            ? [...currentAnswer, opt]
-                                            : currentAnswer.filter((v) => v !== opt);
-                                        } else {
-                                          nextVal = e.target.checked ? [opt] : [];
-                                        }
-                                        const isNonCompliant = nextVal.some(val => val.includes('غير') || val.includes('لا') || val.includes('مخالف'));
-                                        handleAnswerChangeCustom(item.id, nextVal, !isNonCompliant, item.violation_priority, item.correction_dept, item.text);
-                                      }}
-                                    />
-                                    {opt}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          )}
+            if (selectedStage > 0) {
+              const currentStage = CHECKLIST_STAGES[selectedStage];
+              return secNum >= currentStage.start && secNum <= currentStage.end;
+            }
 
-                          {answerType === 'text_short' && (
-                            <input
-                              type="text"
-                              value={currentAnswer}
-                              onChange={(e) => handleAnswerChangeCustom(item.id, e.target.value, true, item.violation_priority, item.correction_dept, item.text)}
-                              placeholder="اكتب إجابة مختصرة هنا..."
-                              style={{ width: '100%', minHeight: '38px', borderRadius: '6px', border: '1px solid #cfdcde', padding: '0 10px', fontSize: '13px', outline: 'none' }}
-                            />
-                          )}
+            return true;
+          });
 
-                          {answerType === 'text_long' && (
-                            <textarea
-                              value={currentAnswer}
-                              onChange={(e) => handleAnswerChangeCustom(item.id, e.target.value, true, item.violation_priority, item.correction_dept, item.text)}
-                              placeholder="اكتب تقرير الفحص التفصيلي لهذا البند هنا..."
-                              rows={3}
-                              style={{ width: '100%', borderRadius: '6px', border: '1px solid #cfdcde', padding: '8px 10px', fontSize: '13px', outline: 'none' }}
-                            />
-                          )}
-
-                          {answerType === 'rating_5' && (
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              {[1, 2, 3, 4, 5].map((val) => {
-                                const isActive = Number(currentAnswer) === val;
-                                return (
-                                  <button
-                                    key={val}
-                                    type="button"
-                                    onClick={() => {
-                                      const isLow = val < 3; // less than 3 is non-compliant
-                                      handleAnswerChangeCustom(item.id, val.toString(), !isLow, item.violation_priority, item.correction_dept, item.text);
-                                    }}
-                                    style={{
-                                      minWidth: '38px',
-                                      minHeight: '38px',
-                                      borderRadius: '6px',
-                                      border: '1px solid #cfdcde',
-                                      background: isActive ? 'var(--brand)' : 'white',
-                                      color: isActive ? 'white' : '#37474f',
-                                      fontWeight: 'bold',
-                                      cursor: 'pointer',
-                                      transition: 'all 0.15s'
-                                    }}
-                                  >
-                                    {val}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {answerType === 'rating_10' && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((val) => {
-                                const isActive = Number(currentAnswer) === val;
-                                return (
-                                  <button
-                                    key={val}
-                                    type="button"
-                                    onClick={() => {
-                                      const isLow = val < 6; // less than 6 is non-compliant
-                                      handleAnswerChangeCustom(item.id, val.toString(), !isLow, item.violation_priority, item.correction_dept, item.text);
-                                    }}
-                                    style={{
-                                      minWidth: '32px',
-                                      minHeight: '32px',
-                                      borderRadius: '6px',
-                                      border: '1px solid #cfdcde',
-                                      background: isActive ? 'var(--brand)' : 'white',
-                                      color: isActive ? 'white' : '#37474f',
-                                      fontWeight: 'bold',
-                                      fontSize: '12px',
-                                      cursor: 'pointer',
-                                      transition: 'all 0.15s'
-                                    }}
-                                  >
-                                    {val}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {answerType === 'rating_stars' && (
-                            <div style={{ display: 'flex', gap: '8px', direction: 'rtl', justifyContent: 'flex-start' }}>
-                              {[1, 2, 3, 4, 5].map((val) => {
-                                const isActive = Number(currentAnswer) >= val;
-                                return (
-                                  <span
-                                    key={val}
-                                    onClick={() => {
-                                      const isLow = val < 3; // less than 3 is non-compliant
-                                      handleAnswerChangeCustom(item.id, val.toString(), !isLow, item.violation_priority, item.correction_dept, item.text);
-                                    }}
-                                    style={{
-                                      fontSize: '28px',
-                                      color: isActive ? '#f1c40f' : '#bdc3c7',
-                                      cursor: 'pointer',
-                                      userSelect: 'none',
-                                      transition: 'color 0.15s'
-                                    }}
-                                  >
-                                    ★
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {/* Permanent Notes Field for Every Question */}
-                          <div style={{ marginTop: '12px', borderTop: '1px dashed #cfdcde', paddingTop: '10px', display: 'grid', gap: '4px' }}>
-                            <label style={{ display: 'block', fontSize: '11.5px', color: '#006d77', fontWeight: 'bold', textAlign: 'right' }}>
-                              📝 ملاحظات المفتش وتوصيات البند الجاري:
-                            </label>
-                            <input
-                              type="text"
-                              value={answers[item.id]?.notes || ''}
-                              onChange={(e) => {
-                                const val = e.target.value
-                                setAnswers((current) => ({
-                                  ...current,
-                                  [item.id]: {
-                                    answer: current[item.id]?.answer || '',
-                                    notes: val
-                                  }
-                                }))
-                              }}
-                              placeholder="اكتب ملاحظاتك، تفاصيل رصد المخالفة، أو أي توصيات تخص هذا البند..."
-                              style={{
-                                width: '100%',
-                                minHeight: '34px',
-                                borderRadius: '6px',
-                                border: '1px solid #cfdcde',
-                                padding: '0 10px',
-                                fontSize: '12.5px',
-                                background: 'white',
-                                outline: 'none',
-                                color: '#37474f',
-                                direction: 'rtl',
-                                textAlign: 'right'
-                              }}
-                            />
-                          </div>
-
-                        </div>
-                      </div>
-                    );
-                  })}
+          return (
+            <div style={{ display: 'grid', gap: '14px' }}>
+              {/* Floating Live Progress Indicator */}
+              <div className={styles.progressContainer}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong style={{ fontSize: '13px', color: '#102027' }}>
+                    📈 تقدم إنجاز الاستمارة ({answeredCriteria} من {totalCriteria} بنداً تم تقييمها)
+                  </strong>
+                  <span style={{ fontSize: '13px', fontWeight: 900, color: progressPct === 100 ? '#2a9d8f' : '#006d77' }}>
+                    {progressPct}%
+                  </span>
+                </div>
+                <div className={styles.progressBar}>
+                  <div className={styles.progressFill} style={{ width: `${progressPct}%` }} />
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* Stage Stepper Tabs */}
+              <div className={styles.stageStepper}>
+                {CHECKLIST_STAGES.map((stg) => {
+                  const isActive = selectedStage === stg.id;
+                  return (
+                    <button
+                      key={stg.id}
+                      type="button"
+                      className={`${styles.stageBtn} ${isActive ? styles.stageBtnActive : ''}`}
+                      onClick={() => {
+                        setSelectedStage(stg.id);
+                        setSearchQuery('');
+                      }}
+                    >
+                      <span>{stg.icon}</span>
+                      <span>{stg.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Instant Search Bar */}
+              <div>
+                <input
+                  type="text"
+                  className={styles.searchBar}
+                  placeholder="🔍 بحث سريع في أسئلة وبنود التفتيش (مثلاً: تطعيمات، طوارئ، ألبان، نفايات...)"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+
+              {/* Accordion Sections List */}
+              <div className={styles.checklistGrid}>
+                {filteredSections.map((section: any, sIdx: number) => {
+                  const secId = String(section.id);
+                  const isExpanded = expandedSections[secId] !== undefined 
+                    ? expandedSections[secId] 
+                    : (sIdx === 0 || searchQuery.trim().length > 0);
+
+                  const sectionItems = section.items || [];
+                  const secAnswered = sectionItems.filter((it: any) => answers[it.id]?.answer !== undefined && answers[it.id]?.answer !== '').length;
+                  const isSecComplete = sectionItems.length > 0 && secAnswered === sectionItems.length;
+
+                  return (
+                    <div key={section.id} style={{ background: 'white', border: '1px solid #cfdcde', borderRadius: '12px', overflow: 'hidden', marginBottom: '8px' }}>
+                      {/* Clickable Collapsible Accordion Header */}
+                      <div
+                        className={`${styles.accordionHeader} ${isExpanded ? styles.accordionHeaderOpen : ''}`}
+                        onClick={() => {
+                          setExpandedSections((prev) => ({
+                            ...prev,
+                            [secId]: !isExpanded
+                          }));
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '14px', fontWeight: 900, color: '#006d77' }}>
+                            {sIdx + 1}.
+                          </span>
+                          <strong style={{ fontSize: '14px', color: '#102027' }}>
+                            {section.name}
+                          </strong>
+                          {isSecComplete ? (
+                            <span style={{ fontSize: '11px', background: '#eaf8f3', color: '#16725a', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                              ✅ مكتمل ({secAnswered}/{sectionItems.length})
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '11px', background: '#f0f4f6', color: '#546e7a', padding: '2px 8px', borderRadius: '12px' }}>
+                              {secAnswered}/{sectionItems.length} تم الإجابة
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '12px', color: '#006d77', fontWeight: 'bold' }}>
+                            {isExpanded ? 'طي ▲' : 'فتح التقييم ▼'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Collapsible Section Body */}
+                      {isExpanded && (
+                        <div style={{ padding: '14px', display: 'grid', gap: '12px', background: '#ffffff', borderTop: '1px solid #eef6f6' }}>
+                          {sectionItems.map((item: any) => {
+                            const currentAnswer = answers[item.id]?.answer || '';
+                            const answerType = item.answer_type || 'yes_no';
+                            const optionsList = item.options
+                              ? item.options.split(',').map((opt: string) => opt.trim()).filter(Boolean)
+                              : [];
+
+                            return (
+                              <div
+                                key={item.id}
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '8px',
+                                  padding: '12px',
+                                  background: '#f8fbfb',
+                                  border: '1px solid #cfdcde',
+                                  borderRadius: '10px',
+                                  boxSizing: 'border-box',
+                                  width: '100%'
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                                  <p style={{ margin: 0, fontSize: '13.5px', color: '#37474f', lineHeight: '1.6', fontWeight: 'bold', textAlign: 'right', flex: 1 }}>
+                                    {item.text}
+                                  </p>
+                                  <span
+                                    style={{
+                                      fontSize: '10px',
+                                      fontWeight: 'bold',
+                                      color: item.violation_priority === 'critical' ? '#d32f2f' : item.violation_priority === 'high' ? '#e65100' : '#f57c00',
+                                      background: item.violation_priority === 'critical' ? '#ffebee' : '#fff3e0',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      flexShrink: 0
+                                    }}
+                                  >
+                                    {item.violation_priority === 'critical' ? 'حرجة' : item.violation_priority === 'high' ? 'عالية' : item.violation_priority === 'medium' ? 'متوسطة' : 'بسيطة'}
+                                  </span>
+                                </div>
+
+                                {/* Answers Touch Grid */}
+                                <div style={{ marginTop: '4px', width: '100%' }}>
+                                  {answerType === 'yes_no' && optionsList.length <= 3 && (
+                                    <div className={styles.radioGroup}>
+                                      <button
+                                        type="button"
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'yes' || currentAnswer === 'مطابق' || currentAnswer === 'ملتزم') ? styles.yesActive : ''}`}
+                                        onClick={() => handleAnswerChange(item.id, 'yes', item.violation_priority, item.correction_dept, item.text)}
+                                      >
+                                        مطابق
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'no' || currentAnswer === 'غير مطابق' || currentAnswer === 'غير ملتزم') ? styles.noActive : ''}`}
+                                        onClick={() => handleAnswerChange(item.id, 'no', item.violation_priority, item.correction_dept, item.text)}
+                                      >
+                                        غير مطابق
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'na' || currentAnswer === 'لا ينطبق' || currentAnswer === 'غير منطبق') ? styles.naActive : ''}`}
+                                        onClick={() => handleAnswerChange(item.id, 'na', item.violation_priority, item.correction_dept, item.text)}
+                                      >
+                                        لا ينطبق
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {(answerType === 'chips_options' || answerType === 'dropdown' || (answerType === 'yes_no' && optionsList.length > 3)) && (
+                                    <div className={styles.chipsGroup}>
+                                      {(optionsList.length > 0 ? optionsList : ['مطابق بالكامل', 'مطابق جزئياً', 'غير مطابق', 'لا ينطبق']).map((opt: string, oIdx: number) => {
+                                        const isSelected = currentAnswer === opt;
+                                        const isNonCompliant = opt.includes('غير مطابق') || opt.includes('غير ملتزم') || opt.includes('مخالف') || opt.includes('سلبي');
+                                        const isPartial = opt.includes('جزئي') || opt.includes('متوسط') || opt.includes('مقبول');
+                                        const isNA = opt.includes('ينطبق') || opt.includes('منطبق') || opt.includes('محايد');
+                                        
+                                        let activeClass = styles.chipActiveSuccess;
+                                        if (isNonCompliant) activeClass = styles.chipActiveDanger;
+                                        else if (isPartial) activeClass = styles.chipActiveWarn;
+                                        else if (isNA) activeClass = styles.chipActiveMuted;
+
+                                        return (
+                                          <button
+                                            key={oIdx}
+                                            type="button"
+                                            className={`${styles.chipBtn} ${isSelected ? activeClass : ''}`}
+                                            onClick={() => {
+                                              handleAnswerChangeCustom(
+                                                item.id,
+                                                opt,
+                                                !isNonCompliant,
+                                                item.violation_priority,
+                                                item.correction_dept,
+                                                item.text
+                                              );
+                                            }}
+                                          >
+                                            {opt}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+
+                                  {answerType === 'checkbox' && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: 'white', padding: '10px', borderRadius: '6px', border: '1px solid #cfdcde' }}>
+                                      {optionsList.map((opt: string) => {
+                                        const isChecked = Array.isArray(currentAnswer) ? currentAnswer.includes(opt) : currentAnswer === opt;
+                                        return (
+                                          <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: '#37474f', cursor: 'pointer', userSelect: 'none' }}>
+                                            <input
+                                              type="checkbox"
+                                              checked={isChecked}
+                                              onChange={(e) => {
+                                                let nextVal: string[];
+                                                if (Array.isArray(currentAnswer)) {
+                                                  nextVal = e.target.checked
+                                                    ? [...currentAnswer, opt]
+                                                    : currentAnswer.filter((v) => v !== opt);
+                                                } else {
+                                                  nextVal = e.target.checked ? [opt] : [];
+                                                }
+                                                const isNonCompliant = nextVal.some(val => val.includes('غير') || val.includes('لا') || val.includes('مخالف'));
+                                                handleAnswerChangeCustom(item.id, nextVal, !isNonCompliant, item.violation_priority, item.correction_dept, item.text);
+                                              }}
+                                            />
+                                            {opt}
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
       </section>
 
       <section className={styles.violationBox}>
@@ -2306,13 +2412,57 @@ export function MissionExecutionForm({
         </div>
       </section>
 
-      <div className={styles.actions}>
-        <button disabled={loading} onClick={() => save('in_progress')} type="button">
-          حفظ وبدء التنفيذ
-        </button>
-        <button className={styles.complete} disabled={loading} onClick={() => save('completed')} type="button">
-          إنهاء المأمورية
-        </button>
+      <div className={styles.mobileStickyBar}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#102027' }}>
+            الامتثال: <strong style={{ color: answeredStats.rate >= 80 ? '#2a9d8f' : '#e76f51', fontSize: '15px' }}>{answeredStats.rate}%</strong>
+            <span style={{ fontSize: '11px', color: '#78909c', marginRight: '6px' }}>({answeredStats.answered} بند مُقيّم)</span>
+          </span>
+          <span style={{ fontSize: '11px', color: answeredStats.nonCompliant > 0 ? '#c62828' : '#2a9d8f', fontWeight: 'bold' }}>
+            {answeredStats.nonCompliant > 0 ? `⚠️ ${answeredStats.nonCompliant} مخالفة مرصودة` : '🟢 لا توجد مخالفات مسجلة'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => save('in_progress')}
+            style={{
+              background: '#f0f4f8',
+              color: '#37474f',
+              border: '1px solid #cfdcde',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              fontSize: '12.5px',
+              fontWeight: 'bold',
+              cursor: 'pointer'
+            }}
+          >
+            حفظ مسودة
+          </button>
+          <button
+            type="button"
+            className={styles.complete}
+            disabled={loading}
+            onClick={() => save('completed')}
+            style={{
+              background: 'var(--brand)',
+              color: 'white',
+              border: 0,
+              borderRadius: '8px',
+              padding: '10px 20px',
+              fontSize: '13.5px',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              boxShadow: '0 3px 12px rgba(0, 109, 119, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            {loading ? 'جاري الإرسال...' : '💾 اعتماد وإرسال التقرير'}
+          </button>
+        </div>
       </div>
     </section>
   )

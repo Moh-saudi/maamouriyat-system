@@ -88,28 +88,55 @@ export default async function MissionPrintPage({ params }: PageProps) {
       visit_purpose,
       notes,
       created_at,
+      sector_id,
       users:assigned_user_id(full_name, job_title, department),
       creators:created_by(full_name, job_title, department),
-      facilities:target_facility_id(name, facility_type, address),
-      governorates:target_governorate_id(name),
-      organizational_units:org_unit_id(name)
+      facilities:target_facility_id(name, facility_type, address, governorate, health_admin),
+      sectors:sector_id(name)
     `)
     .eq('id', id)
     .single()
 
   if (error || !data) {
-    notFound()
+    return (
+      <main className={styles.screen}>
+        <div style={{ maxWidth: '600px', margin: '60px auto', background: 'white', border: '1px solid #cfdcde', borderRadius: '12px', padding: '32px', textAlign: 'center', boxShadow: '0 4px 14px rgba(0,0,0,0.06)' }}>
+          <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔒</div>
+          <h2 style={{ color: '#c62828', fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>المأمورية غير موجودة أو غير مصرح بالاطلاع عليها</h2>
+          <p style={{ color: '#546e7a', fontSize: '13.5px', lineHeight: '1.6', marginBottom: '24px' }}>
+            نظراً لتطبيق نظام الحوكمة والعزل الإداري الصارم بين القطاعات، لا يمكن طباعة أو استعراض مأموريات تابعة لقطاع تنظيمي آخر.
+          </p>
+          <Link
+            href="/dashboard/missions"
+            style={{
+              background: '#006d77',
+              color: 'white',
+              padding: '10px 24px',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              fontWeight: 'bold',
+              fontSize: '13px'
+            }}
+          >
+            ← العودة لجدول مأموريات قطاعك
+          </Link>
+        </div>
+      </main>
+    )
   }
 
   const mission = data as unknown as MissionPrintRow
   const assignedUser = one(mission.users)
   const creator = one(mission.creators)
-  const facility = one(mission.facilities)
-  const governorate = one(mission.governorates)
-  const orgUnit = one(mission.organizational_units)
+  const facility = one(mission.facilities) as any
+  const rawSectors = (data as any)?.sectors
+  const sectorName = Array.isArray(rawSectors) ? rawSectors[0]?.name : rawSectors?.name
+  const assignedDept = assignedUser?.department || sectorName || 'ديوان عام وزارة الصحة والسكان'
+  const issuingOrg = creator?.department || sectorName || 'ديوان عام الوزارة'
+
   const destination =
     mission.destination_type === 'governorate'
-      ? governorate?.name ?? 'محافظة غير محددة'
+      ? facility?.governorate ?? 'جمهورية مصر العربية'
       : facility?.name ?? 'منشأة غير محددة'
 
   return (
@@ -124,13 +151,14 @@ export default async function MissionPrintPage({ params }: PageProps) {
           <div>
             <strong>جمهورية مصر العربية</strong>
             <span>وزارة الصحة والسكان</span>
-            <span>ديوان عام الوزارة</span>
+            <span>{sectorName || 'ديوان عام الوزارة'}</span>
+            {issuingOrg && issuingOrg !== sectorName && <strong>{issuingOrg}</strong>}
           </div>
           <img alt="شعار وزارة الصحة والسكان المصرية" src="/mohp-logo.png" />
           <div>
             <strong>نظام حوكمة المأمورية الميدانية</strong>
-            <span>قطاع الطب العلاجي</span>
-            <span>نموذج تكليف رسمي</span>
+            <span>وثيقة تكليف وتقرير مروري معتمد</span>
+            <span>رقم التكليف: {mission.serial_number}</span>
           </div>
         </header>
 
@@ -167,11 +195,11 @@ export default async function MissionPrintPage({ params }: PageProps) {
             </div>
             <div>
               <dt>الإدارة المختصة</dt>
-              <dd>{orgUnit?.name ?? 'غير محددة'}</dd>
+              <dd>{assignedDept}</dd>
             </div>
             <div>
               <dt>مصدر التكليف</dt>
-              <dd>{creator?.full_name ?? 'غير محدد'}</dd>
+              <dd>{issuingOrg}</dd>
             </div>
           </dl>
         </section>
@@ -193,7 +221,7 @@ export default async function MissionPrintPage({ params }: PageProps) {
             </div>
             <div>
               <dt>العنوان</dt>
-              <dd>{facility?.address ?? governorate?.name ?? 'غير محدد'}</dd>
+              <dd>{facility?.address ?? facility?.governorate ?? 'غير محدد'}</dd>
             </div>
           </dl>
         </section>

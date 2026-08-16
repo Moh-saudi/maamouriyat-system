@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation'
 import { DashboardShell } from '@/app/system-ui'
-import { levelToRole } from '@/lib/roles'
+import { orgLevelToRole, canCreateMissions } from '@/lib/roles'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { MissionCreateForm, type MissionOption } from './mission-create-form'
+import { MissionCreateForm } from './mission-create-form'
 import styles from './new-mission.module.css'
+
+export const dynamic = 'force-dynamic'
 
 export default async function NewMissionPage() {
   const supabase = await createServerSupabaseClient()
@@ -20,40 +22,83 @@ export default async function NewMissionPage() {
     redirect('/login')
   }
 
-  const [profileResult, employeesResult, unitsResult, facilitiesResult, governoratesResult] = await Promise.all([
-    supabase.from('users').select('id, full_name, level, department').eq('auth_id', user.id).single(),
-    supabase.from('users').select('id, full_name, job_title, level, department, org_unit_id, is_active').order('level').order('full_name'),
-    supabase.from('organizational_units').select('id, code, name, unit_type, parent_id, level').eq('is_active', true).order('level').order('sort_order'),
-    supabase.from('facilities').select('id, name, facility_type, address, governorate_id, org_unit_id').eq('is_active', true).order('name'),
-    supabase.from('governorates').select('id, name, region').eq('is_active', true).order('name'),
-  ])
+  // 1. Fetch user profile
+  const { data: profile } = await supabase
+    .from('users')
+    .select('id, full_name, org_level, sector_id, organization_id')
+    .eq('auth_id', user.id)
+    .single()
 
-  if (profileResult.error || !profileResult.data) {
+  if (!profile) {
     redirect('/login')
   }
-  if (profileResult.data.level > 4) {
+
+  const userOrgLevel = profile.org_level ?? 7
+  if (!canCreateMissions(userOrgLevel)) {
     redirect('/dashboard/missions')
   }
-  const currentRole = levelToRole(profileResult.data.level)
+
+  const currentRole = orgLevelToRole(userOrgLevel)
+
+  // 2. Fetch data in parallel (RLS will automatically scope results)
+  const [employeesResult, facilitiesResult, orgsResult, templatesResult] = await Promise.all([
+    supabase
+      .from('users')
+      .select('id, full_name, job_title, org_level, organization_id, is_active')
+      .eq('is_active', true)
+      .order('org_level')
+      .order('full_name'),
+    supabase
+      .from('facilities')
+      .select('id, name, facility_type, governorate, health_admin, village_city, latitude, longitude, organization_id, sector_id')
+      .eq('is_active', true)
+      .order('name')
+      .limit(4000),
+    supabase
+      .from('organizations')
+      .select('id, name, level, level_label, governorate, health_admin, sector_id, code')
+      .eq('is_active', true)
+      .order('level')
+      .order('name'),
+    supabase
+      .from('form_templates')
+      .select('id, name, version, is_base')
+      .eq('is_active', true)
+  ])
+
+  // Extract governorates uniquely
+  const govMap = new Map<string, { id: string; name: string }>()
+  for (const org of orgsResult.data ?? []) {
+    if (org.level === 5 && org.governorate) {
+      govMap.set(org.governorate, { id: org.id, name: org.governorate })
+    }
+  }
+
+  const governorates = Array.from(govMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'))
 
   return (
     <DashboardShell role={currentRole} view="missions">
       <main className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <p>قطاع الطب العلاجي</p>
-          <h1>إنشاء مأمورية جديدة</h1>
-        </div>
-        <span>تسكين الموظف والوجهة والغرض من الزيارة</span>
-      </header>
+        <header className={styles.header}>
+          <div>
+            <p>منظومة حوكمة المرور الميداني</p>
+            <h1>تكليف بمأمورية جديدة</h1>
+          </div>
+          <span>تسكين المفتش والمنشأة الطبية المستهدفة والغرض المحوكم</span>
+        </header>
 
-      <MissionCreateForm
-        currentUserId={profileResult.data.id}
-        employees={(employeesResult.data ?? []) as MissionOption['employees']}
-        facilities={(facilitiesResult.data ?? []) as MissionOption['facilities']}
-        governorates={(governoratesResult.data ?? []) as MissionOption['governorates']}
-        orgUnits={(unitsResult.data ?? []) as MissionOption['orgUnits']}
-      />
+        <MissionCreateForm
+          currentUserId={profile.id}
+          userOrgLevel={userOrgLevel}
+          userSectorId={profile.sector_id}
+          userOrgId={profile.organization_id}
+          employees={employeesResult.data ?? []}
+          facilities={facilitiesResult.data ?? []}
+          governorates={governorates}
+          organizations={orgsResult.data ?? []}
+          orgUnits={orgsResult.data ?? []}
+          templates={templatesResult.data ?? []}
+        />
       </main>
     </DashboardShell>
   )
