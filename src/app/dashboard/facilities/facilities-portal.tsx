@@ -296,9 +296,16 @@ export function FacilitiesPortal({
     if (activeUnit.id === 'therapeutic-sector') {
       const sectorHead = initialUsers.find(u => 
         ((u.org_level ?? u.level ?? 7) === 2 || u.job_title?.includes('رئيس قطاع')) && 
-        ((u.org_level ?? u.level ?? 7) <= 3 || u.job_title?.includes('رئيس') || u.job_title?.includes('مدير'))
+        (u.department?.includes('علاجي') || u.job_title?.includes('علاجي'))
       )
-      if (sectorHead) return `${sectorHead.full_name} (${sectorHead.job_title || 'رئيس القطاع'})`
+      if (sectorHead) return `${sectorHead.full_name} (${sectorHead.job_title || 'رئيس قطاع الطب العلاجي'})`
+    }
+    if (activeUnit.id === 'phc-sector') {
+      const sectorHead = initialUsers.find(u => 
+        ((u.org_level ?? u.level ?? 7) === 2 || u.job_title?.includes('رئيس قطاع')) && 
+        (u.department?.includes('رعاية') || u.department?.includes('أسرة') || u.job_title?.includes('رعاية'))
+      )
+      if (sectorHead) return `${sectorHead.full_name} (${sectorHead.job_title || 'رئيس قطاع الرعاية الأولية وتنمية الأسرة'})`
     }
     
     return 'شاغر - قيد التعيين حالياً'
