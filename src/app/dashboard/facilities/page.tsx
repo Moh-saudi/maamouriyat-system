@@ -53,12 +53,25 @@ export default async function FacilitiesPage() {
   // جلب بيانات المستخدم الحالي مع org_level الجديد
   const { data: profile } = await supabase
     .from('users')
-    .select('org_level, organization_id, sector_id')
+    .select('org_level, organization_id, sector_id, department, email')
     .eq('auth_id', user.id)
     .maybeSingle()
 
   const orgLevel = profile?.org_level ?? 7
   const role = orgLevelToRole(orgLevel)
+
+  // Determine user's sector
+  const userEmail = user.email || profile?.email || ''
+  let userSectorId = profile?.sector_id || null
+  if (!userSectorId) {
+    if (orgLevel === 1 || userEmail.toLowerCase().includes('admin@')) {
+      userSectorId = 'all' // مشرف عام ديوان الوزارة يرى كافة القطاعات
+    } else if (userEmail.toLowerCase().includes('phc') || profile?.department?.includes('رعاية') || profile?.department?.includes('أسرة')) {
+      userSectorId = '00000000-0000-0000-0000-000000000010'
+    } else {
+      userSectorId = '00000000-0000-0000-0000-000000000011'
+    }
+  }
 
   // جلب المنشآت والجهات والمستخدمين بالتوازي
   const [facilitiesData, orgsResult, usersResult] = await Promise.all([
@@ -72,7 +85,7 @@ export default async function FacilitiesPage() {
       .order('name'),
     supabase
       .from('users')
-      .select('id, full_name, job_title, org_level, organization_id, is_active')
+      .select('id, full_name, job_title, org_level, organization_id, is_active, department, email')
       .eq('is_active', true)
       .order('full_name')
       .limit(300)
@@ -86,6 +99,8 @@ export default async function FacilitiesPage() {
         initialUsers={usersResult.data ?? []}
         role={role}
         userOrgLevel={orgLevel}
+        userSectorId={userSectorId}
+        userEmail={userEmail}
       />
     </DashboardShell>
   )
