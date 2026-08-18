@@ -582,6 +582,25 @@ export function MissionsPortal({
     })
   }, [missions, searchQuery, statusFilter, priorityFilter, destinationFilter])
 
+
+  // --- Pagination State (Default 30 rows per page) ---
+  const [pageSize, setPageSize] = useState<number>(30)
+  const [currentPage, setCurrentPage] = useState<number>(1)
+
+  // Reset page to 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, statusFilter, priorityFilter, destinationFilter, pageSize])
+
+  const totalItems = filteredMissions.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = Math.min(startIndex + pageSize, totalItems)
+
+  const paginatedMissions = useMemo(() => {
+    return filteredMissions.slice(startIndex, endIndex)
+  }, [filteredMissions, startIndex, endIndex])
+
   function getPriorityBadgeClass(priority: string) {
     if (priority === 'urgent' || priority === 'critical') return 'priority-urgent'
     if (priority === 'high') return 'priority-high'
@@ -952,7 +971,7 @@ export function MissionsPortal({
       {/* 3. PREMIUM CONTENT VIEW (GRID OR TABLE) */}
       {viewMode === 'grid' ? (
         <section style={{ display: 'grid', gap: '14px' }}>
-        {filteredMissions.map((mission) => {
+        {paginatedMissions.map((mission) => {
           const isUrgent = mission.priority === 'urgent' || mission.priority === 'critical'
           
           return (
@@ -1515,7 +1534,7 @@ export function MissionsPortal({
                 </tr>
               </thead>
               <tbody>
-                {filteredMissions.map((mission) => {
+                {paginatedMissions.map((mission) => {
                   const isUrgent = mission.priority === 'urgent' || mission.priority === 'critical'
                   const targetEndDate = getMissionEndDate(mission);
                   const targetStartDate = mission.scheduledDate || '';
