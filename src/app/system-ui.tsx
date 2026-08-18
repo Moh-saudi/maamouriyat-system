@@ -1390,7 +1390,7 @@ function Navigation({
           <span>تسجيل الخروج من الحساب</span>
         </button>
         <div className="drawer-security-note">
-          <span>🔒 منظومة مؤمنة ومشفرة — وزارة الصحة والسكان</span>
+          <span>جميع الحقوق محفوظة © 2026</span>
         </div>
       </div>
     </div>
@@ -1443,43 +1443,9 @@ function MinistryLogo({ size }: { size: 'hero' | 'panel' | 'header' | 'menu' | '
 export function OfficialGovernmentFooter() {
   return (
     <footer className="official-gov-footer">
-      <div className="gov-footer-content">
-        <div className="gov-footer-brand">
-          <MinistryLogo size="menu" />
-          <div className="gov-footer-text">
-            <strong className="gov-footer-title">جمهورية مصر العربية — وزارة الصحة والسكان</strong>
-            <p className="gov-footer-desc">
-              المنظومة الوطنية الموحدة لحوكمة ورقمنة المأموريات الميدانية والربط التكاملي بين قطاعات ديوان عام الوزارة ومديريات الشئون الصحية والإدارات والمستشفيات والوحدات.
-            </p>
-          </div>
-        </div>
-
-        <div className="gov-footer-badges">
-          <div className="gov-badge-item">
-            <span className="gov-badge-icon">🛡️</span>
-            <div>
-              <strong>الأمن والسرية</strong>
-              <small>نظام مشفر ومؤمن سحابياً</small>
-            </div>
-          </div>
-          <div className="gov-badge-item">
-            <span className="gov-badge-icon">🇪🇬</span>
-            <div>
-              <strong>رؤية مصر 2030</strong>
-              <small>التحول الرقمي للقطاع الصحي</small>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="gov-footer-bottom-line">
-        <div className="gov-footer-credits">
-          <span>إشراف وتطوير وتنفيذ: <strong>الإدارة المركزية لنظم المعلومات والتحول الرقمي</strong> بالتعاون مع <strong>قطاع الطب العلاجي</strong> و<strong>قطاع الرعاية الأساسية وتنمية الأسرة</strong></span>
-        </div>
-        <div className="gov-footer-copyright">
-          <span>جميع الحقوق محفوظة © {new Date().getFullYear()} وزارة الصحة والسكان المصرية — إصدار الحوكمة الميدانية <code>v2.6.0</code></span>
-        </div>
-      </div>
+      <p style={{ margin: 0, fontSize: '12px', color: '#64748b', textAlign: 'center' }}>
+        جميع الحقوق محفوظة © 2026
+      </p>
     </footer>
   )
 }
