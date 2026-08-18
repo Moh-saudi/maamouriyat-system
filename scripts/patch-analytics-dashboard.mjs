@@ -1,4 +1,11 @@
-'use client'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const filePath = path.resolve(__dirname, '../src/app/dashboard/analytics-dashboard.tsx')
+
+const fileContent = `'use client'
 
 import { useMemo, useState } from 'react'
 import {
@@ -233,7 +240,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" tickLine={false} axisLine={false} />
                   <YAxis tickLine={false} axisLine={false} unit="ms" />
-                  <Tooltip formatter={(value) => [`${value}ms`, 'زمن الاستجابة']} />
+                  <Tooltip formatter={(value) => [\`\${value}ms\`, 'زمن الاستجابة']} />
                   <Line type="monotone" dataKey="value" stroke="#006d77" strokeWidth={3} dot={{ fill: '#006d77', r: 5 }} />
                 </LineChart>
               </ResponsiveContainer>
@@ -266,11 +273,11 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
     <div className="analytics-dashboard">
       {/* TOP KPI METRICS */}
       <section className="metric-grid">
-        <MetricCard delta={`${completionRate}% إنجاز`} icon={ClipboardList} label="إجمالي المأموريات" tone="blue" value={metrics.missionsTotal} />
-        <MetricCard delta={`${metrics.violatingFacilities} منشأة`} icon={Building2} label="المنشآت المخالفة" tone="red" value={metrics.violatingFacilities} />
-        <MetricCard delta={`${metrics.highPriorityViolations} حرجة`} icon={Siren} label="مخالفات عالية الخطورة" tone="amber" value={metrics.highPriorityViolations} />
-        <MetricCard delta={`${metrics.inspectorsTotal} مفتش`} icon={Users} label="القائمون بالمرور" tone="teal" value={metrics.inspectorsTotal} />
-        <MetricCard delta={`${metrics.missionsLate} متأخرة`} icon={Clock3} label="مأموريات تحتاج تدخل" tone={metrics.missionsLate ? 'red' : 'green'} value={metrics.missionsInProgress + metrics.missionsPending} />
+        <MetricCard delta={\`\${completionRate}% إنجاز\`} icon={ClipboardList} label="إجمالي المأموريات" tone="blue" value={metrics.missionsTotal} />
+        <MetricCard delta={\`\${metrics.violatingFacilities} منشأة\`} icon={Building2} label="المنشآت المخالفة" tone="red" value={metrics.violatingFacilities} />
+        <MetricCard delta={\`\${metrics.highPriorityViolations} حرجة\`} icon={Siren} label="مخالفات عالية الخطورة" tone="amber" value={metrics.highPriorityViolations} />
+        <MetricCard delta={\`\${metrics.inspectorsTotal} مفتش\`} icon={Users} label="القائمون بالمرور" tone="teal" value={metrics.inspectorsTotal} />
+        <MetricCard delta={\`\${metrics.missionsLate} متأخرة\`} icon={Clock3} label="مأموريات تحتاج تدخل" tone={metrics.missionsLate ? 'red' : 'green'} value={metrics.missionsInProgress + metrics.missionsPending} />
       </section>
 
       {/* FILTER TOOLBAR */}
@@ -301,7 +308,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
             title="توزيع المرور والتفتيش الميداني حسب المحافظات"
             subtitle="إجمالي المأموريات المنفذة والمجدولة عبر محافظات الجمهورية (11 محافظة)"
             span="span-full"
-            badge={`${metrics.governorateVisits.length} محافظات نشطة`}
+            badge={\`\${metrics.governorateVisits.length} محافظات نشطة\`}
           >
             {hasData(metrics.governorateVisits) ? (
               <ChartScroller wide>
@@ -325,7 +332,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                       allowDecimals={false}
                     />
                     <Tooltip
-                      formatter={(val: any) => [`${val} مأمورية`, 'إجمالي الزيارات']}
+                      formatter={(val: any) => [\`\${val} مأمورية\`, 'إجمالي الزيارات']}
                       contentStyle={{ background: '#0f172a', color: '#fff', borderRadius: '8px', border: 0 }}
                       itemStyle={{ color: '#38bdf8' }}
                     />
@@ -348,7 +355,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           <ReportPanel
             title="حركة المأموريات"
             subtitle="توزيع الحالات التشغيلية وموقف التنفيذ"
-            badge={`${metrics.missionsTotal} مأمورية`}
+            badge={\`\${metrics.missionsTotal} مأمورية\`}
           >
             {hasData(metrics.missionStatus) ? (
               <ChartScroller>
@@ -387,7 +394,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           <ReportPanel
             title="المخالفات المرصودة حسب الشدة"
             subtitle="تصنيف المخالفات وموقف الإجراءات التصحيحية"
-            badge={`${metrics.violationsTotal} مخالفة`}
+            badge={\`\${metrics.violationsTotal} مخالفة\`}
           >
             {hasData(metrics.priorityBreakdown) ? (
               <div style={{ display: 'grid', gap: '16px' }}>
@@ -475,7 +482,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                         padding: '12px 16px',
                         borderRadius: '12px',
                         background: rankBg,
-                        border: `1.5px solid ${rankBorder}`,
+                        border: \`1.5px solid \${rankBorder}\`,
                         boxShadow: isFirst ? '0 4px 12px rgba(245, 158, 11, 0.12)' : '0 1px 3px rgba(0,0,0,0.03)',
                         transition: 'all 0.2s ease'
                       }}
@@ -523,7 +530,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                           marginTop: '4px'
                         }}>
                           <div style={{
-                            width: `${pct}%`,
+                            width: \`\${pct}%\`,
                             height: '100%',
                             borderRadius: '999px',
                             background: isFirst
@@ -573,7 +580,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: '#cbd5e1' }} tick={{ fontSize: 12, fontWeight: 'bold', fill: '#334155' }} />
                     <YAxis tickLine={false} axisLine={{ stroke: '#cbd5e1' }} tick={{ fontSize: 12, fill: '#64748b' }} allowDecimals={false} />
-                    <Tooltip formatter={(val: any) => [`${val} مأمورية`, 'العدد الإجمالي']} />
+                    <Tooltip formatter={(val: any) => [\`\${val} مأمورية\`, 'العدد الإجمالي']} />
                     <Area type="monotone" dataKey="value" stroke="#7c3aed" strokeWidth={3} fillOpacity={1} fill="url(#colorMonthly)" dot={{ fill: '#7c3aed', r: 5 }} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -598,7 +605,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: '#cbd5e1' }} interval={0} angle={-15} textAnchor="end" height={45} tick={{ fontSize: 11, fill: '#334155' }} />
                     <YAxis tickLine={false} axisLine={{ stroke: '#cbd5e1' }} tick={{ fontSize: 11, fill: '#64748b' }} allowDecimals={false} />
-                    <Tooltip formatter={(val: any) => [`${val} أيام مرور`, 'أيام التغطية']} />
+                    <Tooltip formatter={(val: any) => [\`\${val} أيام مرور\`, 'أيام التغطية']} />
                     <Bar dataKey="value" fill="#2563eb" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -618,7 +625,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
         <PulseItem label="المنشآت المرصودة" tone="red" value={violatingFacilityRate} />
       </section>
 
-      <style jsx>{`
+      <style jsx>{\`
         .analytics-dashboard {
           display: grid;
           gap: 16px;
@@ -807,7 +814,7 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
           padding: 18px;
           text-align: center;
         }
-      `}</style>
+      \`}</style>
     </div>
   )
 }
@@ -830,7 +837,7 @@ function MetricCard({
       className="metric-card"
       style={
         {
-          '--metric-soft': `${toneColors[tone]}18`,
+          '--metric-soft': \`\${toneColors[tone]}18\`,
           '--metric-tone': toneColors[tone],
         } as React.CSSProperties
       }
@@ -843,7 +850,7 @@ function MetricCard({
       </div>
       <div className="metric-body">
         <span className="metric-label">{label}</span>
-        <span className="metric-note" style={{ backgroundColor: `${toneColors[tone]}18`, color: toneColors[tone] }}>
+        <span className="metric-note" style={{ backgroundColor: \`\${toneColors[tone]}18\`, color: toneColors[tone] }}>
           {delta}
         </span>
       </div>
@@ -865,7 +872,7 @@ function ReportPanel({
   badge?: string
 }) {
   return (
-    <section className={`report-panel ${span}`}>
+    <section className={\`report-panel \${span}\`}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
         <div>
           <h3>{title}</h3>
@@ -941,3 +948,7 @@ function getVisibleReports(focus: ReportFocus) {
   if (focus === 'all') return ['missions', 'violations', 'governorates', 'performance']
   return [focus]
 }
+`
+
+fs.writeFileSync(filePath, fileContent, 'utf8')
+console.log('Successfully patched analytics-dashboard.tsx with wide layouts and luxury leaderboard!')
