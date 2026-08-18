@@ -5,9 +5,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { AnalyticsDashboard, type ChartItem, type DashboardMetrics, type DashboardProfile, type RankingItem } from './analytics-dashboard'
 
 type MissionRow = {
+  id?: string
   assigned_user_id: string | null
-  actual_facility_id: string | null
-  actual_governorate_id: string | null
+  facility_id?: string | null
   completed_at: string | null
   scheduled_date: string | null
   status: string | null
@@ -15,6 +15,13 @@ type MissionRow = {
   target_governorate_id: string | null
   violation_count: number | null
   org_unit_id: string | null
+  sector_id?: string | null
+  facilities?: {
+    id: string
+    name: string
+    governorate: string | null
+    facility_type: string | null
+  } | null
 }
 
 type ViolationRow = {
@@ -86,7 +93,7 @@ export default async function DashboardPage() {
     supabase
       .from('missions')
       .select(
-        'id, status, scheduled_date, completed_at, violation_count, assigned_user_id, primary_inspector_id, facility_id, target_facility_id, target_governorate_id, org_unit_id, sector_id',
+        'id, status, scheduled_date, completed_at, violation_count, assigned_user_id, primary_inspector_id, facility_id, target_facility_id, target_governorate_id, org_unit_id, sector_id, facilities:facility_id(id, name, governorate, facility_type)',
       )
       .limit(2000),
     supabase.from('violations').select('id, status, priority, facility_id, mission_id').limit(2000),
@@ -442,32 +449,37 @@ function resolveGovernorateName(
   facilities: Map<string, FacilityRow>,
   governorates: Map<string, string>,
 ) {
-  const fac = facilities.get(mission.target_facility_id || (mission as any).facility_id || '')
+  if (mission.facilities?.governorate) {
+    return mission.facilities.governorate.trim()
+  }
+  const fac = facilities.get(mission.target_facility_id || mission.facility_id || '')
   if (fac?.governorate) {
     return fac.governorate.trim()
   }
-  const governorateId = mission.target_governorate_id || (mission as any).governorate_id
+  const governorateId = mission.target_governorate_id
   return (governorateId && governorates.get(governorateId)) || 'القاهرة'
 }
 
-function topChartItems(grouped: Map<string, number>, tone: ChartItem['tone']) {
-  const items = Array.from(grouped.entries())
+function topChartItems(grouped: Map<string, number>, tone: ChartItem['tone']): ChartItem[] {
+  const tones: Array<ChartItem['tone']> = ['teal', 'blue', 'green', 'amber', 'violet', 'teal', 'blue', 'green', 'amber', 'violet']
+  const items: ChartItem[] = Array.from(grouped.entries())
+    .filter(([label]) => label && label !== 'غير محدد')
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
+    .slice(0, 10)
     .map(([label, value], index) => ({
       label,
       value,
-      tone: (index % 3 === 0 ? tone : index % 3 === 1 ? 'teal' : 'amber') as ChartItem['tone'],
+      tone: tones[index % tones.length],
     }))
 
-  return normalizeChartItems(items, [
+  return items.length ? items : [
     { label: 'القاهرة', value: 0, tone },
     { label: 'الجيزة', value: 0, tone: 'teal' },
     { label: 'الإسكندرية', value: 0, tone: 'amber' },
-  ])
+  ]
 }
 
-function normalizeChartItems(items: ChartItem[], fallback: ChartItem[]) {
-  return items.length ? items.slice(0, 5) : fallback
+function normalizeChartItems(items: ChartItem[], fallback: ChartItem[]): ChartItem[] {
+  return items.length ? items.slice(0, 10) : fallback
 }
 

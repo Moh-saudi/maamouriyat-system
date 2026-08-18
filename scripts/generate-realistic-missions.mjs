@@ -31,6 +31,20 @@ const USERS = {
   abnoubInspector2: '4442c828-f5a0-403a-8001-f7452461e2ab'
 }
 
+const TARGET_GOVERNORATES = [
+  'القاهرة',
+  'الجيزة',
+  'الإسكندرية',
+  'أسيوط',
+  'الغربية',
+  'الشرقية',
+  'الدقهلية',
+  'البحيرة',
+  'الفيوم',
+  'بني سويف',
+  'البحر الأحمر'
+]
+
 function generateDate(monthOffset, dayOffset = 10) {
   const base = new Date()
   base.setMonth(base.getMonth() - monthOffset)
@@ -39,34 +53,36 @@ function generateDate(monthOffset, dayOffset = 10) {
 }
 
 async function run() {
-  console.log('🚀 Starting clean generation of realistic missions...')
+  console.log('🚀 Starting realistic missions generation distributed across 10+ governorates...')
 
-  // Clean old test missions
+  // 1. Clean previous batch of test missions
   const { error: delErr } = await supabase.from('missions').delete().like('serial_number', 'MIS-2026-%')
   if (delErr) console.warn('Warning during cleanup:', delErr.message)
   else console.log('✓ Cleaned previous batch of test missions')
 
-  // Fetch facilities
-  const { data: allFacilities, error: facErr } = await supabase
-    .from('facilities')
-    .select('id, name, facility_type, governorate, health_admin, sector_id, organization_id')
-    .limit(400)
+  // 2. Fetch facilities grouped by each targeted governorate
+  const facilitiesByGov = {}
 
-  if (facErr || !allFacilities || allFacilities.length === 0) {
-    console.error('Failed to fetch facilities:', facErr)
+  for (const gov of TARGET_GOVERNORATES) {
+    const { data, error } = await supabase
+      .from('facilities')
+      .select('id, name, facility_type, governorate, health_admin, sector_id, organization_id')
+      .eq('governorate', gov)
+      .limit(30)
+
+    if (data && data.length > 0) {
+      facilitiesByGov[gov] = data
+      console.log(`✓ Loaded ${data.length} facilities for governorate: ${gov}`)
+    }
+  }
+
+  const availableGovs = Object.keys(facilitiesByGov)
+  console.log(`Total active governorates with facilities: ${availableGovs.length}`)
+
+  if (availableGovs.length === 0) {
+    console.error('No facilities found for target governorates.')
     return
   }
-
-  const hospitals = allFacilities.filter(f => f.facility_type?.includes('مستشفى') || f.name.includes('مستشفى'))
-  const familyCenters = allFacilities.filter(f => f.facility_type?.includes('أسرة') || f.facility_type?.includes('وحدة') || f.name.includes('مركز') || f.name.includes('وحدة'))
-  
-  const facPool = {
-    hospitals: hospitals.length > 0 ? hospitals : allFacilities,
-    familyCenters: familyCenters.length > 0 ? familyCenters : allFacilities,
-    all: allFacilities
-  }
-
-  console.log(`Found ${allFacilities.length} facilities (Hospitals: ${hospitals.length}, Family Centers: ${familyCenters.length})`)
 
   const missionsToInsert = []
   let serialCounter = 1000
@@ -74,12 +90,21 @@ async function run() {
   const statuses = ['completed', 'completed', 'completed', 'completed', 'in_progress', 'approved', 'pending_approval', 'completed']
   const priorities = ['urgent', 'high', 'normal', 'high', 'normal']
 
-  // 1. Curative Sector (25 Missions)
+  // Helper to pick a facility for a given governorate index
+  const getFacility = (govIdx, facIdx) => {
+    const gov = availableGovs[govIdx % availableGovs.length]
+    const list = facilitiesByGov[gov]
+    return list[facIdx % list.length]
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // LEVEL 2 - SECTOR 1: قطاع الطب العلاجي (25 Missions across Govs)
+  // ─────────────────────────────────────────────────────────────
   console.log('Generating Level 2 (Curative Sector) missions...')
   for (let i = 0; i < 25; i++) {
     serialCounter++
     const serial = `MIS-2026-${serialCounter}`
-    const fac = facPool.hospitals[i % facPool.hospitals.length]
+    const fac = getFacility(i, Math.floor(i / availableGovs.length))
     const status = statuses[i % statuses.length]
     const priority = priorities[i % priorities.length]
     const monthOffset = i % 5
@@ -124,8 +149,8 @@ async function run() {
       total_criteria: totalItems,
       violations_count: violationCount,
       violation_count: violationCount,
-      visit_purpose: 'مرور وتقييم حوكمة أقسام الطوارئ والرعايات المركزة',
-      notes: `مرور وحوكمة فنية من ديوان قطاع الطب العلاجي للتفتيش على أقسام الاستقبال والرعايات المركزة وبنوك الدم بمستشفى (${fac.name}).`,
+      visit_purpose: `تفتيش وحوكمة أقسام الطوارئ والرعايات بمحافظة (${fac.governorate})`,
+      notes: `مرور وحوكمة فنية من ديوان قطاع الطب العلاجي للتفتيش على أقسام الاستقبال والرعايات المركزة وبنوك الدم بمستشفى (${fac.name}) بمحافظة ${fac.governorate}.`,
       destination_type: 'facility',
       sector_id: CURATIVE_SECTOR_ID,
       created_at: `${schedDate}T08:00:00+02:00`,
@@ -133,12 +158,14 @@ async function run() {
     })
   }
 
-  // 2. PHC Sector (25 Missions)
+  // ─────────────────────────────────────────────────────────────
+  // LEVEL 2 - SECTOR 2: قطاع الرعاية الصحية الأولية (25 Missions across Govs)
+  // ─────────────────────────────────────────────────────────────
   console.log('Generating Level 2 (PHC Sector) missions...')
   for (let i = 0; i < 25; i++) {
     serialCounter++
     const serial = `MIS-2026-${serialCounter}`
-    const fac = facPool.familyCenters[i % facPool.familyCenters.length]
+    const fac = getFacility(i + 3, Math.floor(i / availableGovs.length) + 1)
     const status = statuses[(i + 2) % statuses.length]
     const priority = ['high', 'normal', 'normal', 'urgent', 'normal'][i % 5]
     const monthOffset = (i + 1) % 5
@@ -182,8 +209,8 @@ async function run() {
       total_criteria: totalItems,
       violations_count: violationCount,
       violation_count: violationCount,
-      visit_purpose: 'تفتيش خدمات طب الأسرة وسلاسل تبريد الطعوم وصحة الأم والطفل',
-      notes: `متابعة حوكمة طب الأسرة وتنمية الأسرة، والتأكد من سلاسل التبريد وصرف الألبان الشبيهة بالمنشأة (${fac.name}).`,
+      visit_purpose: `متابعة وحدات طب الأسرة وسلاسل التبريد بمحافظة (${fac.governorate})`,
+      notes: `متابعة حوكمة طب الأسرة وتنمية الأسرة، والتأكد من سلاسل التبريد وصرف الألبان الشبيهة بالمنشأة (${fac.name}) بمحافظة ${fac.governorate}.`,
       destination_type: 'facility',
       sector_id: PHC_SECTOR_ID,
       created_at: `${schedDate}T07:30:00+02:00`,
@@ -191,12 +218,14 @@ async function run() {
     })
   }
 
-  // 3. Health Directorates (30 Missions)
+  // ─────────────────────────────────────────────────────────────
+  // LEVEL 5 - HEALTH DIRECTORATES: مديريات الشئون الصحية (30 Missions across Govs)
+  // ─────────────────────────────────────────────────────────────
   console.log('Generating Level 5 (Health Directorates) missions...')
   for (let i = 0; i < 30; i++) {
     serialCounter++
     const serial = `MIS-2026-${serialCounter}`
-    const fac = facPool.all[(i * 3) % facPool.all.length]
+    const fac = getFacility(i + 5, Math.floor(i / availableGovs.length) + 2)
     const status = statuses[(i + 1) % statuses.length]
     const priority = ['normal', 'high', 'normal', 'urgent'][i % 4]
     const monthOffset = (i * 2) % 6
@@ -207,7 +236,7 @@ async function run() {
     const isInProgress = status === 'in_progress'
     
     const totalItems = 28 + (i % 6)
-    const violationCount = isCompleted ? (i % 3) : 0
+    const violationCount = isCompleted ? ((i % 3) + 1) : 0
 
     const missionId = crypto.randomUUID()
     const checkinTime = isCompleted || isInProgress ? `${schedDate}T09:30:00+02:00` : null
@@ -240,8 +269,8 @@ async function run() {
       total_criteria: totalItems,
       violations_count: violationCount,
       violation_count: violationCount,
-      visit_purpose: 'مرور رقابي وتفتيش جودة من مديرية الشئون الصحية',
-      notes: `تفتيش دوري ورقابي من مديرية الشئون الصحية على جودة الخدمة الطبية وتوافر الكوادر والأدوية بـ (${fac.name}).`,
+      visit_purpose: `تفتيش دوري رقابي من مديرية الشئون الصحية بمحافظة (${fac.governorate})`,
+      notes: `تفتيش دوري ورقابي من مديرية الشئون الصحية على جودة الخدمة الطبية وتوافر الكوادر والأدوية بـ (${fac.name}) بمحافظة ${fac.governorate}.`,
       destination_type: 'facility',
       sector_id: PHC_SECTOR_ID,
       created_at: `${schedDate}T08:15:00+02:00`,
@@ -249,12 +278,14 @@ async function run() {
     })
   }
 
-  // 4. Health Administrations (30 Missions)
+  // ─────────────────────────────────────────────────────────────
+  // LEVEL 6 - HEALTH ADMINISTRATIONS: الإدارات الصحية (30 Missions across Govs)
+  // ─────────────────────────────────────────────────────────────
   console.log('Generating Level 6 (Health Administrations) missions...')
   for (let i = 0; i < 30; i++) {
     serialCounter++
     const serial = `MIS-2026-${serialCounter}`
-    const fac = facPool.familyCenters[(i * 2 + 1) % facPool.familyCenters.length]
+    const fac = getFacility(i + 7, Math.floor(i / availableGovs.length) + 3)
     const status = statuses[(i + 3) % statuses.length]
     const priority = ['normal', 'normal', 'urgent', 'high', 'normal'][i % 5]
     const monthOffset = (i * 3) % 6
@@ -265,7 +296,7 @@ async function run() {
     const isInProgress = status === 'in_progress'
     
     const totalItems = 20 + (i % 5)
-    const violationCount = isCompleted ? (i % 2) : 0
+    const violationCount = isCompleted ? ((i % 2) + 1) : 0
 
     const missionId = crypto.randomUUID()
     const checkinTime = isCompleted || isInProgress ? `${schedDate}T08:30:00+02:00` : null
@@ -298,8 +329,8 @@ async function run() {
       total_criteria: totalItems,
       violations_count: violationCount,
       violation_count: violationCount,
-      visit_purpose: 'متابعة انتظام العمل الميداني وسجلات المواليد والوفيات والتطعيم',
-      notes: `مرور ميداني ومتابعة الحضور والانصراف وسجلات المواليد والوفيات والتطعيمات الروتينية بوحدة (${fac.name}).`,
+      visit_purpose: `مرور ميداني محلي على الوحدات الصحية بمحافظة (${fac.governorate})`,
+      notes: `مرور ميداني ومتابعة الحضور والانصراف وسجلات المواليد والوفيات والتطعيمات الروتينية بوحدة (${fac.name}) بمحافظة ${fac.governorate}.`,
       destination_type: 'facility',
       sector_id: PHC_SECTOR_ID,
       created_at: `${schedDate}T07:45:00+02:00`,
@@ -307,7 +338,7 @@ async function run() {
     })
   }
 
-  console.log(`\nInserting ${missionsToInsert.length} total missions across all levels...`)
+  console.log(`\nInserting ${missionsToInsert.length} total multi-governorate missions...`)
 
   // Batch insert missions (in chunks of 25)
   for (let i = 0; i < missionsToInsert.length; i += 25) {
@@ -320,7 +351,6 @@ async function run() {
     }
   }
 
-  // Count total missions in DB
   const { count } = await supabase.from('missions').select('*', { count: 'exact', head: true })
   console.log(`\n🎉 DONE! Total missions in database now: ${count}`)
 }

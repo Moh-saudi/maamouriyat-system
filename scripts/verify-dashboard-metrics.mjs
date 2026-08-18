@@ -13,23 +13,26 @@ envContent.split('\n').forEach(l => {
 
 const supabase = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY)
 
-async function verifyDashboardMetrics() {
-  const { data: missions } = await supabase.from('missions').select('id, status, scheduled_date, violation_count, assigned_user_id, sector_id, org_unit_id')
-  
-  const completed = missions.filter(m => m.status === 'completed').length
-  const inProgress = missions.filter(m => m.status === 'in_progress').length
-  const approved = missions.filter(m => m.status === 'approved').length
-  const pending = missions.filter(m => m.status === 'pending_approval').length
+async function verifyMetrics() {
+  const { data: missions } = await supabase.from('missions').select('id, status, scheduled_date, violation_count, assigned_user_id, facility_id, target_facility_id').limit(2000)
+  const { data: facilities } = await supabase.from('facilities').select('id, name, governorate').limit(4000)
 
-  const totalViolations = missions.reduce((sum, m) => sum + (m.violation_count || 0), 0)
+  const facMap = new Map(facilities?.map(f => [f.id, f]))
+  const govCounts = {}
+  let totalViolations = 0
 
-  console.log('--- DASHBOARD METRICS SUMMARY ---')
-  console.log(`Total Missions: ${missions.length}`)
-  console.log(`Completed: ${completed}`)
-  console.log(`In Progress (Live): ${inProgress}`)
-  console.log(`Approved (Upcoming): ${approved}`)
-  console.log(`Pending Approval: ${pending}`)
-  console.log(`Total Violations Tracked: ${totalViolations}`)
+  missions?.forEach(m => {
+    const fId = m.target_facility_id || m.facility_id
+    const fac = facMap.get(fId)
+    const gov = fac?.governorate || 'غير محدد'
+    govCounts[gov] = (govCounts[gov] || 0) + 1
+    totalViolations += (m.violation_count || 0)
+  })
+
+  console.log('--- DASHBOARD VISITS PER GOVERNORATE (10+ GOVERNORATES) ---')
+  console.table(govCounts)
+  console.log(`Total Missions: ${missions?.length}`)
+  console.log(`Total Violations: ${totalViolations}`)
 }
 
-verifyDashboardMetrics()
+verifyMetrics()
