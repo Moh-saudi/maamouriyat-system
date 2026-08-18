@@ -63,8 +63,6 @@ type GovernorateRow = {
   name: string | null
 }
 
-export const dynamic = 'force-dynamic'
-
 export default async function DashboardPage() {
   const supabase = await createServerSupabaseClient()
 
