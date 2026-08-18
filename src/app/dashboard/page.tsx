@@ -4,6 +4,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 // Roles are resolved server-side via levelToRole
 import { AnalyticsDashboard, type ChartItem, type DashboardMetrics, type DashboardProfile, type RankingItem } from './analytics-dashboard'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 type MissionRow = {
   id?: string
   assigned_user_id: string | null
