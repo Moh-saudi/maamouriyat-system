@@ -11,6 +11,9 @@ const routePrefixes: Record<NavigationKey, string> = {
   users: '/dashboard/users',
   violations: '/dashboard/violations',
   checklists: '/dashboard/checklists',
+  'leadership-plan': '/dashboard/leadership-plan',
+  'targets-report': '/dashboard/targets/report',
+  targets: '/dashboard/targets',
 }
 
 export async function middleware(req: NextRequest) {
@@ -115,6 +118,7 @@ function canUserOpenPath(role: UserRole, pathname: string, allowedPagesOverride?
 
   const routeKey = Object.entries(routePrefixes)
     .filter(([, prefix]) => prefix !== '/dashboard')
+    .sort(([, a], [, b]) => b.length - a.length)
     .find(([, prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[0] as NavigationKey | undefined
 
   if (!routeKey) return true

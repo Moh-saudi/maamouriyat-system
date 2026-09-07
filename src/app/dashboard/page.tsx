@@ -1,8 +1,11 @@
 import { redirect } from 'next/navigation'
+import fs from 'fs'
+import path from 'path'
 import { DashboardShell, DashboardScreen } from '../system-ui'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 // Roles are resolved server-side via levelToRole
 import { AnalyticsDashboard, type ChartItem, type DashboardMetrics, type DashboardProfile, type RankingItem } from './analytics-dashboard'
+import { formatFacilityType } from '@/lib/facility-types'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -181,6 +184,11 @@ export default async function DashboardPage() {
     missions: filteredMissions,
     users: filteredUsers,
     violations: filteredViolations,
+    userGov: userOrg?.governorate || null,
+    userHealthAdmin: userOrg?.health_admin || null,
+    userId: profileData?.id || null,
+    userSectorId: profileData?.sector_id || userOrg?.sector_id || null,
+    userLevel,
   })
 
   const { orgLevelToRole } = await import('@/lib/roles')
@@ -215,12 +223,22 @@ function buildMetrics({
   missions,
   users,
   violations,
+  userGov = null,
+  userHealthAdmin = null,
+  userId = null,
+  userSectorId = null,
+  userLevel = 1,
 }: {
   facilities: FacilityRow[]
   governorates: GovernorateRow[]
   missions: MissionRow[]
   users: UserRow[]
   violations: ViolationRow[]
+  userGov?: string | null
+  userHealthAdmin?: string | null
+  userId?: string | null
+  userSectorId?: string | null
+  userLevel?: number
 }): DashboardMetrics {
   const completed = missions.filter((mission) => isCompleted(mission.status)).length
   const inProgress = missions.filter((mission) => isInProgress(mission.status)).length
@@ -237,6 +255,114 @@ function buildMetrics({
   const governorateMap = new Map(governorates.map((governorate) => [governorate.id, governorate.name ?? 'غير محدد']))
   const facilityMap = new Map(facilities.map((facility) => [facility.id, facility]))
   const userMap = new Map(users.map((nextUser) => [nextUser.id, nextUser]))
+
+  // Resolve Mission Targets (Unified system)
+  let targetMissions = 25
+  let executedMissions = completed
+  let targetPeriodLabel = 'خطة مستهدفات سبتمبر 2026'
+  let targetType: 'aggregate' | 'specific_facilities' | undefined = undefined
+  let targetFacilities: any[] | undefined = undefined
+
+  try {
+    const missionTargetsPath = path.join(process.cwd(), 'src', 'data', 'mission-targets.json')
+    const leadershipTargetsPath = path.join(process.cwd(), 'src', 'data', 'leadership-targets.json')
+
+    let resolved = false
+
+    if (fs.existsSync(missionTargetsPath)) {
+      const allMissionTargets: any[] = JSON.parse(fs.readFileSync(missionTargetsPath, 'utf8'))
+      const activeTargets = allMissionTargets.filter((t: any) => t.status === 'active')
+
+      if (activeTargets.length > 0) {
+        // Find best matching target according to hierarchy
+        let matched: any = null
+
+        if (userId) {
+          matched = activeTargets.find((t: any) => t.scope_level === 'user' && t.assigned_user_id === userId)
+        }
+        if (!matched && userHealthAdmin) {
+          matched = activeTargets.find((t: any) => t.scope_level === 'health_admin' && (t.scope_name || '').trim() === userHealthAdmin.trim())
+        }
+        if (!matched && userGov) {
+          matched = activeTargets.find((t: any) => t.scope_level === 'governorate' && (t.scope_name || '').trim() === userGov.trim())
+        }
+        if (!matched && userSectorId) {
+          matched = activeTargets.find((t: any) => t.scope_level === 'sector' && t.sector_id === userSectorId)
+        }
+        if (!matched && userLevel <= 2) {
+          // Ministry / General admin
+          matched = activeTargets.find((t: any) => t.scope_level === 'ministry')
+        }
+
+        if (matched) {
+          targetMissions = Number(matched.target_missions) || 25
+          targetPeriodLabel = matched.title || `${matched.period_label} — ${matched.scope_name}`
+          targetType = matched.target_type || 'aggregate'
+
+          if (matched.target_type === 'specific_facilities' && Array.isArray(matched.target_facilities) && matched.target_facilities.length > 0) {
+            const visitedIds = new Set<string>()
+            for (const m of missions) {
+              if (isCompleted(m.status)) {
+                const fid = m.target_facility_id || (m as any).facility_id
+                if (fid) visitedIds.add(fid)
+              }
+            }
+
+            const mappedFacilities = matched.target_facilities.map((f: any) => ({
+              ...f,
+              is_visited: visitedIds.has(f.id)
+            }))
+            targetFacilities = mappedFacilities
+
+            executedMissions = mappedFacilities.filter((f: any) => f.is_visited).length
+            targetMissions = mappedFacilities.length
+          } else {
+            // Calculate executed missions within target dates & scope
+            const sDate = matched.start_date ? new Date(matched.start_date) : null
+            const eDate = matched.end_date ? new Date(matched.end_date) : null
+
+            executedMissions = missions.filter((m) => {
+              if (!isCompleted(m.status)) return false
+              const mDate = m.completed_at ? new Date(m.completed_at) : m.scheduled_date ? new Date(m.scheduled_date) : null
+              if (sDate && mDate && mDate < sDate) return false
+              if (eDate && mDate && mDate > eDate) return false
+              return true
+            }).length
+          }
+
+          resolved = true
+        } else if (userLevel <= 2) {
+          // Aggregate for leadership if no single ministry target
+          targetMissions = activeTargets.reduce((sum: number, t: any) => sum + (Number(t.target_missions) || 0), 0)
+          targetPeriodLabel = 'إجمالي مستهدفات الجمهورية (سبتمبر 2026)'
+          executedMissions = completed
+          resolved = true
+        }
+      }
+    }
+
+    // Fallback to leadership-targets.json if not resolved
+    if (!resolved && fs.existsSync(leadershipTargetsPath)) {
+      const allTargets: any[] = JSON.parse(fs.readFileSync(leadershipTargetsPath, 'utf8'))
+      const matched = userGov ? allTargets.find((t: any) => t.governorate === userGov) : allTargets[0]
+      if (matched) {
+        targetMissions = Number(matched.target_missions) || 25
+        targetPeriodLabel = matched.title || `خطة مرور قيادات ${matched.governorate}`
+        if (userGov) {
+          executedMissions = missions.filter(m => {
+            const mGov = resolveGovernorateName(m, facilityMap, governorateMap)
+            return mGov === userGov && isCompleted(m.status)
+          }).length
+        }
+      } else if (allTargets.length > 0) {
+        targetMissions = allTargets.reduce((sum: number, t: any) => sum + (Number(t.target_missions) || 0), 0)
+      }
+    }
+  } catch (e) {
+    console.error('Error resolving targets for dashboard:', e)
+  }
+
+  const targetCompletionRate = Math.min(100, Math.round((executedMissions / Math.max(1, targetMissions)) * 100))
 
   return {
     activeFacilities,
@@ -277,15 +403,21 @@ function buildMetrics({
       { label: 'عالية الخطورة', value: highPriority, tone: 'amber' },
       { label: 'تم التصحيح', value: correctedViolations, tone: 'green' },
     ],
+    targetMissions,
+    executedMissions,
+    targetCompletionRate,
+    targetPeriodLabel,
+    targetType,
+    targetFacilities,
   }
 }
 
 function isCompleted(status: string | null) {
-  return ['completed', 'closed', 'done', 'approved'].includes((status ?? '').toLowerCase())
+  return ['completed', 'closed', 'done'].includes((status ?? '').toLowerCase())
 }
 
 function isInProgress(status: string | null) {
-  return ['assigned', 'in_progress', 'executing', 'under_review'].includes((status ?? '').toLowerCase())
+  return ['assigned', 'in_progress', 'executing', 'under_review', 'approved'].includes((status ?? '').toLowerCase())
 }
 
 function isPending(status: string | null) {
@@ -323,7 +455,7 @@ function groupFacilities(facilities: FacilityRow[]): ChartItem[] {
   const grouped = new Map<string, number>()
 
   for (const facility of facilities) {
-    const label = facility.facility_type || 'غير مصنف'
+    const label = formatFacilityType(facility.facility_type)
     grouped.set(label, (grouped.get(label) ?? 0) + 1)
   }
 

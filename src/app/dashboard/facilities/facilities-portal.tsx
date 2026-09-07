@@ -156,7 +156,8 @@ export function FacilitiesPortal({
   initialUsers = [],
   userOrgLevel = 7,
   userSectorId = null,
-  userEmail = ''
+  userEmail = '',
+  facilityVisitStats,
 }: {
   initialFacilities: FacilityItem[]
   initialAffiliations?: FacilityAffiliationOption[]
@@ -171,6 +172,7 @@ export function FacilitiesPortal({
   userOrgLevel?: number
   userSectorId?: string | null
   userEmail?: string | null
+  facilityVisitStats?: Record<string, { visited: boolean; count: number }>
 }) {
   const supabase = createBrowserSupabaseClient()
   const isWritable = role === 'superadmin' || role === 'techadmin'
@@ -1367,17 +1369,46 @@ export function FacilitiesPortal({
                           <strong style={{ fontSize: '13.5px', color: isSelected ? 'var(--brand)' : '#102027', fontWeight: 'bold' }}>
                             {facility.name}
                           </strong>
-                          <span style={{
-                            fontSize: '9.5px',
-                            fontWeight: 'bold',
-                            color: facility.is_active !== false ? '#27ae60' : '#c0392b',
-                            background: facility.is_active !== false ? '#eafaf1' : '#fdedec',
-                            padding: '2px 8px',
-                            borderRadius: '8px',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            {facility.is_active !== false ? 'نشطة' : 'غير نشطة'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                            {facilityVisitStats && (
+                              facilityVisitStats[facility.id]?.count > 0 ? (
+                                <span style={{
+                                  fontSize: '9.5px',
+                                  fontWeight: 'bold',
+                                  color: '#15803d',
+                                  background: '#dcfce7',
+                                  padding: '2px 8px',
+                                  borderRadius: '8px',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  🟢 تم المرور ({facilityVisitStats[facility.id].count})
+                                </span>
+                              ) : (
+                                <span style={{
+                                  fontSize: '9.5px',
+                                  fontWeight: 'bold',
+                                  color: '#64748b',
+                                  background: '#f1f5f9',
+                                  padding: '2px 8px',
+                                  borderRadius: '8px',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  ⚪ لم يتم المرور
+                                </span>
+                              )
+                            )}
+                            <span style={{
+                              fontSize: '9.5px',
+                              fontWeight: 'bold',
+                              color: facility.is_active !== false ? '#27ae60' : '#c0392b',
+                              background: facility.is_active !== false ? '#eafaf1' : '#fdedec',
+                              padding: '2px 8px',
+                              borderRadius: '8px',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {facility.is_active !== false ? 'نشطة' : 'غير نشطة'}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Badges: Type, Governorate, Admin, Village/City */}

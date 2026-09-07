@@ -45,13 +45,13 @@ export default async function ViolationsPage() {
       description,
       priority,
       status,
-      assigned_to_org_id,
+      assigned_to_dept,
+      violation_photo_url,
       correction_photo_url,
       correction_deadline,
       created_at,
       facilities:facility_id(name),
-      missions:mission_id(id,serial_number),
-      organizations:assigned_to_org_id(name)
+      missions:mission_id(id,serial_number)
     `)
     .order('created_at', { ascending: false })
     .limit(200)
@@ -61,8 +61,8 @@ export default async function ViolationsPage() {
     description: row.description || 'مخالفة مرصودة بالمرور',
     priority: row.priority,
     status: row.status,
-    assigned_to_dept: row.organizations?.name || null,
-    violation_photo_url: row.correction_photo_url || null,
+    assigned_to_dept: row.assigned_to_dept || null,
+    violation_photo_url: row.violation_photo_url || row.correction_photo_url || null,
     correction_deadline: row.correction_deadline,
     created_at: row.created_at,
     facilities: normalizeRelation(row.facilities),

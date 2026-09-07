@@ -4,6 +4,7 @@ import { DashboardShell } from '@/app/system-ui'
 import { levelToRole } from '@/lib/roles'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { MissionsPortal } from './missions-portal'
+import { formatFacilityType } from '@/lib/facility-types'
 import styles from './missions.module.css'
 
 type MissionRow = {
@@ -91,7 +92,7 @@ export default async function MissionsPage() {
       serialNumber: lm.serial_number,
       destinationType: (lm.destination_type || 'facility') as 'facility' | 'governorate',
       destinationName: lm.facilities?.name || 'مأمورية ميدانية عامة',
-      facilityType: lm.facilities?.facility_type || 'منشأة صحية',
+      facilityType: formatFacilityType(lm.facilities?.facility_type),
       orgUnitName: lm.facilities?.governorate ? `${lm.facilities.governorate} - ${lm.facilities.health_admin || ''}` : 'ديوان عام الوزارة',
       employeeNames: lm.users?.full_name || 'قائم بالمرور',
       scheduledDate: lm.scheduled_date || new Date().toISOString().slice(0, 10),

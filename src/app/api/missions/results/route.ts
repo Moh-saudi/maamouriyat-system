@@ -46,7 +46,35 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json(data || [])
+    const mapped = (data || []).map((row: any) => {
+      let itemId = row.checklist_item_id
+      let notes = row.notes || ''
+
+      if (notes) {
+        if (notes.startsWith('__item_id__:')) {
+          const delim = notes.indexOf('||')
+          if (delim !== -1) {
+            itemId = notes.substring('__item_id__:'.length, delim)
+            notes = notes.substring(delim + 2)
+          }
+        } else if (notes.startsWith('__static_id__:')) {
+          const delim = notes.indexOf('||')
+          if (delim !== -1) {
+            itemId = notes.substring('__static_id__:'.length, delim)
+            notes = notes.substring(delim + 2)
+          }
+        }
+      }
+
+      return {
+        checklist_item_id: itemId,
+        item_id: itemId,
+        answer: row.answer,
+        notes
+      }
+    })
+
+    return NextResponse.json(mapped)
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
@@ -83,14 +111,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Failed to clear old results: ${delError.message}` }, { status: 500 })
     }
 
-    // B. Insert new results payload
+    // B. Insert new results payload with foreign key safety check
     if (results.length > 0) {
-      const payload = results.map((r: any) => ({
-        mission_id,
-        checklist_item_id: r.checklist_item_id || null,
-        answer: r.answer,
-        notes: r.notes || null
-      }))
+      const { data: validItems } = await adminClient
+        .from('checklist_items')
+        .select('id')
+
+      const validItemIds = new Set((validItems || []).map((i: any) => i.id))
+
+      const payload = results.map((r: any) => {
+        const rawId = r.item_id || r.checklist_item_id || ''
+        const isValidFkey = rawId && validItemIds.has(rawId)
+        const checklist_item_id = isValidFkey ? rawId : null
+
+        let finalNotes = r.notes || null
+        if (!isValidFkey && rawId) {
+          finalNotes = `__item_id__:${rawId}||${r.notes || ''}`
+        }
+
+        return {
+          mission_id,
+          checklist_item_id,
+          answer: r.answer,
+          notes: finalNotes
+        }
+      })
 
       const { error: insError } = await adminClient
         .from('mission_results')

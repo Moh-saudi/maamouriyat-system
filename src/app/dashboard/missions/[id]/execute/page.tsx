@@ -80,7 +80,7 @@ export default async function ExecuteMissionPage({ params }: PageProps) {
       .eq('id', id)
       .single(),
     supabase.from('facilities').select('id, name, facility_type, governorate, health_admin, latitude, longitude').eq('is_active', true).order('name').limit(4000),
-    supabase.from('organizations').select('id, name, level, level_label').eq('is_active', true).order('name'),
+    supabase.from('organizations').select('id, name, level, level_label, governorate, health_admin, governorate_id').eq('is_active', true).order('name'),
     supabase.from('users').select('id, full_name, level, department, job_title, email').eq('is_active', true).order('full_name'),
     supabase.from('mission_results').select('checklist_item_id, answer, notes').eq('mission_id', id)
   ])
@@ -90,6 +90,12 @@ export default async function ExecuteMissionPage({ params }: PageProps) {
   }
 
   const rawMission = missionResult.data as any
+
+  // Completed / Closed Guard: Once approved & completed, modification is prohibited.
+  if (rawMission.status === 'completed' || rawMission.status === 'closed') {
+    redirect(`/dashboard/missions/${id}/print`)
+  }
+
   const currentUserId = profileResult.data.id
   const userLevel = profileResult.data.level ?? (profileResult.data as any).org_level ?? 7
 
@@ -185,7 +191,28 @@ export default async function ExecuteMissionPage({ params }: PageProps) {
             <p>{missionResult.data.serial_number}</p>
             <h1>تنفيذ المأمورية</h1>
           </div>
-          <span>{missionResult.data.scheduled_date}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span>{missionResult.data.scheduled_date}</span>
+            <Link
+              href="/dashboard/missions"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: '#ffffff',
+                color: '#1e293b',
+                border: '1px solid #cbd5e1',
+                borderRadius: '8px',
+                padding: '8px 14px',
+                fontSize: '13px',
+                fontWeight: 'bold',
+                textDecoration: 'none',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+              }}
+            >
+              ← جدول المأموريات
+            </Link>
+          </div>
         </header>
 
         <MissionExecutionForm

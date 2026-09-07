@@ -1,0 +1,323 @@
+[
+  {
+    "id": "target-1788810402955-r2rpk",
+    "title": "مستهدف مرور — د. حمودة الجزار (مدير مديرية صحة القاهرة) (سبتمبر 2026)",
+    "period_type": "monthly",
+    "period_label": "مستهدف مرور — د. حمودة الجزار (مدير مديرية صحة القاهرة) (سبتمبر 2026)",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-29",
+    "target_missions": 22,
+    "scope_level": "user",
+    "scope_name": "دكتور مؤمن مكتب فني قطاع الرعاية الاساسية",
+    "target_type": "specific_facilities",
+    "target_facilities": [
+      {
+        "id": "9cbc52e4-0e64-474d-906f-079e9b9ab237",
+        "name": "ابوحسام",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "الخانكة",
+        "is_visited": false
+      },
+      {
+        "id": "f4594c3c-cac5-47d0-839d-195485182905",
+        "name": "اجهور الصغري",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "القناطر الخيرية",
+        "is_visited": false
+      },
+      {
+        "id": "25822606-35f0-4f7f-8942-48ac06d6bff5",
+        "name": "اجهور الكبرى",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "قها",
+        "is_visited": false
+      },
+      {
+        "id": "501d0760-0137-48d9-a21c-86fa8e792b28",
+        "name": "الاحراز",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "شبين القناطر",
+        "is_visited": false
+      },
+      {
+        "id": "6c423563-868d-4dc4-8835-fe87d3626f26",
+        "name": "السيفا",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "قها",
+        "is_visited": false
+      },
+      {
+        "id": "2d9de777-8996-4aea-88a7-5d038af421ff",
+        "name": "الشموت",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "بنها",
+        "is_visited": false
+      },
+      {
+        "id": "e2751c75-4308-4b3e-af37-a823a5b3001d",
+        "name": "الكابلات",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "شبرا شرق",
+        "is_visited": false
+      },
+      {
+        "id": "26b9b6ba-e32c-4be5-b2e4-82c47111f1cc",
+        "name": "حجازي",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "شبرا غرب",
+        "is_visited": false
+      },
+      {
+        "id": "9e1faaa5-f20a-4bea-90a9-e1f3bd430814",
+        "name": "بيجام",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "شبرا غرب",
+        "is_visited": false
+      },
+      {
+        "id": "55dd6ff1-5161-4d32-8998-3d6c33d6ef74",
+        "name": "المركز الطبي",
+        "governorate": "القليوبية",
+        "facility_type": "family_medicine_center",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "4a941e9f-aea5-4ebc-af72-6cf896dd4398",
+        "name": "الوحدة الصحية بالحصة",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "78a43787-d134-4a1a-83a0-34597a24f96f",
+        "name": "الوحدة الصحية بالدير",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "903361ca-4529-4145-8563-8a1d1ea538e2",
+        "name": "العمار",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "136e5ebe-6388-4f98-b3bb-f24076e75c7a",
+        "name": "الوحده الصحيه بزاويه بلتان",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "b3d56a19-49ce-428e-892e-f5e5e53b628c",
+        "name": "الوحده الصحيه بدندنا",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "392e32b5-2a58-4b93-8349-accd90b6ae8b",
+        "name": "الوحدة الصحية بكفر منصور",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "99ba87eb-884a-4d3c-b2b3-e7e02516cf73",
+        "name": "بلتان",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "طوخ",
+        "is_visited": false
+      },
+      {
+        "id": "04460f65-291a-4279-a425-d134eee312f5",
+        "name": "برشوم",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "قها",
+        "is_visited": false
+      },
+      {
+        "id": "c463962d-6638-4a07-9029-de5f625a7d65",
+        "name": "الوحده الصحيه بترسا",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "قها",
+        "is_visited": false
+      },
+      {
+        "id": "ea484f53-79ee-40a3-9a24-46b571d3b379",
+        "name": "الوحدة الصحية بالصفين",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "كفر شكر",
+        "is_visited": false
+      },
+      {
+        "id": "c3022759-eed4-4ca8-955b-c170289551ce",
+        "name": "المنشأة الصغرى",
+        "governorate": "القليوبية",
+        "facility_type": "health_unit",
+        "health_admin": "كفر شكر",
+        "is_visited": false
+      },
+      {
+        "id": "7c005663-a791-4b43-9926-68d7503088cd",
+        "name": "المركز الطبي",
+        "governorate": "القليوبية",
+        "facility_type": "family_medicine_center",
+        "health_admin": "كفر شكر",
+        "is_visited": false
+      }
+    ],
+    "assigned_user_id": "22d65b03-f0e2-43fb-a934-fe3ce9dd47d5",
+    "assigned_user_name": "دكتور مؤمن مكتب فني قطاع الرعاية الاساسية",
+    "sector_id": "00000000-0000-0000-0000-000000000010",
+    "status": "active",
+    "created_by": "bf8cda02-ecf6-42e4-809a-a657e7fc8023",
+    "created_by_name": "د.(مشرف عام المنظومة)",
+    "created_at": "2026-09-07T19:46:42.956Z"
+  },
+  {
+    "id": "target-inspector-fac-2026-09",
+    "title": "المستهدف النوعي للمرور على مستشفيات ومراكز شرق القاهرة - سبتمبر 2026",
+    "period_type": "monthly",
+    "period_label": "سبتمبر 2026",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
+    "target_missions": 4,
+    "scope_level": "user",
+    "scope_name": "د. أحمد محمود",
+    "assigned_user_name": "د. أحمد محمود",
+    "target_type": "specific_facilities",
+    "target_facilities": [
+      {
+        "id": "fac-cairo-01",
+        "name": "مستشفى منشية البكري العام",
+        "governorate": "القاهرة",
+        "facility_type": "مستشفى عام"
+      },
+      {
+        "id": "fac-cairo-02",
+        "name": "مستشفى عين شمس العام",
+        "governorate": "القاهرة",
+        "facility_type": "مستشفى عام"
+      },
+      {
+        "id": "fac-cairo-03",
+        "name": "مركز رعاية طفل النزهة",
+        "governorate": "القاهرة",
+        "facility_type": "مركز طب أسرة"
+      },
+      {
+        "id": "fac-cairo-04",
+        "name": "مستشفى صدر العباسية",
+        "governorate": "القاهرة",
+        "facility_type": "مستشفى نوعي"
+      }
+    ],
+    "notes": "التفتيش والتحقق من أقسام الطوارئ والرعايات المركزة وسلاسل الإمداد الدوائي بالمنشآت الأربعة المحددة",
+    "status": "active",
+    "created_by_name": "مدير مديرية الشئون الصحية بالقاهرة",
+    "created_at": "2026-09-03T11:00:00.000Z"
+  },
+  {
+    "id": "target-inspector-agg-2026-09",
+    "title": "مستهدف المرور الميداني الدوري العام - د. مريم خالد",
+    "period_type": "monthly",
+    "period_label": "سبتمبر 2026",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
+    "target_missions": 12,
+    "scope_level": "user",
+    "scope_name": "د. مريم خالد",
+    "assigned_user_name": "د. مريم خالد",
+    "target_type": "aggregate",
+    "notes": "إنجاز 12 مأمورية تفتيشية على المنشآت الطبية الخاصة والحكومية بنطاق الإدارة",
+    "status": "active",
+    "created_by_name": "مدير الإدارة الصحية",
+    "created_at": "2026-09-03T11:30:00.000Z"
+  },
+  {
+    "id": "target-ministry-2026-09",
+    "title": "المستهدف العام لقطاع الطب العلاجي بديوان الوزارة - سبتمبر 2026",
+    "period_type": "monthly",
+    "period_label": "سبتمبر 2026",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
+    "target_missions": 120,
+    "scope_level": "ministry",
+    "scope_name": "ديوان عام الوزارة",
+    "target_type": "aggregate",
+    "notes": "المرور المركزي على المستشفيات التخصصية والرعايات المركزة وبنوك الدم بجميع المحافظات",
+    "status": "active",
+    "created_by_name": "مشرف عام الوزارة",
+    "created_at": "2026-09-01T08:00:00.000Z"
+  },
+  {
+    "id": "target-cairo-2026-09",
+    "title": "خطة المرور الدوري على مستشفيات مديرية القاهرة - سبتمبر 2026",
+    "period_type": "monthly",
+    "period_label": "سبتمبر 2026",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
+    "target_missions": 35,
+    "scope_level": "governorate",
+    "scope_name": "القاهرة",
+    "target_type": "aggregate",
+    "notes": "متابعة انضباط الأطقم الطبية وتوافر أدوية الطوارئ بالمستشفيات العامة والمركزية",
+    "status": "active",
+    "created_by_name": "مدير مديرية القاهرة",
+    "created_at": "2026-09-01T08:30:00.000Z"
+  },
+  {
+    "id": "target-giza-2026-09",
+    "title": "مستهدف المرور على مستشفيات ومراكز طب الأسرة بالجيزة",
+    "period_type": "monthly",
+    "period_label": "سبتمبر 2026",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
+    "target_missions": 25,
+    "scope_level": "governorate",
+    "scope_name": "الجيزة",
+    "target_type": "aggregate",
+    "notes": "التفتيش على مكافحة العدوى وأقسام الغسيل الكلوي والحضانات",
+    "status": "active",
+    "created_by_name": "مدير مديرية الجيزة",
+    "created_at": "2026-09-02T09:00:00.000Z"
+  },
+  {
+    "id": "target-abnoub-2026-09",
+    "title": "مستهدف المرور الميداني للإدارة الصحية بأبنوب",
+    "period_type": "monthly",
+    "period_label": "سبتمبر 2026",
+    "start_date": "2026-09-01",
+    "end_date": "2026-09-30",
+    "target_missions": 15,
+    "scope_level": "health_admin",
+    "scope_name": "أبنوب",
+    "target_type": "aggregate",
+    "notes": "التفتيش الدوري على الوحدات الصحية الريفية ومكاتب الصحة",
+    "status": "active",
+    "created_by_name": "مدير الإدارة الصحية بأبنوب",
+    "created_at": "2026-09-03T09:00:00.000Z"
+  }
+]

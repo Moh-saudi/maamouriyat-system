@@ -73,8 +73,8 @@ export default async function FacilitiesPage() {
     }
   }
 
-  // جلب المنشآت والجهات والمستخدمين بالتوازي
-  const [facilitiesData, orgsResult, usersResult] = await Promise.all([
+  // جلب المنشآت والجهات والمستخدمين والمأموريات بالتوازي
+  const [facilitiesData, orgsResult, usersResult, missionsResult] = await Promise.all([
     fetchAllFacilities(supabase),
     supabase
       .from('organizations')
@@ -88,8 +88,26 @@ export default async function FacilitiesPage() {
       .select('id, full_name, job_title, org_level, organization_id, is_active, department, email')
       .eq('is_active', true)
       .order('full_name')
-      .limit(300)
+      .limit(300),
+    supabase
+      .from('missions')
+      .select('id, target_facility_id, facility_id, status')
   ])
+
+  // Calculate visit stats dynamically for each facility
+  const facilityVisitStats: Record<string, { visited: boolean; count: number }> = {}
+  for (const m of missionsResult.data ?? []) {
+    const fId = m.target_facility_id || (m as any).facility_id
+    if (fId) {
+      if (!facilityVisitStats[fId]) {
+        facilityVisitStats[fId] = { visited: false, count: 0 }
+      }
+      facilityVisitStats[fId].count += 1
+      if (m.status === 'completed' || m.status === 'منفذة') {
+        facilityVisitStats[fId].visited = true
+      }
+    }
+  }
 
   return (
     <DashboardShell role={role} view="facilities">
@@ -101,6 +119,7 @@ export default async function FacilitiesPage() {
         userOrgLevel={orgLevel}
         userSectorId={userSectorId}
         userEmail={userEmail}
+        facilityVisitStats={facilityVisitStats}
       />
     </DashboardShell>
   )

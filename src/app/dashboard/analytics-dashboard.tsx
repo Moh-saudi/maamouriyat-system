@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   MapPin,
   Calendar,
+  Target,
   type LucideIcon,
 } from 'lucide-react'
 import {
@@ -75,6 +76,18 @@ export type DashboardMetrics = {
   topInspectors: RankingItem[]
   visitDaysByGovernorate: ChartItem[]
   violationStatus: ChartItem[]
+  targetMissions?: number
+  executedMissions?: number
+  targetCompletionRate?: number
+  targetPeriodLabel?: string
+  targetType?: 'aggregate' | 'specific_facilities'
+  targetFacilities?: {
+    id: string
+    name: string
+    governorate?: string
+    facility_type?: string
+    is_visited?: boolean
+  }[]
 }
 
 export type ChartItem = {
@@ -264,6 +277,122 @@ export function AnalyticsDashboard({ metrics, profile }: { metrics: DashboardMet
 
   return (
     <div className="analytics-dashboard">
+      {/* ═══════════════════════════════════════════════════════════
+          MISSION TARGETS BANNER — مستهدفات المرور الميداني
+      ═══════════════════════════════════════════════════════════ */}
+      <section style={{ marginBottom: '16px' }}>
+        {(() => {
+          const target   = metrics.targetMissions ?? 25
+          const executed = metrics.executedMissions ?? metrics.missionsCompleted
+          const rate     = metrics.targetCompletionRate ?? Math.min(100, Math.round((executed / Math.max(1, target)) * 100))
+          const remaining= Math.max(0, target - executed)
+          const rColor   = rate >= 85 ? '#15803d' : rate >= 60 ? '#d97706' : '#b91c1c'
+          const rBg      = rate >= 85 ? 'linear-gradient(135deg, #052e16 0%, #14532d 100%)' : rate >= 60 ? 'linear-gradient(135deg, #451a03 0%, #78350f 100%)' : 'linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%)'
+          const rSoft    = rate >= 85 ? 'rgba(134,239,172,0.12)' : rate >= 60 ? 'rgba(253,224,71,0.12)' : 'rgba(252,165,165,0.12)'
+          const label    = rate >= 85 ? '🏆 أداء ممتاز' : rate >= 60 ? '⚡ في المسار' : '⚠️ يحتاج تدخل'
+
+          return (
+            <>
+              <div style={{
+                background: 'linear-gradient(135deg, #0a1628 0%, #0e4b5a 40%, #006d77 100%)',
+                borderRadius: '16px',
+                padding: '20px 24px',
+                color: 'white',
+                boxShadow: '0 8px 32px rgba(0,109,119,0.3)',
+                display: 'grid',
+                gridTemplateColumns: '1fr auto auto auto',
+                gap: '20px',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+              }}>
+                {/* Label */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <Target size={16} style={{ opacity: 0.8 }} />
+                    <span style={{ fontSize: '11px', opacity: 0.75, letterSpacing: '0.5px' }}>مستهدف المرور الميداني — {metrics.targetPeriodLabel || 'الخطة الشهرية'}</span>
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', opacity: 0.9 }}>
+                    نسبة إنجاز الخطة الحالية
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
+                    <a href="/dashboard/targets" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '6px 14px', borderRadius: '8px', textDecoration: 'none', fontSize: '11.5px', fontWeight: 'bold' }}>
+                      إدارة المستهدفات →
+                    </a>
+                    <a href="/dashboard/targets/report" style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.8)', padding: '6px 14px', borderRadius: '8px', textDecoration: 'none', fontSize: '11.5px' }}>
+                      📊 التقارير
+                    </a>
+                  </div>
+                </div>
+
+                {/* Target */}
+                <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.07)', borderRadius: '12px', padding: '14px 20px', minWidth: '100px' }}>
+                  <div style={{ fontSize: '10px', opacity: 0.65, marginBottom: '4px' }}>المستهدف</div>
+                  <div style={{ fontSize: '40px', fontWeight: '900', lineHeight: '1', color: '#93c5fd' }}>{target}</div>
+                  <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '2px' }}>{metrics.targetType === 'specific_facilities' ? 'منشأة' : 'مرور'}</div>
+                </div>
+
+                {/* Executed */}
+                <div style={{ textAlign: 'center', background: rate >= 60 ? 'rgba(134,239,172,0.12)' : 'rgba(252,165,165,0.12)', borderRadius: '12px', padding: '14px 20px', minWidth: '100px' }}>
+                  <div style={{ fontSize: '10px', opacity: 0.65, marginBottom: '4px' }}>المنفذ</div>
+                  <div style={{ fontSize: '40px', fontWeight: '900', lineHeight: '1', color: rate >= 60 ? '#86efac' : '#fca5a5' }}>{executed}</div>
+                  <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '2px' }}>{metrics.targetType === 'specific_facilities' ? 'تم زيارتها' : 'مرور'}</div>
+                </div>
+
+                {/* Circular rate */}
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ position: 'relative', width: '90px', height: '90px' }}>
+                    <svg viewBox="0 0 90 90" style={{ width: '90px', height: '90px', transform: 'rotate(-90deg)' }}>
+                      <circle cx="45" cy="45" r="38" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8" />
+                      <circle cx="45" cy="45" r="38" fill="none"
+                        stroke={rColor} strokeWidth="8"
+                        strokeLinecap="round"
+                        strokeDasharray={`${2 * Math.PI * 38}`}
+                        strokeDashoffset={`${2 * Math.PI * 38 * (1 - rate / 100)}`}
+                        style={{ transition: 'stroke-dashoffset 1s ease' }}
+                      />
+                    </svg>
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ fontSize: '20px', fontWeight: '900', lineHeight: '1', color: rate >= 85 ? '#86efac' : rate >= 60 ? '#fde047' : '#fca5a5' }}>{rate}%</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '10.5px', fontWeight: 'bold', marginTop: '6px', color: rate >= 85 ? '#86efac' : rate >= 60 ? '#fde047' : '#fca5a5' }}>
+                    {label}
+                  </div>
+                </div>
+              </div>
+
+              {metrics.targetType === 'specific_facilities' && (metrics.targetFacilities?.length ?? 0) > 0 && (
+                <div style={{
+                  background: 'rgba(10, 22, 40, 0.95)',
+                  border: '1px solid rgba(0, 109, 119, 0.4)',
+                  borderTop: 'none',
+                  padding: '12px 20px',
+                  borderRadius: '0 0 16px 16px',
+                  marginTop: '-12px'
+                }}>
+                  <div style={{ fontSize: '11.5px', fontWeight: 'bold', color: '#5eead4', marginBottom: '8px' }}>
+                    🏥 المنشآت المستهدفة لهذا الحساب: ({metrics.targetFacilities?.filter(f => f.is_visited).length} من {metrics.targetFacilities?.length} تم المرور عليها)
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {metrics.targetFacilities?.map(f => (
+                      <span key={f.id} style={{
+                        background: f.is_visited ? 'rgba(134,239,172,0.18)' : 'rgba(255,255,255,0.08)',
+                        border: `1px solid ${f.is_visited ? '#86efac' : 'rgba(255,255,255,0.15)'}`,
+                        color: f.is_visited ? '#86efac' : 'rgba(255,255,255,0.85)',
+                        padding: '3px 10px', borderRadius: '6px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px'
+                      }}>
+                        {f.is_visited ? '✅' : '⚪'} {f.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        })()}
+      </section>
+
+
       {/* TOP KPI METRICS */}
       <section className="metric-grid">
         <MetricCard delta={`${completionRate}% إنجاز`} icon={ClipboardList} label="إجمالي المأموريات" tone="blue" value={metrics.missionsTotal} />

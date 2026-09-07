@@ -29,11 +29,13 @@ import {
   Settings,
   User,
   Users,
+  Target,
+  BarChart3,
   X,
   type LucideIcon,
 } from 'lucide-react'
 
-type View = 'login' | 'dashboard' | 'missions' | 'violations' | 'facilities' | 'users' | 'settings' | 'checklists'
+type View = 'login' | 'dashboard' | 'missions' | 'violations' | 'facilities' | 'users' | 'settings' | 'checklists' | 'leadership-plan' | 'targets' | 'targets-report'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabasePublishableKey =
@@ -128,6 +130,9 @@ const navigationDefinitions: Record<NavigationKey, { href: string; icon: LucideI
   users: { href: '/dashboard/users', icon: Users, label: 'المستخدمون' },
   violations: { href: '/dashboard/violations', icon: AlertTriangle, label: 'المخالفات' },
   checklists: { href: '/dashboard/checklists', icon: ClipboardList, label: 'استمارات المرور' },
+  'leadership-plan': { href: '/dashboard/leadership-plan', icon: Target, label: 'خطة مرور القيادات' },
+  targets: { href: '/dashboard/targets', icon: Target, label: 'مستهدفات المرور' },
+  'targets-report': { href: '/dashboard/targets/report', icon: BarChart3, label: 'تقارير المستهدفات' },
 }
 
 export function SystemUI({ view }: { view: View }) {
@@ -1311,6 +1316,17 @@ function Navigation({
       if (r === 'sector') return 'كوادر ومفتشو القطاع'
       return 'إدارة الكوادر والموظفين'
     }
+    if (key === 'targets') {
+      if (r === 'inspector') return 'مستهدفاتي الميدانية'
+      if (r === 'creator') return 'مستهدفات مفتشي الإدارة'
+      if (r === 'directorate') return 'مستهدفات مرور المحافظة'
+      if (r === 'sector' || r === 'central') return 'مستهدفات كوادر القطاع'
+      return 'مستهدفات المرور والتفتيش'
+    }
+    if (key === 'targets-report') {
+      if (r === 'inspector') return 'تقرير إنجاز مستهدفاتي'
+      return 'تقارير إنجاز المستهدفات'
+    }
     if (key === 'settings') {
       return 'إعدادات المنظومة والصلاحيات'
     }
@@ -1322,6 +1338,11 @@ function Navigation({
       title: 'المتابعة والتشغيل الميداني',
       icon: '📊',
       keys: (['dashboard', 'missions'] as NavigationKey[]).filter(k => allowedKeys.has(k))
+    },
+    {
+      title: 'مستهدفات المرور والتقارير',
+      icon: '🎯',
+      keys: (['targets', 'targets-report'] as NavigationKey[]).filter(k => allowedKeys.has(k))
     },
     {
       title: 'الرقابة والمنشآت الصحية',
@@ -1415,8 +1436,8 @@ function NotificationsPanel({
         </span>
       </div>
       <div className="notifications-list">
-        {notificationsList.map((item) => (
-          <Link className="notification-item" href={item.href} key={item.title} onClick={onNavigate}>
+        {notificationsList.map((item, idx) => (
+          <Link className="notification-item" href={item.href} key={item.id || `${item.title}-${item.href}-${idx}`} onClick={onNavigate}>
             <span className={`notification-mark ${item.tone}`} />
             <span>
               <strong>{item.title}</strong>
@@ -1518,6 +1539,11 @@ function NavItem({
 export function DashboardScreen() {
   const [profileName, setProfileName] = useState<string>('قائم بالمرور')
   const [profileJob, setProfileJob] = useState<string>('مفتش صحي')
+  const [targetMissions, setTargetMissions] = useState<number>(15)
+  const [executedMissions, setExecutedMissions] = useState<number>(0)
+  const [targetLabel, setTargetLabel] = useState<string>('خطة مستهدفات شهر سبتمبر 2026')
+  const [targetType, setTargetType] = useState<'aggregate' | 'specific_facilities'>('aggregate')
+  const [targetFacilities, setTargetFacilities] = useState<any[]>([])
   const [stats, setStats] = useState([
     { label: 'المأموريات المنجزة', value: '0', tone: 'green', icon: CheckCircle2 },
     { label: 'قيد التنفيذ', value: '0', tone: 'blue', icon: ClipboardList },
@@ -1557,13 +1583,13 @@ export function DashboardScreen() {
             const { count: completedCount } = await supabase
               .from('missions')
               .select('id', { count: 'exact', head: true })
-              .in('status', ['completed', 'approved', 'done'])
+              .in('status', ['completed', 'closed', 'done'])
 
             // In progress
             const { count: inProgressCount } = await supabase
               .from('missions')
               .select('id', { count: 'exact', head: true })
-              .in('status', ['assigned', 'in_progress', 'executing', 'under_review'])
+              .in('status', ['assigned', 'in_progress', 'executing', 'under_review', 'approved'])
 
             // Late missions
             const todayStr = new Date().toISOString().split('T')[0]
@@ -1573,7 +1599,7 @@ export function DashboardScreen() {
               .lt('scheduled_date', todayStr)
 
             const lateCount = maybeLateMissions
-              ? maybeLateMissions.filter(m => !['completed', 'approved', 'done'].includes(m.status)).length
+              ? maybeLateMissions.filter(m => !['completed', 'closed', 'done'].includes(m.status)).length
               : 0
 
             // Facilities count
@@ -1588,6 +1614,28 @@ export function DashboardScreen() {
               { label: 'مأموريات متأخرة', value: String(lateCount || 0), tone: 'red', icon: AlertTriangle },
               { label: 'إجمالي المنشآت', value: String(facilityCount || 0), tone: 'amber', icon: Building2 },
             ])
+
+            setExecutedMissions(completedCount || 0)
+            try {
+              const res = await fetch('/api/admin/mission-targets?caller_level=7')
+              if (res.ok) {
+                const d = await res.json()
+                if (d.targets && d.targets.length > 0) {
+                  const userTarget = d.targets.find((t: any) => t.assigned_user_id === profile.id) || d.targets[0]
+                  if (userTarget) {
+                    setTargetMissions(Number(userTarget.target_missions) || 15)
+                    setTargetLabel(userTarget.title || `${userTarget.period_label} — ${userTarget.scope_name}`)
+                    setTargetType(userTarget.target_type || 'aggregate')
+                    setTargetFacilities(userTarget.target_facilities || [])
+                    if (userTarget.executed_missions !== undefined) {
+                      setExecutedMissions(userTarget.executed_missions)
+                    }
+                  }
+                }
+              }
+            } catch {
+              // fallback
+            }
 
             // Latest 5 missions
             const { data: latestMissions } = await supabase
@@ -1610,11 +1658,14 @@ export function DashboardScreen() {
                 let statusText = 'قيد الانتظار'
                 let statusTone = 'amber'
                 const s = (m.status || '').toLowerCase()
-                if (['completed', 'approved', 'done'].includes(s)) {
+                if (['completed', 'closed', 'done'].includes(s)) {
                   statusText = 'مكتملة'
                   statusTone = 'green'
                 } else if (['assigned', 'in_progress', 'executing'].includes(s)) {
                   statusText = 'قيد التنفيذ'
+                  statusTone = 'blue'
+                } else if (s === 'approved') {
+                  statusText = 'مُكلفة'
                   statusTone = 'blue'
                 } else if (s === 'under_review') {
                   statusText = 'بانتظار الاعتماد'
@@ -1658,9 +1709,11 @@ export function DashboardScreen() {
     }
   }
 
+  const rate = Math.min(100, Math.round((executedMissions / Math.max(1, targetMissions)) * 100))
+  const remaining = Math.max(0, targetMissions - executedMissions)
+
   return (
     <div className="stack">
-
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: '14px', fontWeight: 'bold' }}>
@@ -1668,6 +1721,86 @@ export function DashboardScreen() {
         </div>
       ) : (
         <>
+          {/* Target Progress Banner Card */}
+          <section style={{
+            background: 'linear-gradient(135deg, #0a1628 0%, #0e4b5a 40%, #006d77 100%)',
+            borderRadius: '16px',
+            padding: '20px 24px',
+            color: 'white',
+            boxShadow: '0 8px 32px rgba(0,109,119,0.3)',
+            display: 'grid',
+            gridTemplateColumns: '1fr auto auto auto',
+            gap: '20px',
+            alignItems: 'center',
+            marginBottom: '16px'
+          }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <Target size={16} style={{ opacity: 0.8 }} />
+                <span style={{ fontSize: '11px', opacity: 0.75 }}>{targetLabel}</span>
+              </div>
+              <div style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                مستهدف المرور الميداني الدوري
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                <a href="/dashboard/targets" style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: 'white', padding: '5px 12px', borderRadius: '8px', textDecoration: 'none', fontSize: '11px', fontWeight: 'bold' }}>
+                  مستهدفات المرور →
+                </a>
+                <a href="/dashboard/targets/report" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.85)', padding: '5px 12px', borderRadius: '8px', textDecoration: 'none', fontSize: '11px' }}>
+                  📊 التقارير
+                </a>
+              </div>
+            </div>
+
+            {/* Target */}
+            <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.07)', borderRadius: '12px', padding: '12px 18px', minWidth: '90px' }}>
+              <div style={{ fontSize: '10px', opacity: 0.65, marginBottom: '2px' }}>المستهدف</div>
+              <div style={{ fontSize: '36px', fontWeight: '900', lineHeight: '1', color: '#93c5fd' }}>{targetMissions}</div>
+              <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '2px' }}>مأمورية</div>
+            </div>
+
+            {/* Executed */}
+            <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.07)', borderRadius: '12px', padding: '12px 18px', minWidth: '90px' }}>
+              <div style={{ fontSize: '10px', opacity: 0.65, marginBottom: '2px' }}>المنفذ منها</div>
+              <div style={{ fontSize: '36px', fontWeight: '900', lineHeight: '1', color: '#86efac' }}>{executedMissions}</div>
+              <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '2px' }}>مكتملة</div>
+            </div>
+
+            {/* Completion Rate */}
+            <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.07)', borderRadius: '12px', padding: '12px 18px', minWidth: '90px' }}>
+              <div style={{ fontSize: '10px', opacity: 0.65, marginBottom: '2px' }}>نسبة الإنجاز</div>
+              <div style={{ fontSize: '36px', fontWeight: '900', lineHeight: '1', color: rate >= 80 ? '#86efac' : rate >= 50 ? '#fde047' : '#fca5a5' }}>{rate}%</div>
+              <div style={{ fontSize: '10px', opacity: 0.6, marginTop: '2px' }}>متبقي {remaining}</div>
+            </div>
+          </section>
+
+          {targetType === 'specific_facilities' && targetFacilities.length > 0 && (
+            <div style={{
+              background: 'rgba(10, 22, 40, 0.95)',
+              border: '1px solid rgba(0, 109, 119, 0.4)',
+              padding: '12px 20px',
+              borderRadius: '12px',
+              marginTop: '-10px',
+              marginBottom: '16px'
+            }}>
+              <div style={{ fontSize: '11.5px', fontWeight: 'bold', color: '#5eead4', marginBottom: '8px' }}>
+                🏥 المنشآت المستهدفة لهذا الحساب: ({targetFacilities.filter((f: any) => f.is_visited).length} من {targetFacilities.length} تم المرور عليها)
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {targetFacilities.map((f: any) => (
+                  <span key={f.id} style={{
+                    background: f.is_visited ? 'rgba(134,239,172,0.18)' : 'rgba(255,255,255,0.08)',
+                    border: `1px solid ${f.is_visited ? '#86efac' : 'rgba(255,255,255,0.15)'}`,
+                    color: f.is_visited ? '#86efac' : 'rgba(255,255,255,0.85)',
+                    padding: '3px 10px', borderRadius: '6px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px'
+                  }}>
+                    {f.is_visited ? '✅' : '⚪'} {f.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <section className="stats-grid">
             {stats.map((item) => {
               const Icon = item.icon
@@ -1788,6 +1921,8 @@ function pageTitle(view: View) {
   if (view === 'facilities') return 'المنشآت'
   if (view === 'users') return 'المستخدمون'
   if (view === 'settings') return 'الإعدادات'
+  if (view === 'targets') return 'مستهدفات المرور والتفتيش'
+  if (view === 'targets-report') return 'تقارير إنجاز المستهدفات'
   return 'لوحة القيادة'
 }
 
@@ -2686,7 +2821,7 @@ function Style() {
         font-weight: 700;
       }
 
-      input {
+      input:not([type="checkbox"]):not([type="radio"]) {
         background: #fbfdfd;
         border: 1px solid var(--line);
         border-radius: 8px;

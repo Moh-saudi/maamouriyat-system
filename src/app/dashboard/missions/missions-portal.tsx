@@ -19,7 +19,8 @@ import {
   BadgeAlert,
   X,
   LayoutGrid,
-  List
+  List,
+  Navigation
 } from 'lucide-react'
 import { realEgyptianMedicalFacilities } from '@/lib/real-facilities'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
@@ -71,6 +72,8 @@ export function MissionsPortal({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table')
   const [leafletLoaded, setLeafletLoaded] = useState(false)
   const [auditMission, setAuditMission] = useState<MissionItem | null>(null)
+  const [auditViolations, setAuditViolations] = useState<any[]>([])
+  const [loadingAuditViolations, setLoadingAuditViolations] = useState(false)
 
   // --- Electronic Signature State ---
   const [signatureImage, setSignatureImage] = useState<string | null>(null)
@@ -97,7 +100,8 @@ export function MissionsPortal({
         const res = await fetch('/api/admin/checklists')
         if (res.ok) {
           const data = await res.json()
-          setDbChecklists(data || [])
+          const templates = Array.isArray(data) ? data : (data?.templates || [])
+          setDbChecklists(templates)
         }
       } catch (e) {
         console.error('Error fetching checklists for audit mapping:', e)
@@ -106,10 +110,11 @@ export function MissionsPortal({
     fetchChecklists()
   }, [])
 
-  // Fetch real mission_results for auditMission
+  // Fetch real mission_results and violations for auditMission
   useEffect(() => {
     if (!auditMission) {
       setAuditResults([])
+      setAuditViolations([])
       return
     }
 
@@ -119,7 +124,7 @@ export function MissionsPortal({
         const res = await fetch(`/api/missions/results?mission_id=${encodeURIComponent(auditMission.id)}`)
         if (res.ok) {
           const data = await res.json()
-          setAuditResults(data || [])
+          setAuditResults(Array.isArray(data) ? data : [])
         }
       } catch (e) {
         console.error('Error fetching mission results for audit:', e)
@@ -127,14 +132,41 @@ export function MissionsPortal({
         setLoadingAuditResults(false)
       }
     }
+
+    const fetchViolations = async () => {
+      setLoadingAuditViolations(true)
+      try {
+        const supabase = createBrowserSupabaseClient()
+        if (supabase) {
+          const { data } = await supabase
+            .from('violations')
+            .select('id, title, description, priority, status, assigned_to_dept, corrective_action_required, deadline')
+            .eq('mission_id', auditMission.id)
+          setAuditViolations(data || [])
+        }
+      } catch (e) {
+        console.error('Error fetching violations for audit:', e)
+      } finally {
+        setLoadingAuditViolations(false)
+      }
+    }
+
     fetchResults()
+    fetchViolations()
   }, [auditMission])
 
   const resolveItemDetails = (itemId: string) => {
+    if (!itemId) {
+      return {
+        text: 'بند فحص تخصصي غير محدد',
+        priority: 'medium'
+      }
+    }
+
     // 1. Search in static checklists
     for (const dept of Object.keys(departmentChecklists)) {
-      for (const sec of departmentChecklists[dept]) {
-        const match = sec.items.find((it) => it.id === itemId)
+      for (const sec of departmentChecklists[dept] || []) {
+        const match = (sec.items || []).find((it) => it.id === itemId || String(it.id) === String(itemId))
         if (match) {
           return {
             text: match.text,
@@ -144,14 +176,17 @@ export function MissionsPortal({
       }
     }
 
-    // 2. Search in db checklists
-    for (const chk of dbChecklists) {
-      for (const sec of chk.checklist_sections || []) {
-        for (const item of sec.checklist_items || []) {
-          if (item.id === itemId) {
+    // 2. Search in db checklists & templates
+    const checklistList = Array.isArray(dbChecklists) ? dbChecklists : []
+    for (const chk of checklistList) {
+      const sections = chk.checklist_sections || chk.sections || []
+      for (const sec of sections) {
+        const items = sec.checklist_items || sec.criteria || []
+        for (const item of items) {
+          if (item.id === itemId || String(item.id) === String(itemId)) {
             return {
-              text: item.text,
-              priority: item.violation_priority || 'medium'
+              text: item.criterion_text || item.text || 'بند فحص غير محدد',
+              priority: item.violation_priority || item.priority || 'medium'
             }
           }
         }
@@ -165,16 +200,25 @@ export function MissionsPortal({
   }
 
   const parsedAuditResults = useMemo(() => {
-    return auditResults.map((res: any) => {
-      let itemId = res.checklist_item_id
+    const list = Array.isArray(auditResults) ? auditResults : []
+    return list.map((res: any) => {
+      let itemId = res.checklist_item_id || res.item_id
       let notes = res.notes || ''
       
-      // Parse static signature from notes
-      if (!itemId && notes.startsWith('__static_id__:')) {
-        const delimiterIdx = notes.indexOf('||')
-        if (delimiterIdx !== -1) {
-          itemId = notes.substring('__static_id__:'.length, delimiterIdx)
-          notes = notes.substring(delimiterIdx + 2)
+      // Parse static or dynamic signature from notes
+      if (notes) {
+        if (notes.startsWith('__item_id__:')) {
+          const delimiterIdx = notes.indexOf('||')
+          if (delimiterIdx !== -1) {
+            itemId = notes.substring('__item_id__:'.length, delimiterIdx)
+            notes = notes.substring(delimiterIdx + 2)
+          }
+        } else if (notes.startsWith('__static_id__:')) {
+          const delimiterIdx = notes.indexOf('||')
+          if (delimiterIdx !== -1) {
+            itemId = notes.substring('__static_id__:'.length, delimiterIdx)
+            notes = notes.substring(delimiterIdx + 2)
+          }
         }
       }
       
@@ -973,24 +1017,26 @@ export function MissionsPortal({
         <section style={{ display: 'grid', gap: '14px' }}>
         {paginatedMissions.map((mission) => {
           const isUrgent = mission.priority === 'urgent' || mission.priority === 'critical'
+          const isCompletedOrClosed = mission.status === 'completed' || mission.status === 'closed'
           
           return (
             <article 
               key={mission.id}
               className="mission-glass-card"
               onClick={() => {
-                if (mission.status === 'completed') {
+                if (isCompletedOrClosed) {
                   setAuditMission(mission)
                 } else {
                   router.push(`/dashboard/missions/${mission.id}/execute`)
                 }
               }}
               style={{
-                background: 'white',
-                border: isUrgent ? '1px solid #ffcdd2' : '1px solid #dce7e8',
+                background: isCompletedOrClosed ? '#f6fcf8' : 'white',
+                border: isCompletedOrClosed ? '1.5px solid #bbf7d0' : (isUrgent ? '1px solid #ffcdd2' : '1px solid #dce7e8'),
+                borderRight: isCompletedOrClosed ? '6px solid #10b981' : (isUrgent ? '4px solid #d32f2f' : '1px solid #dce7e8'),
                 borderRadius: '16px',
                 padding: '20px',
-                boxShadow: isUrgent ? '0 4px 15px rgba(211, 47, 47, 0.05)' : '0 4px 10px rgba(0,0,0,0.01)',
+                boxShadow: isCompletedOrClosed ? '0 4px 14px rgba(16, 185, 129, 0.08)' : (isUrgent ? '0 4px 15px rgba(211, 47, 47, 0.05)' : '0 4px 10px rgba(0,0,0,0.01)'),
                 display: 'grid',
                 gap: '16px',
                 position: 'relative',
@@ -1295,35 +1341,35 @@ export function MissionsPortal({
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {/* Actions 1: Print */}
                   {mission.status === 'completed' ? (
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setAuditMission(mission)
-                        setPrintTrigger(mission.id)
-                      }}
+                    <Link 
+                      href={`/dashboard/missions/${mission.id}/print`}
+                      target="_blank"
+                      onClick={(e) => e.stopPropagation()}
                       style={{
                         minHeight: '36px',
                         borderRadius: '8px',
-                        border: '1px solid #cfdcde',
-                        background: 'white',
-                        color: '#37474f',
+                        border: '1px solid #ccebe6',
+                        background: '#f0fcf9',
+                        color: '#006d77',
                         fontSize: '12.5px',
                         fontWeight: 'bold',
                         padding: '0 12px',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '6px',
+                        textDecoration: 'none',
                         cursor: 'pointer',
                         transition: 'all 0.2s'
                       }}
                       className="action-btn-hover"
                     >
                       <Printer size={14} />
-                      طباعة وثيقة المطابقة
-                    </button>
+                      طباعة التقرير
+                    </Link>
                   ) : (
                     <Link 
                       href={`/dashboard/missions/${mission.id}/print`}
+                      target="_blank"
                       onClick={(e) => e.stopPropagation()}
                       style={{
                         minHeight: '36px',
@@ -1348,7 +1394,7 @@ export function MissionsPortal({
                   )}
 
                   {/* Actions 2: Execute or Audit */}
-                  {mission.status === 'completed' ? (
+                  {mission.status === 'completed' || mission.status === 'closed' ? (
                     <button 
                       onClick={(e) => {
                         e.stopPropagation()
@@ -1357,9 +1403,9 @@ export function MissionsPortal({
                       style={{
                         minHeight: '36px',
                         borderRadius: '8px',
-                        background: '#f0fcf9',
-                        border: '1px solid #ccebe6',
-                        color: '#16725a',
+                        background: '#e8f5e9',
+                        border: '1px solid #c8e6c9',
+                        color: '#1b5e20',
                         fontSize: '12.5px',
                         fontWeight: 'bold',
                         padding: '0 14px',
@@ -1371,7 +1417,7 @@ export function MissionsPortal({
                       }}
                       className="action-btn-hover"
                     >
-                      🔎 مراجعة التوثيق والنتائج
+                      👁️ متابعة الإجراءات والنتائج
                       <ChevronLeft size={14} />
                     </button>
                   ) : (() => {
@@ -1557,11 +1603,13 @@ export function MissionsPortal({
                   const isInspector = roleName === 'inspector' || roleName === 'corrections';
                   const canExtend = roleName !== 'inspector' && roleName !== 'corrections';
 
+                  const isCompletedOrClosed = mission.status === 'completed' || mission.status === 'closed';
+
                   return (
                     <tr
                       key={mission.id}
                       onClick={() => {
-                        if (mission.status === 'completed') {
+                        if (isCompletedOrClosed) {
                           setAuditMission(mission)
                         } else {
                           router.push(`/dashboard/missions/${mission.id}/execute`)
@@ -1569,14 +1617,16 @@ export function MissionsPortal({
                       }}
                       style={{
                         borderBottom: '1px solid #eef2f3',
+                        background: isCompletedOrClosed ? '#f0fdf4' : 'transparent',
+                        borderRight: isCompletedOrClosed ? '5px solid #10b981' : 'none',
                         cursor: 'pointer',
                         transition: 'background 0.2s',
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f4f8f8'
+                        e.currentTarget.style.background = isCompletedOrClosed ? '#dcfce7' : '#f4f8f8'
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent'
+                        e.currentTarget.style.background = isCompletedOrClosed ? '#f0fdf4' : 'transparent'
                       }}
                     >
                       {/* Serial & Purpose */}
@@ -1760,11 +1810,9 @@ export function MissionsPortal({
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
                           {/* Print Action */}
                           {mission.status === 'completed' ? (
-                            <button
-                              onClick={() => {
-                                setAuditMission(mission)
-                                setPrintTrigger(Date.now().toString())
-                              }}
+                            <Link
+                              href={`/dashboard/missions/${mission.id}/print`}
+                              target="_blank"
                               style={{
                                 minHeight: '30px',
                                 borderRadius: '6px',
@@ -1777,16 +1825,18 @@ export function MissionsPortal({
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
+                                textDecoration: 'none',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s'
                               }}
                               className="action-btn-hover"
                             >
-                              🖨️ طباعة
-                            </button>
+                              🖨️ طباعة التقرير
+                            </Link>
                           ) : (
                             <Link
                               href={`/dashboard/missions/${mission.id}/print`}
+                              target="_blank"
                               style={{
                                 minHeight: '30px',
                                 borderRadius: '6px',
@@ -1838,15 +1888,15 @@ export function MissionsPortal({
                           )}
 
                           {/* Execute or Audit Action */}
-                          {mission.status === 'completed' ? (
+                          {isCompletedOrClosed ? (
                             <button
                               onClick={() => setAuditMission(mission)}
                               style={{
                                 minHeight: '30px',
                                 borderRadius: '6px',
-                                background: '#f0fcf9',
-                                border: '1px solid #ccebe6',
-                                color: '#16725a',
+                                background: '#e8f5e9',
+                                border: '1px solid #c8e6c9',
+                                color: '#1b5e20',
                                 fontSize: '11.5px',
                                 fontWeight: 'bold',
                                 padding: '0 10px',
@@ -1858,7 +1908,7 @@ export function MissionsPortal({
                               }}
                               className="action-btn-hover"
                             >
-                              🔎 مراجعة
+                              👁️ متابعة الإجراءات
                             </button>
                           ) : isLocked && isInspector ? (
                             <button
@@ -1938,7 +1988,7 @@ export function MissionsPortal({
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(16, 32, 39, 0.5)',
+            background: 'rgba(16, 32, 39, 0.65)',
             backdropFilter: 'blur(6px)',
             display: 'flex',
             alignItems: 'center',
@@ -1946,19 +1996,21 @@ export function MissionsPortal({
             zIndex: 1000,
             padding: '20px',
             direction: 'rtl'
-          }} onClick={() => setAuditMission(null)}>
+          }} 
+          onClick={() => setAuditMission(null)}
+        >
           <div 
             className="modal-responsive-container"
             style={{
-              background: 'white',
+              background: '#f8fafb',
               borderRadius: '20px',
-              width: '950px',
-              maxWidth: '100%',
-              maxHeight: '90vh',
+              width: '1080px',
+              maxWidth: '96vw',
+              maxHeight: '92vh',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
-              boxShadow: '0 24px 64px rgba(16, 32, 39, 0.25)',
+              boxShadow: '0 24px 64px rgba(16, 32, 39, 0.3)',
               border: '1px solid #cfdcde',
               animation: 'fadeInUp 0.3s ease-out'
             }} 
@@ -1967,175 +2019,298 @@ export function MissionsPortal({
             
             {/* Modal Header */}
             <header 
-              className="modal-responsive-header"
               style={{
-                background: '#102027',
+                background: 'linear-gradient(135deg, #004d40 0%, #006d77 100%)',
                 color: 'white',
-                padding: '18px 24px',
+                padding: '16px 24px',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                borderBottom: '4px solid var(--brand)'
+                gap: '16px',
+                flexWrap: 'wrap'
               }}
             >
               <div>
-                <span style={{ fontSize: '11px', color: '#80cbc4', fontWeight: 'bold', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  وثيقة إثبات المطابقة ومراجعة نتائج الزيارة الرسمية
-                </span>
-                <h2 style={{ margin: '4px 0 0', fontSize: '20px', color: 'white', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  📋 تكليف رقم: {auditMission.serialNumber}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '11px', background: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold', padding: '2px 8px', borderRadius: '6px' }}>
+                    📋 استعراض ومتابعة المأمورية
+                  </span>
+                  <span style={{ fontSize: '11px', background: '#e8f5e9', color: '#1b5e20', fontWeight: 'bold', padding: '2px 8px', borderRadius: '6px' }}>
+                    🔒 معتمدة ومغلقة نهائياً
+                  </span>
+                </div>
+                <h2 style={{ margin: 0, fontSize: '18px', color: 'white', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  تكليف رقم: {auditMission.serialNumber} — {auditMission.visitPurpose}
                 </h2>
               </div>
-              <button 
-                onClick={() => setAuditMission(null)}
-                style={{
-                  background: 'rgba(255,255,255,0.1)',
-                  border: 0,
-                  borderRadius: '50%',
-                  width: '36px',
-                  height: '36px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                className="action-btn-hover"
-              >
-                <X size={18} />
-              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Link 
+                  href={`/dashboard/missions/${auditMission.id}/print`}
+                  target="_blank"
+                  style={{
+                    minHeight: '34px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    background: 'rgba(255,255,255,0.15)',
+                    color: 'white',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    padding: '0 14px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    textDecoration: 'none',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  className="action-btn-hover"
+                >
+                  <Printer size={14} /> طباعة التقرير الفني
+                </Link>
+
+                <button 
+                  onClick={() => setAuditMission(null)}
+                  style={{
+                    background: 'rgba(255,255,255,0.15)',
+                    border: 0,
+                    borderRadius: '50%',
+                    width: '34px',
+                    height: '34px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  title="إغلاق"
+                  className="action-btn-hover"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </header>
 
-            {/* Print-Only Official Header */}
-            <div className="print-only-header" style={{ display: 'none' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #102027', paddingBottom: '16px', marginBottom: '20px', direction: 'rtl' }}>
-                <div style={{ textAlign: 'right', fontSize: '13px', lineHeight: '1.6' }}>
-                  <strong>جمهورية مصر العربية</strong><br />
-                  <span>وزارة الصحة والسكان</span><br />
-                  <span>{auditMission.orgUnitName || 'ديوان عام الوزارة'}</span>
+            {/* Quick Metrics Strip */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '12px',
+              padding: '14px 24px',
+              background: 'white',
+              borderBottom: '1px solid #e0f0f0'
+            }}>
+              {/* Met 1 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ background: '#f0fdf4', color: '#16a34a', padding: '8px', borderRadius: '8px', display: 'flex' }}>
+                  <User size={18} />
                 </div>
-                <img 
-                  alt="شعار وزارة الصحة والسكان المصرية" 
-                  src="/mohp-logo.png" 
-                  style={{ width: '80px', height: '80px', objectFit: 'contain' }} 
-                />
-                <div style={{ textAlign: 'left', fontSize: '13px', lineHeight: '1.6' }}>
-                  <strong>نظام حوكمة المأمورية الميدانية</strong><br />
-                  <span>وثيقة إثبات المطابقة والتوثيق الجغرافي</span><br />
-                  <span>حالة التوثيق: {auditMission.gpsVerified ? '🟢 مطابق وموثق جغرافياً' : '⚠️ تباين جيو-مكاني (خارج النطاق)'}</span><br />
-                  <strong>رقم التكليف: {auditMission.serialNumber}</strong>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>المفتش / فريق العمل</span>
+                  <strong style={{ fontSize: '12.5px', color: '#263238' }}>{auditMission.employeeNames}</strong>
                 </div>
               </div>
-              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: '0 0 6px', color: '#102027' }}>وثيقة المطابقة والتوثيق الميداني المعتمدة</h1>
-                <span style={{ fontSize: '12px', color: '#546e7a' }}>صادر تلقائياً من المنظومة الإلكترونية لحوكمة المأموريات الميدانية بوزارة الصحة والسكان المصرية</span>
+
+              {/* Met 2 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ background: '#f0fdfa', color: '#006d77', padding: '8px', borderRadius: '8px', display: 'flex' }}>
+                  <MapPin size={18} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>المنشأة والوجهة المستهدفة</span>
+                  <strong style={{ fontSize: '12.5px', color: '#263238', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={auditMission.destinationName}>
+                    {auditMission.destinationName}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Met 3 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ background: '#f8fafc', color: '#475569', padding: '8px', borderRadius: '8px', display: 'flex' }}>
+                  <Calendar size={18} />
+                </div>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>تاريخ وجدول المرور</span>
+                  <strong style={{ fontSize: '12.5px', color: '#263238', direction: 'ltr', display: 'inline-block' }}>{auditMission.scheduledDate}</strong>
+                </div>
+              </div>
+
+              {/* Met 4 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ background: auditMission.gpsVerified ? '#ecfdf5' : '#fff7ed', color: auditMission.gpsVerified ? '#059669' : '#ea580c', padding: '8px', borderRadius: '8px', display: 'flex' }}>
+                  <Navigation size={18} />
+                </div>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block' }}>التوثيق الميداني (GPS)</span>
+                  <strong style={{ fontSize: '12px', color: auditMission.gpsVerified ? '#059669' : '#c2410c' }}>
+                    {auditMission.gpsVerified ? '🟢 مطابق للنطاق المعتمد' : '⚠️ خارج نطاق المنشأة'}
+                  </strong>
+                </div>
               </div>
             </div>
 
-            {/* Modal Scrollable Body */}
+            {/* Modal Scrollable Body (Balanced 2 Columns) */}
             <div 
-              className="modal-responsive-grid"
               style={{
-                padding: '24px',
+                padding: '20px 24px',
                 overflowY: 'auto',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                gap: '24px',
-                background: '#fcfdfd'
+                gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)',
+                gap: '20px',
+                flex: 1
               }}
             >
               
-              {/* Right Column: Technical & Execution Findings */}
-              <div style={{ display: 'grid', gap: '20px', alignContent: 'start' }}>
+              {/* Right Column: Actions & Findings */}
+              <div style={{ display: 'grid', gap: '16px', alignContent: 'start' }}>
                 
-                {/* 1. General Info & Inspector Details */}
-                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                  <h3 style={{ margin: '0 0 14px', fontSize: '14.5px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <User size={16} /> المفتش وتوقيت المرور
+                {/* 1. Follow-up & Department Referrals Tracker */}
+                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f7f7', paddingBottom: '10px', marginBottom: '12px' }}>
+                    <h3 style={{ margin: 0, fontSize: '14px', color: '#006d77', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      ⚖️ متابعة الإجراءات المتخذة والإحالات للإدارات المختصة
+                    </h3>
+                    <span style={{ fontSize: '11px', background: auditViolations.length > 0 ? '#fff3e0' : '#e0f2f1', color: auditViolations.length > 0 ? '#d84315' : '#004d40', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                      {auditViolations.length} إحالة / تكليف
+                    </span>
+                  </div>
+
+                  {loadingAuditViolations ? (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: '#78909c', fontSize: '12px', padding: '14px 0', justifyContent: 'center' }}>
+                      <div className="spinner" style={{ width: '16px', height: '16px', border: '2px solid #e0f0f0', borderTopColor: '#006d77', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      <span>جاري تحميل سجل الإجراءات والإحالات...</span>
+                    </div>
+                  ) : auditViolations.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '16px', background: '#f8fafb', borderRadius: '10px', border: '1px dashed #cfd8dc' }}>
+                      <span style={{ fontSize: '12.5px', color: '#546e7a' }}>
+                        🟢 لم تُسجل مخالفات محالة لإدارات مختصة أخرى في هذه المأمورية.
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      {auditViolations.map((v: any, vIdx: number) => {
+                        const isResolved = v.status === 'resolved' || v.status === 'closed';
+                        return (
+                          <div key={v.id || vIdx} style={{
+                            background: isResolved ? '#f0fdf4' : '#fffbeb',
+                            border: `1px solid ${isResolved ? '#bbf7d0' : '#fde68a'}`,
+                            borderRadius: '10px',
+                            padding: '12px',
+                            display: 'grid',
+                            gap: '6px'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: '13px', color: '#1e293b' }}>
+                                📌 {v.title || v.description || 'مخالفة مرصودة'}
+                              </strong>
+                              <span style={{
+                                fontSize: '11px',
+                                fontWeight: 'bold',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                background: isResolved ? '#dcfce7' : '#ffedd5',
+                                color: isResolved ? '#15803d' : '#c2410c',
+                                border: `1px solid ${isResolved ? '#86efac' : '#fed7aa'}`
+                              }}>
+                                {isResolved ? '✅ تم تلافي الملاحظة' : '⏳ جاري المتابعة والتنفيذ'}
+                              </span>
+                            </div>
+
+                            {v.assigned_to_dept && (
+                              <div style={{ fontSize: '12px', color: '#006d77', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span>🏛️</span>
+                                <strong>الإدارة المكلفة بالإجراء:</strong>
+                                <span>{v.assigned_to_dept}</span>
+                              </div>
+                            )}
+
+                            {v.corrective_action_required && (
+                              <div style={{ fontSize: '11.5px', color: '#475569', background: 'white', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.06)' }}>
+                                <strong>الإجراء المطلوب:</strong> {v.corrective_action_required}
+                              </div>
+                            )}
+
+                            {v.deadline && (
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                ⏱️ المهلة المحددة: <strong style={{ color: '#334155' }}>{v.deadline}</strong>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Execution Report Notes */}
+                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <h3 style={{ margin: '0 0 10px', fontSize: '14px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FileText size={16} /> تقرير وتوجيهات وتوصيات المفتش الميداني
                   </h3>
-                  <div style={{ display: 'grid', gap: '10px', fontSize: '13px' }}>
-                    <div className="detail-row">
-                      <span className="detail-label">المفتش المسؤول:</span>
-                      <strong className="detail-value">{auditMission.employeeNames}</strong>
-                    </div>
-                    <div className="detail-row">
-                      <span className="detail-label">الإدارة التابعة:</span>
-                      <strong className="detail-value">{auditMission.orgUnitName}</strong>
-                    </div>
-                    <div className="detail-row">
-                      <span className="detail-label">الوجهة المعتمدة:</span>
-                      <strong className="detail-value">{auditMission.destinationName}</strong>
-                    </div>
-                    <div className="detail-row">
-                      <span className="detail-label">تاريخ وجدول المرور:</span>
-                      <strong className="detail-value">{auditMission.scheduledDate}</strong>
-                    </div>
+                  <div style={{ fontSize: '12.5px', color: '#334155', lineHeight: '1.6', background: '#f8fafc', padding: '12px', borderRadius: '8px', borderRight: '3px solid #006d77' }}>
+                    <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                      {auditMission.notes || 'لم يسجل المفتش أي ملاحظات إدارية إضافية.'}
+                    </p>
                   </div>
                 </div>
 
-                {/* 2. Technical Findings Checklists */}
-                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                  <h3 style={{ margin: '0 0 14px', fontSize: '14.5px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <FileText size={16} /> تقييم بنود التفتيش المحوكم والنتائج الفعلية
+                {/* 3. Technical Findings Checklists */}
+                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '14px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    📋 تقييم بنود التفتيش واستمارات المرور
                   </h3>
                   
                   {loadingAuditResults ? (
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', color: '#78909c', fontSize: '12.5px', justifyContent: 'center', padding: '20px 0' }}>
-                      <div className="spinner" style={{ border: '2px solid #e0f0f0', borderTopColor: '#006d77', width: '20px', height: '20px', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                      <span>جاري جلب إجابات الاستمارة الفعلية من السيرفر...</span>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', color: '#78909c', fontSize: '12px', justifyContent: 'center', padding: '14px 0' }}>
+                      <div className="spinner" style={{ border: '2px solid #e0f0f0', borderTopColor: '#006d77', width: '16px', height: '16px', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      <span>جاري جلب إجابات الاستمارة...</span>
                     </div>
                   ) : parsedAuditResults.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '20px 10px', color: '#78909c', fontSize: '12.5px', background: '#fafafa', borderRadius: '8px' }}>
-                      ℹ️ لم يتم حفظ أي إجابات تقييمية لهذه المأمورية بعد.
+                    <div style={{ textAlign: 'center', padding: '14px', color: '#78909c', fontSize: '12px', background: '#fafafa', borderRadius: '8px' }}>
+                      ℹ️ لا توجد بنود تقييمية مسجلة لهذه المأمورية.
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gap: '12px', fontSize: '12.5px' }}>
+                    <div style={{ display: 'grid', gap: '10px', fontSize: '12px', maxHeight: '280px', overflowY: 'auto' }}>
                       {parsedAuditResults.map((res: any, idx: number) => {
-                        let answerColor = '#2e7d32' // green
+                        let answerColor = '#16a34a'
                         let answerText = 'ملتزم ✓'
                         
                         if (res.answer === 'no') {
-                          answerColor = '#d32f2f' // red
+                          answerColor = '#dc2626'
                           answerText = 'غير ملتزم ❌'
                         } else if (res.answer === 'na') {
-                          answerColor = '#78909c' // grey
+                          answerColor = '#64748b'
                           answerText = 'لا ينطبق'
                         } else {
-                          // Could be checkbox array, rating, or custom dropdown
                           answerText = Array.isArray(res.answer) ? res.answer.join(', ') : String(res.answer)
                           if (answerText.includes('غير') || answerText.includes('لا') || answerText.includes('مخالف')) {
-                            answerColor = '#d32f2f'
+                            answerColor = '#dc2626'
                           } else {
                             answerColor = '#006d77'
                           }
                         }
 
                         return (
-                          <div key={res.id || idx} style={{ display: 'grid', gap: '4px', borderBottom: idx < parsedAuditResults.length - 1 ? '1px solid #f0f7f7' : 'none', paddingBottom: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
-                              <span style={{ fontWeight: 'bold', color: '#37474f', textAlign: 'right', flex: 1, lineHeight: '1.4' }}>
-                                📋 {res.text}
+                          <div key={res.id || idx} style={{ display: 'grid', gap: '4px', borderBottom: idx < parsedAuditResults.length - 1 ? '1px solid #f1f5f9' : 'none', paddingBottom: '6px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                              <span style={{ fontWeight: '600', color: '#334155', textAlign: 'right', flex: 1, lineHeight: '1.4' }}>
+                                • {res.text}
                               </span>
-                              <strong style={{ color: answerColor, flexShrink: 0, fontSize: '12px', direction: 'rtl' }}>
+                              <strong style={{ color: answerColor, flexShrink: 0, fontSize: '11.5px', direction: 'rtl' }}>
                                 {answerText}
                               </strong>
                             </div>
                             {res.notes && (
                               <div style={{ 
                                 fontSize: '11px', 
-                                color: '#546e7a', 
-                                background: '#f8fafb', 
-                                padding: '6px 10px', 
-                                borderRadius: '6px', 
-                                borderRight: '2px solid #006d77',
-                                display: 'flex',
-                                gap: '4px',
-                                width: '100%',
-                                boxSizing: 'border-box'
+                                color: '#64748b', 
+                                background: '#f8fafc', 
+                                padding: '4px 8px', 
+                                borderRadius: '4px', 
+                                borderRight: '2px solid #006d77'
                               }}>
-                                <strong>📝 ملاحظات البند:</strong>
-                                <span>{res.notes}</span>
+                                <strong>ملاحظة:</strong> {res.notes}
                               </div>
                             )}
                           </div>
@@ -2145,85 +2320,132 @@ export function MissionsPortal({
                   )}
                 </div>
 
-                {/* 3. Execution Report Notes */}
-                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                  <h3 style={{ margin: '0 0 10px', fontSize: '14.5px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    ✏️ تقرير وتوجيهات المفتش الميداني
-                  </h3>
-                  <div style={{ fontSize: '13px', color: '#37474f', lineHeight: '1.6', background: '#fafafa', padding: '12px', borderRadius: '8px', borderRight: '3px solid #006d77' }}>
-                    <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-                      {auditMission.notes || 'لم يسجل المفتش أي ملاحظات إدارية إضافية.'}
-                    </p>
+              </div>
+
+              {/* Left Column: GPS Map & Signatures */}
+              <div style={{ display: 'grid', gap: '16px', alignContent: 'start' }}>
+                
+                {/* 1. Map container */}
+                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <span style={{ fontSize: '13.5px', fontWeight: 'bold', color: '#006d77', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <MapPin size={16} /> خريطة التوثيق والمطابقة الجغرافية
+                    </span>
+                    {auditMission.checkinLat && auditMission.checkinLng && (
+                      <a 
+                        href={`https://maps.google.com/?q=${auditMission.checkinLat},${auditMission.checkinLng}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        style={{
+                          fontSize: '11.5px',
+                          color: '#006d77',
+                          fontWeight: 'bold',
+                          textDecoration: 'underline',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '2px'
+                        }}
+                      >
+                        Google Maps ↗
+                      </a>
+                    )}
+                  </div>
+
+                  <div id="audit-map" style={{
+                    height: '220px',
+                    borderRadius: '12px',
+                    border: '1px solid #cfdcde',
+                    overflow: 'hidden',
+                    background: '#eceff1',
+                    marginBottom: '10px'
+                  }}>
+                    {!leafletLoaded && (
+                      <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px', color: '#78909c' }}>
+                        <div style={{ border: '3px solid #b0bec5', borderTop: '3px solid #006d77', width: '20px', height: '20px', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                        <span style={{ fontSize: '11px' }}>جاري تحميل الخريطة...</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* GPS Verification Status Box */}
+                  <div style={{
+                    background: auditMission.gpsVerified ? '#f0fdf4' : '#fff7ed',
+                    border: `1px solid ${auditMission.gpsVerified ? '#bbf7d0' : '#fed7aa'}`,
+                    borderRadius: '10px',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px'
+                  }}>
+                    <div style={{ fontSize: '18px' }}>
+                      {auditMission.gpsVerified ? '🟢' : '⚠️'}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <h4 style={{ margin: '0 0 2px', fontSize: '12.5px', color: auditMission.gpsVerified ? '#15803d' : '#c2410c', fontWeight: 'bold' }}>
+                        {auditMission.gpsVerified ? 'حضور جغرافي مطابق للنطاق المعتمد' : 'حضور ميداني خارج نطاق المنشأة المقررة'}
+                      </h4>
+                      <div style={{ display: 'flex', gap: '8px', fontSize: '10.5px', color: '#64748b', direction: 'ltr', flexWrap: 'wrap' }}>
+                        <span>Lat: {auditMission.checkinLat ? auditMission.checkinLat.toFixed(5) : '30.044'}</span>
+                        <span>Lng: {auditMission.checkinLng ? auditMission.checkinLng.toFixed(5) : '31.235'}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* 4. Digital Signatures & Approvals */}
-                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                  <h3 style={{ margin: '0 0 14px', fontSize: '14.5px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    🖊️ الاعتماد والتوقيع الإلكتروني الموثق للمأمورية
+                {/* 2. Digital Signatures & Approvals */}
+                <div style={{ background: 'white', border: '1px solid #e0f0f0', borderRadius: '16px', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: '14px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #f0f7f7', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    🖊️ الاعتماد والتوقيع الإلكتروني الموثق
                   </h3>
                   
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', textAlign: 'center', fontSize: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', textAlign: 'center', fontSize: '11.5px' }}>
                     {/* Inspector Sign */}
-                    <div style={{ background: '#f8fbfb', border: '1px solid #edf2f2', borderRadius: '12px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ color: '#78909c', fontSize: '11px' }}>توقيع المفتش الميداني:</span>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ color: '#64748b', fontSize: '11px' }}>توقيع المفتش:</span>
                       <div style={{ 
-                        border: '1px dashed #2e7d32', 
+                        border: '1px dashed #16a34a', 
                         borderRadius: '6px', 
                         padding: '4px 8px', 
-                        background: '#e8f5e9',
-                        color: '#2e7d32',
-                        fontWeight: 'bold',
-                        fontSize: '9px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '2px'
+                        background: '#f0fdf4', 
+                        color: '#15803d', 
+                        fontWeight: 'bold', 
+                        fontSize: '9.5px' 
                       }}>
-                        <span>🛡️ موقّع رقمياً</span>
-                        <span>بالموقع الميداني</span>
+                        🛡️ تم التوقيع رقمياً
                       </div>
-                      <strong style={{ fontSize: '11.5px', color: '#263238' }}>{auditMission.employeeNames}</strong>
+                      <strong style={{ fontSize: '11px', color: '#1e293b' }}>{auditMission.employeeNames}</strong>
                     </div>
 
                     {/* Director Sign */}
-                    <div style={{ background: '#f8fbfb', border: '1px solid #edf2f2', borderRadius: '12px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyItems: 'center', gap: '6px' }}>
-                      <span style={{ color: '#78909c', fontSize: '11px' }}>اعتماد مدير الإدارة المختصة:</span>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                      <span style={{ color: '#64748b', fontSize: '11px' }}>اعتماد الإدارة:</span>
                       {signatureImage ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%' }}>
-                          <div style={{ background: 'white', border: '1px solid #edf2f2', borderRadius: '6px', padding: '4px', display: 'flex', justifyContent: 'center', width: '100%' }}>
-                            <img 
-                              src={signatureImage} 
-                              alt="توقيع المدير" 
-                              style={{ height: '32px', maxWidth: '100%', objectFit: 'contain', background: 'transparent' }} 
-                            />
-                          </div>
-                          <button 
-                            onClick={() => setShowSignaturePad(true)}
-                            style={{ fontSize: '9.5px', color: '#c62828', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', fontWeight: 'bold' }}
-                          >
-                            تعديل التوقيع 📝
-                          </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', width: '100%' }}>
+                          <img 
+                            src={signatureImage} 
+                            alt="توقيع المدير" 
+                            style={{ height: '28px', maxWidth: '100%', objectFit: 'contain' }} 
+                          />
+                          <span style={{ fontSize: '9px', color: '#d97706', fontWeight: 'bold' }}>⭐ معتمد رسمياً</span>
                         </div>
                       ) : (
                         <button
                           onClick={() => setShowSignaturePad(true)}
                           style={{
-                            background: '#ffb300',
-                            color: '#102027',
+                            background: '#006d77',
+                            color: 'white',
                             border: 0,
                             borderRadius: '6px',
-                            padding: '6px 12px',
+                            padding: '5px 10px',
                             fontSize: '11px',
                             fontWeight: 'bold',
                             cursor: 'pointer',
                             display: 'inline-flex',
                             alignItems: 'center',
-                            gap: '4px',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
-                            marginTop: '10px'
+                            gap: '4px'
                           }}
                         >
-                          🖊️ توقيع واعتماد الآن
+                          🖊️ توقيع واعتماد
                         </button>
                       )}
                     </div>
@@ -2231,239 +2453,72 @@ export function MissionsPortal({
                 </div>
 
               </div>
-
-              {/* Left Column: GPS & Map Audit Verification */}
-              <div style={{ display: 'grid', gap: '20px', alignContent: 'start' }}>
-                
-                {/* 1. Map container */}
-                <div style={{ position: 'relative' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <span style={{ fontSize: '13.5px', fontWeight: 'bold', color: '#37474f', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <MapPin size={16} style={{ color: 'var(--brand)' }} /> خريطة تتبع ومطابقة الحضور الفعلي
-                    </span>
-                    <span style={{ fontSize: '11px', color: '#78909c' }}>تحديث تلقائي صامت</span>
-                  </div>
-
-                  <div id="audit-map" style={{
-                    height: '280px',
-                    borderRadius: '16px',
-                    border: '1px solid #cfdcde',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
-                    overflow: 'hidden',
-                    background: '#eceff1'
-                  }}>
-                    {!leafletLoaded && (
-                      <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px', color: '#78909c' }}>
-                        <div style={{ border: '3px solid #b0bec5', borderTop: '3px solid #006d77', width: '24px', height: '24px', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                        <span style={{ fontSize: '12px' }}>جاري تحميل مكتبة الخرائط الجغرافية...</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 2. GPS Verification Status Panel */}
-                <div className="gps-status-panel" style={{
-                  background: auditMission.gpsVerified ? '#e8f5e9' : '#fff3e0',
-                  border: `1px solid ${auditMission.gpsVerified ? '#a5d6a7' : '#ffcc80'}`,
-                  borderRadius: '16px',
-                  padding: '16px',
-                  display: 'flex',
-                  gap: '14px',
-                  alignItems: 'start'
-                }}>
-                  <div style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
-                    background: auditMission.gpsVerified ? '#c8e6c9' : '#ffe0b2',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '18px',
-                    fontWeight: 'bold',
-                    color: auditMission.gpsVerified ? '#2e7d32' : '#e65100',
-                    marginTop: '2px'
-                  }}>
-                    {auditMission.gpsVerified ? '✓' : '⚠️'}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <h4 style={{ margin: '0 0 4px', fontSize: '14px', color: auditMission.gpsVerified ? '#2e7d32' : '#d84315', fontWeight: 'bold' }}>
-                      {auditMission.gpsVerified ? 'حضور جغرافي معتمد ومطابق' : 'مخالفة: تباين جيو-مكاني (خارج نطاق المنشأة)'}
-                    </h4>
-                    <p style={{ margin: 0, fontSize: '12px', color: '#37474f', lineHeight: '1.5' }}>
-                      {auditMission.gpsVerified ? (
-                        'النظام يؤكد تواجد المفتش فعلياً ضمن النطاق المعتمد للمنشأة الصحية (أقل من ٢٠٠ متر) لحظة بدء وإنهاء المأمورية. تم استلام وقبول التقرير.'
-                      ) : (
-                        'تنبيه: أرسل المفتش التقرير من موقع جغرافي يبعد مسافة تزيد عن ٢٠٠ متر من إحداثيات المستشفى المسجلة. يتم تسجيل هذا التباين وتوثيق إحداثياته للتحقق الإداري المحوكم.'
-                      )}
-                    </p>
-                    
-                    {/* Exact Coordinates */}
-                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
-                      <span style={{ fontSize: '11px', background: 'white', border: '1px solid rgba(0,0,0,0.06)', color: '#455a64', padding: '2px 8px', borderRadius: '4px', direction: 'ltr' }}>
-                        📍 Lat: {auditMission.checkinLat ? auditMission.checkinLat.toFixed(6) : '30.0783'}
-                      </span>
-                      <span style={{ fontSize: '11px', background: 'white', border: '1px solid rgba(0,0,0,0.06)', color: '#455a64', padding: '2px 8px', borderRadius: '4px', direction: 'ltr' }}>
-                        📍 Lng: {auditMission.checkinLng ? auditMission.checkinLng.toFixed(6) : '31.2339'}
-                      </span>
-                      {auditMission.checkinLat && auditMission.checkinLng && (
-                        <a 
-                          href={`https://maps.google.com/?q=${auditMission.checkinLat},${auditMission.checkinLng}`} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          style={{
-                            fontSize: '11px',
-                            color: auditMission.gpsVerified ? '#006d77' : '#c62828',
-                            fontWeight: 'bold',
-                            textDecoration: 'underline',
-                            marginLeft: 'auto'
-                          }}
-                        >
-                          فتح خرائط Google لتدقيق المسار ↗
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Legenda & Verification standard */}
-                <div style={{ background: '#f5f5f5', borderRadius: '12px', padding: '12px', fontSize: '11.5px', color: '#607d8b', display: 'grid', gap: '6px' }}>
-                  <div style={{ fontWeight: 'bold', marginBottom: '2px' }}>💡 دليل رموز الخريطة:</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#006d77' }} />
-                    <span>الموقع الجغرافي الرسمي المعتمد للمستشفى بمركز البيانات.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: auditMission.gpsVerified ? '#2e7d32' : '#d84315' }} />
-                    <span>المكان الفعلي الحقيقي للمفتش لحظة بدء وإثبات الزيارة.</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <div style={{ width: '12px', height: '1.5px', background: auditMission.gpsVerified ? '#2e7d32' : '#d84315', borderStyle: auditMission.gpsVerified ? 'solid' : 'dashed' }} />
-                    <span>مسافة المطابقة الخطية بين موقع المنشأة ومكان المفتش الفعلي.</span>
-                  </div>
-                </div>
-
-              </div>
               
             </div>
 
-            {/* Print-Only Signatures & Stamp Section */}
-            <div className="print-only-footer" style={{ display: 'none', padding: '24px 30px', borderTop: '2px dashed #cfdcde', background: 'white' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '30px', textAlign: 'center', fontSize: '13px', lineHeight: '1.8', direction: 'rtl' }}>
-                <div>
-                  <strong style={{ color: '#102027', display: 'block', marginBottom: '8px' }}>المفتش / فريق التفتيش</strong>
-                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block', marginBottom: '14px' }}>التوقيع الإلكتروني وتأكيد الحضور الجغرافي</span>
-                  
-                  {/* Styled electronic signature stamp */}
-                  <div style={{ 
-                    border: '1px dashed #2e7d32', 
-                    borderRadius: '8px', 
-                    padding: '8px', 
-                    background: '#f1f8e9', 
-                    maxWidth: '180px', 
-                    margin: '0 auto 10px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}>
-                    <span style={{ fontSize: '10px', color: '#2e7d32', fontWeight: 'bold' }}>🛡️ تم التوقيع رقمياً</span>
-                    <strong style={{ fontSize: '11px', color: '#33691e' }}>{auditMission.employeeNames}</strong>
-                    <span style={{ fontSize: '8px', color: '#558b2f' }}>(معرف: MOHP-INSPECT-{auditMission.id.slice(-5)})</span>
-                  </div>
-                </div>
-                <div>
-                  <strong style={{ color: '#102027', display: 'block', marginBottom: '8px' }}>مدير الإدارة المختصة</strong>
-                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block', marginBottom: '14px' }}>المراجعة والتوجيه والاعتماد الإداري</span>
-                  {signatureImage ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', marginTop: '6px' }}>
-                      <img 
-                        src={signatureImage} 
-                        alt="توقيع المدير المعتمد" 
-                        style={{ height: '42px', maxWidth: '130px', objectFit: 'contain' }} 
-                      />
-                      <span style={{ fontSize: '9px', color: '#ffb300', fontWeight: 'bold' }}>⭐ معتمد إلكترونياً</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ height: '40px', borderBottom: '1px dotted #b0bec5', margin: '0 auto 10px', width: '80%' }}></div>
-                      <span style={{ color: '#78909c' }}>الاسم / التوقيع: .....................</span>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <strong style={{ color: '#102027', display: 'block', marginBottom: '8px' }}>ديوان عام الوزارة</strong>
-                  <span style={{ fontSize: '11px', color: '#78909c', display: 'block', marginBottom: '14px' }}>شعار واعتماد قطاع الطب العلاجي (ختم النسر)</span>
-                  <div style={{ height: '40px', borderBottom: '1px dotted #b0bec5', margin: '0 auto 10px', width: '80%' }}></div>
-                  <span style={{ color: '#78909c' }}>خاتم الجهة الرسمي</span>
-                </div>
-              </div>
-              <div style={{ textAlign: 'center', fontSize: '11.5px', color: '#90a4ae', marginTop: '24px', borderTop: '1px solid #edf2f2', paddingTop: '12px' }}>
-                <span>تم استخراج وتوثيق وثيقة المطابقة ومعاينة التكليف رقم {auditMission.serialNumber} إلكترونياً من وزارة الصحة والسكان المصرية.</span>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
+            {/* Modal Clean Footer */}
             <footer 
-              className="modal-responsive-footer"
               style={{
-                background: '#f8fbfb',
-                borderTop: '1px solid #dce7e8',
-                padding: '16px 24px',
+                background: 'white',
+                borderTop: '1px solid #e0f0f0',
+                padding: '14px 24px',
                 display: 'flex',
-                justifyContent: 'flex-end',
+                justifyContent: 'space-between',
+                alignItems: 'center',
                 flexWrap: 'wrap',
                 gap: '12px'
               }}
             >
-              {/* Edit Form & Report Button */}
-              <button 
-                onClick={() => {
-                  setAuditMission(null)
-                  router.push(`/dashboard/missions/${auditMission.id}/execute`)
-                }}
-                style={{
-                  minHeight: '38px',
-                  borderRadius: '8px',
-                  border: '1px solid #ffcc80',
-                  background: '#ffe0b2',
-                  color: '#e65100',
-                  fontSize: '13px',
-                  fontWeight: 'bold',
-                  padding: '0 20px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                className="action-btn-hover"
-              >
-                ✏️ تعديل الاستمارة والتقرير الميداني
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#15803d', fontSize: '12.5px', fontWeight: 'bold' }}>
+                <span>🔒</span>
+                <span>المأمورية معتمدة ومغلقة نهائياً (تم قفل الاستمارة ولا يجوز التعديل)</span>
+              </div>
 
-              <button 
-                onClick={() => window.print()}
-                style={{
-                  minHeight: '38px',
-                  borderRadius: '8px',
-                  border: '0',
-                  background: '#006d77',
-                  color: 'white',
-                  fontSize: '13px',
-                  fontWeight: 'bold',
-                  padding: '0 20px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  cursor: 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,109,119,0.15)',
-                  transition: 'all 0.2s'
-                }}
-                className="action-btn-hover"
-              >
-                <Printer size={14} /> طباعة وثيقة المطابقة والتوثيق المعتمدة
-              </button>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button 
+                  onClick={() => setAuditMission(null)}
+                  style={{
+                    minHeight: '38px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    background: 'white',
+                    color: '#475569',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    padding: '0 18px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                  className="action-btn-hover"
+                >
+                  إغلاق النافذة
+                </button>
+
+                <Link 
+                  href={`/dashboard/missions/${auditMission.id}/print`}
+                  target="_blank"
+                  style={{
+                    minHeight: '38px',
+                    borderRadius: '8px',
+                    border: '0',
+                    background: '#006d77',
+                    color: 'white',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    padding: '0 20px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(0,109,119,0.2)',
+                    textDecoration: 'none',
+                    transition: 'all 0.2s'
+                  }}
+                  className="action-btn-hover"
+                >
+                  <Printer size={16} /> فتح وطباعة التقرير الفني المعتمد
+                </Link>
+              </div>
             </footer>
 
           </div>

@@ -16,10 +16,13 @@ import {
   CheckCircle2, 
   Clock, 
   Building,
+  Target,
+  Info,
   X
 } from 'lucide-react'
 import styles from './new-mission.module.css'
 import { SearchableAddableSelect } from '@/app/system-ui'
+import { formatFacilityType } from '@/lib/facility-types'
 
 type Employee = {
   id: string
@@ -161,28 +164,77 @@ type StoredMission = {
   visitPurpose: string
 }
 
+function checkEmployeeMatchesTarget(t: any, emp: Employee): boolean {
+  if (!t || !emp) return false
+
+  // 1. Direct ID match
+  if (t.assigned_user_id && (t.assigned_user_id === emp.id || t.assigned_user_id === (emp as any).auth_id)) {
+    return true
+  }
+
+  // 2. Name matching on assigned_user_name, scope_name, or title
+  const empName = (emp.full_name || '').trim().toLowerCase()
+  if (!empName) return false
+
+  const cleanEmp = empName.replace(/^(د\.|دكتور|أ\.|أستاذ|م\.|مهندس)\s*/g, '').trim()
+
+  if (t.assigned_user_name) {
+    const tName = t.assigned_user_name.trim().toLowerCase()
+    const cleanT = tName.replace(/^(د\.|دكتور|أ\.|أستاذ|م\.|مهندس)\s*/g, '').trim()
+    if (tName === empName || (cleanEmp && cleanT && (cleanEmp.includes(cleanT) || cleanT.includes(cleanEmp)))) {
+      return true
+    }
+  }
+
+  if (t.scope_name) {
+    const sName = t.scope_name.trim().toLowerCase()
+    const cleanS = sName.replace(/^(د\.|دكتور|أ\.|أستاذ|م\.|مهندس)\s*/g, '').trim()
+    if (sName === empName || (cleanEmp && cleanS && (cleanEmp.includes(cleanS) || cleanS.includes(cleanEmp)))) {
+      return true
+    }
+  }
+
+  if (t.title) {
+    const title = t.title.toLowerCase()
+    const parts = cleanEmp.split(' ').filter(p => p.length >= 3)
+    if (parts.length >= 2) {
+      if (title.includes(`${parts[0]} ${parts[1]}`)) return true
+    } else if (parts.length === 1) {
+      if (title.includes(parts[0])) return true
+    }
+  }
+
+  return false
+}
+
 export function MissionCreateForm({
   currentUserId,
   userOrgLevel = 1,
   userSectorId = null,
   userOrgId = null,
+  userGovernorate = '',
   employees,
   facilities,
   governorates,
   organizations = [],
   templates = [],
   orgUnits = [],
+  facilityVisitStats,
+  initialTargets = [],
 }: {
   currentUserId: string
   userOrgLevel?: number
   userSectorId?: string | null
   userOrgId?: string | null
+  userGovernorate?: string
   employees: Employee[]
   facilities: Facility[]
   governorates: Governorate[]
   organizations?: any[]
   templates?: any[]
   orgUnits?: any[]
+  facilityVisitStats?: Record<string, { visited: boolean; count: number }>
+  initialTargets?: any[]
 }) {
   const router = useRouter()
   const supabase = createBrowserSupabaseClient()
@@ -191,35 +243,6 @@ export function MissionCreateForm({
   const [localOrgUnits, setLocalOrgUnits] = useState(initialOrgs)
   const [localGovernorates, setLocalGovernorates] = useState(governorates)
 
-  // Sync state if props load asynchronously
-  useEffect(() => {
-    if (organizations && organizations.length > 0) {
-      setLocalOrgUnits(organizations)
-    } else if (orgUnits && orgUnits.length > 0) {
-      setLocalOrgUnits(orgUnits)
-    }
-  }, [organizations, orgUnits])
-
-  useEffect(() => {
-    if (governorates && governorates.length > 0) {
-      setLocalGovernorates(governorates)
-    }
-  }, [governorates])
-
-  const handleAddOrgUnit = (newName: string) => {
-    const newId = `new-unit-${Date.now()}`
-    const newUnit = { id: newId, code: `NEW-${Date.now()}`, name: newName, unit_type: 'قسم', parent_id: null, level: 1 }
-    setLocalOrgUnits(prev => [newUnit, ...prev])
-    update('orgUnitId', newId)
-  }
-
-  const handleAddGovernorate = (newName: string) => {
-    const newId = `new-gov-${Date.now()}`
-    const newGov = { id: newId, name: newName, region: null }
-    setLocalGovernorates(prev => [newGov, ...prev])
-    update('targetGovernorateId', newId)
-  }
-  
   // Stepper State
   const [step, setStep] = useState<1 | 2 | 3>(1)
   
@@ -239,6 +262,266 @@ export function MissionCreateForm({
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Auto-select governorate for Directorate level (Level 5)
+  useEffect(() => {
+    if (userGovernorate && governorates.length > 0) {
+      const matched = governorates.find(g => g.name === userGovernorate || (g as any).id === userGovernorate)
+      if (matched) {
+        setForm(prev => ({
+          ...prev,
+          targetGovernorateId: matched.id
+        }))
+      }
+    }
+  }, [userGovernorate, governorates])
+
+  // Sync state if props load asynchronously
+  useEffect(() => {
+    if (organizations && organizations.length > 0) {
+      setLocalOrgUnits(organizations)
+    } else if (orgUnits && orgUnits.length > 0) {
+      setLocalOrgUnits(orgUnits)
+    }
+  }, [organizations, orgUnits])
+
+  useEffect(() => {
+    if (governorates && governorates.length > 0) {
+      setLocalGovernorates(governorates)
+    }
+  }, [governorates])
+
+  // Auto-preselect user's organization if not already set
+  useEffect(() => {
+    if (userOrgId && !form.orgUnitId) {
+      update('orgUnitId', userOrgId)
+      const selectedOrg = localOrgUnits.find(u => u.id === userOrgId)
+      if (selectedOrg?.governorate) {
+        const matchedGov = localGovernorates.find(
+          g => g.name.trim().toLowerCase() === selectedOrg.governorate?.trim().toLowerCase() ||
+               (g as any).id === selectedOrg.governorate
+        )
+        if (matchedGov) {
+          update('targetGovernorateId', matchedGov.id)
+        }
+      }
+    }
+  }, [userOrgId, localOrgUnits, localGovernorates])
+
+  // Load active targets to link target facilities with the mission
+  const [missionTargets, setMissionTargets] = useState<any[]>(initialTargets || [])
+
+  useEffect(() => {
+    fetch('/api/admin/mission-targets?for_mission=true')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.targets && data.targets.length > 0) setMissionTargets(data.targets)
+      })
+      .catch(err => console.error('Failed to load targets in mission form:', err))
+  }, [])
+
+  // Hierarchical scoping: user only sees their organization and units subordinate to them
+  const hierarchicalOrgUnits = useMemo(() => {
+    return localOrgUnits.filter(unit => {
+      // 1. Level 1: superadmin sees all units
+      if (userOrgLevel <= 1) return true
+
+      // Users cannot assign on behalf of higher levels unless it is their exact organization
+      if (unit.level < userOrgLevel && unit.id !== userOrgId) return false
+
+      // 2. Level 2, 3, 4: Sector / General Administration level
+      if (userOrgLevel >= 2 && userOrgLevel <= 4) {
+        if (userOrgId && unit.id === userOrgId) return true
+        if (userSectorId) {
+          return unit.sector_id === userSectorId
+        }
+        return true
+      }
+
+      // 3. Level 5: Directorate level (مديرية الشئون الصحية)
+      if (userOrgLevel === 5) {
+        if (userOrgId && unit.id === userOrgId) return true
+        const matchesGov = Boolean(
+          userGovernorate && (
+            (unit.governorate && unit.governorate.trim().toLowerCase() === userGovernorate.trim().toLowerCase()) ||
+            unit.name.includes(userGovernorate)
+          )
+        )
+        return matchesGov && unit.level >= 5
+      }
+
+      // 4. Level 6: Health Admin level (إدارة صحية)
+      if (userOrgLevel === 6) {
+        if (userOrgId && unit.id === userOrgId) return true
+        return unit.id === userOrgId
+      }
+
+      return unit.id === userOrgId || unit.level >= userOrgLevel
+    })
+  }, [localOrgUnits, userOrgLevel, userSectorId, userOrgId, userGovernorate])
+
+  const handleOrgUnitChange = (val: string) => {
+    update('orgUnitId', val)
+    const selectedOrg = localOrgUnits.find(u => u.id === val)
+    if (selectedOrg?.governorate) {
+      const matchedGov = localGovernorates.find(
+        g => g.name.trim().toLowerCase() === selectedOrg.governorate?.trim().toLowerCase() ||
+             (g as any).id === selectedOrg.governorate
+      )
+      if (matchedGov) {
+        update('targetGovernorateId', matchedGov.id)
+      }
+    }
+  }
+
+  // Selected team employees from Step 2
+  const selectedTeamEmployees = useMemo(() => {
+    return employees.filter(e => form.assignedUserIds.includes(e.id))
+  }, [employees, form.assignedUserIds])
+
+  // Effective users to match: If team is chosen in Step 2, match STRICTLY the chosen team members!
+  // If no team is chosen in Step 2 yet, fallback to current logged-in user.
+  const targetEmployees = useMemo(() => {
+    if (selectedTeamEmployees.length > 0) return selectedTeamEmployees
+    if (currentUserId) {
+      const me = employees.find(e => e.id === currentUserId)
+      if (me) return [me]
+      return [{ id: currentUserId, full_name: '' } as Employee]
+    }
+    return []
+  }, [selectedTeamEmployees, currentUserId, employees])
+
+  // Targeted facilities available for the period and inspector/creator
+  const availableTargetFacilities = useMemo(() => {
+    if (!missionTargets.length || !targetEmployees.length) return []
+
+    const dateToMatch = form.scheduledDate || ''
+    const endToMatch = form.expectedEndDate || dateToMatch
+
+    // Filter targets that STRICTLY belong to any of the targetEmployees
+    const matchedTargets = missionTargets.filter(t => {
+      // Must have target facilities
+      if (!t.target_facilities || !t.target_facilities.length) return false
+      return targetEmployees.some(emp => checkEmployeeMatchesTarget(t, emp))
+    })
+
+    // NO FALLBACK TO UNRELATED TARGETS!
+    if (!matchedTargets.length) return []
+
+    // Filter by dates if scheduledDate is entered
+    let activeTargets = matchedTargets
+    if (dateToMatch) {
+      const dateFiltered = matchedTargets.filter(t => {
+        if (t.start_date && t.end_date) {
+          return !(t.end_date < dateToMatch || (endToMatch && t.start_date > endToMatch))
+        }
+        return true
+      })
+      if (dateFiltered.length > 0) {
+        activeTargets = dateFiltered
+      }
+    }
+
+    // Collect deduplicated facilities
+    const facMap = new Map<string, {
+      id: string
+      name: string
+      facility_type?: string
+      governorate?: string
+      health_admin?: string
+      is_visited?: boolean
+      target_title?: string
+    }>()
+
+    activeTargets.forEach(t => {
+      const facs = (t.target_facilities || []) as Array<{
+        id: string
+        name: string
+        facility_type?: string
+        governorate?: string
+        health_admin?: string
+        is_visited?: boolean
+      }>
+      facs.forEach(f => {
+        if (f && f.id && !facMap.has(f.id)) {
+          facMap.set(f.id, {
+            ...f,
+            target_title: t.title || t.period_label
+          })
+        }
+      })
+    })
+
+    return Array.from(facMap.values())
+  }, [missionTargets, targetEmployees, form.scheduledDate, form.expectedEndDate])
+
+  const targetedFacilitiesForEmployee = availableTargetFacilities
+
+  const toggleTargetFacility = (tf: { id: string; name: string; governorate?: string; facility_type?: string; health_admin?: string }) => {
+    const currentIds = form.targetFacilityIds || []
+    const isAdded = currentIds.includes(tf.id)
+    const nextIds = isAdded ? currentIds.filter(id => id !== tf.id) : [...currentIds, tf.id]
+
+    setForm(prev => {
+      const next: FormState = {
+        ...prev,
+        destinationType: 'facility',
+        targetFacilityIds: nextIds,
+        targetFacilityId: nextIds[0] || ''
+      }
+      if (tf.governorate) {
+        const matchedGov = localGovernorates.find(
+          g => g.name.trim().toLowerCase() === tf.governorate?.trim().toLowerCase() ||
+               (g as any).id === tf.governorate
+        )
+        if (matchedGov) {
+          next.targetGovernorateId = matchedGov.id
+        }
+      }
+      return next
+    })
+  }
+
+  const addAllPendingTargets = () => {
+    const currentIds = new Set(form.targetFacilityIds || [])
+    availableTargetFacilities.forEach(tf => {
+      currentIds.add(tf.id)
+    })
+    const nextIds = Array.from(currentIds)
+    setForm(prev => {
+      const next: FormState = {
+        ...prev,
+        destinationType: 'facility',
+        targetFacilityIds: nextIds,
+        targetFacilityId: nextIds[0] || ''
+      }
+      const firstGov = availableTargetFacilities.find(tf => tf.governorate)?.governorate
+      if (firstGov) {
+        const matchedGov = localGovernorates.find(
+          g => g.name.trim().toLowerCase() === firstGov.trim().toLowerCase() ||
+               (g as any).id === firstGov
+        )
+        if (matchedGov) {
+          next.targetGovernorateId = matchedGov.id
+        }
+      }
+      return next
+    })
+  }
+
+  const handleAddOrgUnit = (newName: string) => {
+    const newId = `new-unit-${Date.now()}`
+    const newUnit = { id: newId, code: `NEW-${Date.now()}`, name: newName, unit_type: 'قسم', parent_id: null, level: 1 }
+    setLocalOrgUnits(prev => [newUnit, ...prev])
+    update('orgUnitId', newId)
+  }
+
+  const handleAddGovernorate = (newName: string) => {
+    const newId = `new-gov-${Date.now()}`
+    const newGov = { id: newId, name: newName, region: null }
+    setLocalGovernorates(prev => [newGov, ...prev])
+    update('targetGovernorateId', newId)
+  }
+
   // Preselect org unit from URL query parameter
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -253,9 +536,18 @@ export function MissionCreateForm({
           ...prev,
           orgUnitId: matched.id
         }))
+        if (matched.governorate) {
+          const matchedGov = localGovernorates.find(g => g.name === matched.governorate)
+          if (matchedGov) {
+            setForm((prev) => ({
+              ...prev,
+              targetGovernorateId: matchedGov.id
+            }))
+          }
+        }
       }
     }
-  }, [orgUnits])
+  }, [orgUnits, localGovernorates])
 
   const today = todayString()
   const isPastDate = Boolean(form.scheduledDate && form.scheduledDate < today)
@@ -282,8 +574,8 @@ export function MissionCreateForm({
           })
           setBusyInspectors(userIds)
         }
-      } catch (e) {
-        console.error('Error fetching busy inspectors:', e)
+      } catch (err) {
+        console.error('Error checking busy inspectors:', err)
       }
     }
     fetchBusyInspectors()
@@ -313,6 +605,7 @@ export function MissionCreateForm({
 
   const filteredFacilities = useMemo(() => {
     let base = facilities
+    const org = organizations.find(o => o.id === form.orgUnitId)
 
     // 1. If targetGovernorateId is selected
     if (form.targetGovernorateId) {
@@ -322,17 +615,19 @@ export function MissionCreateForm({
         const fGov = (f.governorate || '').trim().toLowerCase()
         return fGov === govName || f.governorate_id === form.targetGovernorateId || f.organization_id === form.targetGovernorateId
       })
-    } else if (form.orgUnitId) {
-      // If no governorate is explicitly picked yet, but orgUnit is picked (e.g. Directorate or Health Admin)
-      const org = organizations.find(o => o.id === form.orgUnitId)
-      if (org) {
-        if (org.health_admin) {
-          const admName = org.health_admin.trim().toLowerCase()
-          base = base.filter(f => (f.health_admin || '').trim().toLowerCase() === admName)
-        } else if (org.governorate) {
-          const govName = org.governorate.trim().toLowerCase()
-          base = base.filter(f => (f.governorate || '').trim().toLowerCase() === govName)
-        }
+      // If the selected org unit has a specific health_admin, filter by it too!
+      if (org?.health_admin) {
+        const admName = org.health_admin.trim().toLowerCase()
+        base = base.filter(f => (f.health_admin || '').trim().toLowerCase() === admName)
+      }
+    } else if (org) {
+      // If no governorate explicitly chosen yet, use orgUnit's governorate or health_admin
+      if (org.health_admin) {
+        const admName = org.health_admin.trim().toLowerCase()
+        base = base.filter(f => (f.health_admin || '').trim().toLowerCase() === admName)
+      } else if (org.governorate) {
+        const govName = org.governorate.trim().toLowerCase()
+        base = base.filter(f => (f.governorate || '').trim().toLowerCase() === govName)
       }
     }
 
@@ -354,10 +649,29 @@ export function MissionCreateForm({
     () => facilities.find((facility) => facility.id === form.targetFacilityId),
     [facilities, form.targetFacilityId],
   )
-  const selectedFacilities = useMemo(
-    () => facilities.filter((facility) => form.targetFacilityIds?.includes(facility.id)),
-    [facilities, form.targetFacilityIds],
-  )
+  const selectedFacilities = useMemo(() => {
+    const ids = form.targetFacilityIds || []
+    return ids.map(id => {
+      const fac = facilities.find(f => f.id === id)
+      if (fac) return fac
+      const targetFac = availableTargetFacilities.find(t => t.id === id)
+      if (targetFac) {
+        return {
+          id: targetFac.id,
+          name: targetFac.name,
+          governorate: targetFac.governorate,
+          health_admin: targetFac.health_admin,
+          facility_type: targetFac.facility_type,
+          village_city: null,
+          latitude: null,
+          longitude: null,
+          organization_id: null,
+          sector_id: null
+        } as any
+      }
+      return { id, name: id } as any
+    })
+  }, [facilities, form.targetFacilityIds, availableTargetFacilities])
   const selectedGovernorate = useMemo(
     () => governorates.find((governorate) => governorate.id === form.targetGovernorateId || governorate.name === form.targetGovernorateId),
     [governorates, form.targetGovernorateId],
@@ -807,7 +1121,7 @@ export function MissionCreateForm({
               <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
                 الإدارة المحوكمة المختصة بالتكليف *
                 <SearchableAddableSelect
-                  options={localOrgUnits.map((unit) => {
+                  options={hierarchicalOrgUnits.map((unit) => {
                     let badge = ''
                     if (unit.level === 1) badge = '🏛️ '
                     else if (unit.level === 2) badge = '🏢 '
@@ -821,10 +1135,15 @@ export function MissionCreateForm({
                     }
                   })}
                   value={form.orgUnitId}
-                  onChange={(val) => update('orgUnitId', val)}
+                  onChange={handleOrgUnitChange}
                   placeholder="اختر أو ابحث عن الإدارة أو القطاع..."
                   onAdd={handleAddOrgUnit}
                 />
+                {selectedOrgUnit?.governorate && (
+                  <span style={{ fontSize: '11.5px', color: '#006d77', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                    🔗 مرتبطة بمحافظة {selectedOrgUnit.governorate} (ستربط تلقائياً بالوجهة في الخطوة 3)
+                  </span>
+                )}
               </label>
 
               {/* Priority */}
@@ -1098,7 +1417,24 @@ export function MissionCreateForm({
                       </div>
                       <div>
                         <strong style={{ fontSize: '13.5px', color: '#102027', display: 'block' }}>{employee.full_name}</strong>
-                        <small style={{ fontSize: '11px', color: '#78909c' }}>{employee.job_title ?? `مفتش إداري`}</small>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                          <small style={{ fontSize: '11px', color: '#78909c' }}>{employee.job_title ?? `مفتش إداري`}</small>
+                          {missionTargets.some(t => checkEmployeeMatchesTarget(t, employee)) && (
+                            <span style={{
+                              fontSize: '10.5px',
+                              background: '#e0f2f1',
+                              color: '#00796b',
+                              padding: '1px 8px',
+                              borderRadius: '10px',
+                              fontWeight: 'bold',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}>
+                              🎯 لديه مستهدف شهري (سيتاح بالخطوة 3)
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -1178,15 +1514,188 @@ export function MissionCreateForm({
                 />
               </label>
 
-              {/* Target Facility - Searchable select fuzzy search */}
-              {form.destinationType === 'facility' && (
-                <div style={{ display: 'grid', gap: '6px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>المنشأة الطبية المستهدفة *</span>
-                    <span style={{ fontSize: '11px', color: '#006d77', background: '#e0f2f1', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
-                      {filteredFacilities.length} منشأة متاحة
-                    </span>
+            {/* Targeted Facilities Panel — ALWAYS visible in Step 3 when targets exist for this period / user */}
+            {availableTargetFacilities.length > 0 && (
+              <div style={{
+                background: 'linear-gradient(135deg, #f0fdfa 0%, #e6fffa 100%)',
+                border: '1.5px solid #0d9488',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                display: 'grid',
+                gap: '10px',
+                boxShadow: '0 2px 8px rgba(13, 148, 136, 0.08)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Target size={18} color="#0f766e" />
+                    <div>
+                      <strong style={{ fontSize: '13.5px', color: '#0f766e', display: 'block' }}>
+                        🎯 منشآت ووحدات المستهدف الميداني {selectedTeamEmployees.length > 0 ? `للمفتش المكلّف (${selectedTeamEmployees.map(e => e.full_name).join('، ')})` : `لهذا الحساب (${targetEmployees.map(e => e.full_name).filter(Boolean).join('، ') || 'المستخدم الحالي'})`} ({availableTargetFacilities.length} منشأة):
+                      </strong>
+                      <span style={{ fontSize: '11.5px', color: '#115e59' }}>
+                        اضغط على أي وحدة لإضافتها فوراً لقائمة المرور وتحديد وجهتها ومحافظتها تلقائياً:
+                      </span>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={addAllPendingTargets}
+                    style={{
+                      background: '#0f766e',
+                      color: 'white',
+                      border: 0,
+                      borderRadius: '6px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      boxShadow: '0 2px 4px rgba(15, 118, 110, 0.25)'
+                    }}
+                  >
+                    ⚡ إضافة كل منشآت المستهدف المتبقية ({availableTargetFacilities.filter(t => !(form.targetFacilityIds || []).includes(t.id)).length})
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '220px', overflowY: 'auto', padding: '4px 0' }}>
+                  {availableTargetFacilities.map(tf => {
+                    const isAdded = (form.targetFacilityIds || []).includes(tf.id)
+                    return (
+                      <button
+                        key={tf.id}
+                        type="button"
+                        onClick={() => toggleTargetFacility(tf)}
+                        title={isAdded ? 'اضغط لإلغاء التحديد' : 'اضغط لإضافة المنشأة للمأمورية'}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '6px 12px',
+                          borderRadius: '20px',
+                          fontSize: '12px',
+                          fontWeight: isAdded ? 'bold' : '600',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          border: isAdded ? '1.5px solid #0f766e' : '1px solid #99f6e4',
+                          background: isAdded ? '#0f766e' : 'white',
+                          color: isAdded ? 'white' : '#0f766e',
+                          boxShadow: isAdded ? '0 2px 5px rgba(15, 118, 110, 0.25)' : 'none'
+                        }}
+                      >
+                        <span>{isAdded ? '✓ مضافة' : '➕'}</span>
+                        <span>{tf.name}</span>
+                        {tf.health_admin && (
+                          <span style={{ opacity: isAdded ? 0.9 : 0.75, fontSize: '10.5px' }}>({tf.health_admin})</span>
+                        )}
+                        {tf.governorate && (
+                          <span style={{ opacity: isAdded ? 0.9 : 0.65, fontSize: '10px' }}>- {tf.governorate}</span>
+                        )}
+                        {tf.is_visited && (
+                          <span style={{
+                            fontSize: '10px',
+                            background: isAdded ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+                            color: isAdded ? 'white' : '#475569',
+                            padding: '1px 6px',
+                            borderRadius: '8px'
+                          }}>
+                            تم المرور
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {form.assignedUserIds.length > 0 && availableTargetFacilities.length === 0 && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                color: '#475569',
+                fontSize: '12.5px'
+              }}>
+                <Info size={18} style={{ flexShrink: 0, color: '#006d77' }} />
+                <span>
+                  لم يتم تسجيل منشآت مستهدفة بالاسم للمفتش المكلّف ({selectedTeamEmployees.map(e => e.full_name).join('، ')}) خلال هذه الفترة (أو أن مستهدفه تراكمي بالعدد الإجمالي). يمكنك اختيار المنشآت الطبية من حقل البحث أدناه.
+                </span>
+              </div>
+            )}
+
+            {/* Selected facilities list with capsule pills (shows whenever facilities are added) */}
+            {form.targetFacilityIds && form.targetFacilityIds.length > 0 && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                display: 'grid',
+                gap: '6px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#1e293b' }}>
+                    ✓ المنشآت المحددة في خط سير المأمورية ({form.targetFacilityIds.length} منشأة):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setForm(prev => ({ ...prev, targetFacilityIds: [], targetFacilityId: '' }))}
+                    style={{ background: 'none', border: 0, color: '#e53e3e', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    مسح الكل
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {selectedFacilities.map((fac) => (
+                    <span
+                      key={fac.id}
+                      style={{
+                        background: '#eef6f6',
+                        border: '1px solid #b2dfdb',
+                        color: 'var(--brand)',
+                        padding: '4px 10px',
+                        borderRadius: '20px',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      {fac.name} {fac.governorate ? `(${fac.governorate})` : ''}
+                      <X
+                        size={14}
+                        style={{ cursor: 'pointer', color: '#00796b' }}
+                        onClick={() => {
+                          const nextIds = form.targetFacilityIds.filter(id => id !== fac.id);
+                          setForm(prev => ({
+                            ...prev,
+                            targetFacilityIds: nextIds,
+                            targetFacilityId: nextIds[0] || ''
+                          }));
+                        }}
+                      />
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Target Facility - Searchable select fuzzy search */}
+            {form.destinationType === 'facility' && (
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>إضافة منشأة أخرى من خلال البحث:</span>
+                  <span style={{ fontSize: '11px', color: '#006d77', background: '#e0f2f1', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                    {filteredFacilities.length} منشأة متاحة
+                  </span>
+                </div>
 
                   <div style={{ display: 'grid', gap: '8px', position: 'relative' }}>
                     {/* Search box input */}
@@ -1214,42 +1723,6 @@ export function MissionCreateForm({
                       )}
                     </div>
 
-                    {/* Selected facilities list with capsule pills */}
-                    {form.targetFacilityIds && form.targetFacilityIds.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
-                        {selectedFacilities.map((fac) => (
-                          <span
-                            key={fac.id}
-                            style={{
-                              background: '#eef6f6',
-                              border: '1px solid #b2dfdb',
-                              color: 'var(--brand)',
-                              padding: '4px 10px',
-                              borderRadius: '20px',
-                              fontSize: '12px',
-                              fontWeight: 'bold',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px'
-                            }}
-                          >
-                            {fac.name} {fac.governorate ? `(${fac.governorate})` : ''}
-                            <X
-                              size={14}
-                              style={{ cursor: 'pointer', color: '#00796b' }}
-                              onClick={() => {
-                                const nextIds = form.targetFacilityIds.filter(id => id !== fac.id);
-                                setForm(prev => ({
-                                  ...prev,
-                                  targetFacilityIds: nextIds,
-                                  targetFacilityId: nextIds[0] || ''
-                                }));
-                              }}
-                            />
-                          </span>
-                        ))}
-                      </div>
-                    )}
 
                     {/* Filtered suggestions list */}
                     <div style={{
@@ -1300,13 +1773,56 @@ export function MissionCreateForm({
                               transition: 'all 0.1s'
                             }}
                           >
-                            <div>
-                              <strong>{facility.name}</strong>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                <strong>{facility.name}</strong>
+                                {targetedFacilitiesForEmployee.some(tf => tf.id === facility.id) && (
+                                  <span style={{
+                                    background: '#fef3c7',
+                                    color: '#b45309',
+                                    border: '1px solid #fde68a',
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '11px',
+                                    fontWeight: 'bold',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}>
+                                    🎯 مستهدفة للمفتش
+                                  </span>
+                                )}
+                                {facilityVisitStats && (
+                                  facilityVisitStats[facility.id]?.count > 0 ? (
+                                    <span style={{
+                                      background: '#dcfce7',
+                                      color: '#15803d',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      fontSize: '11px',
+                                      fontWeight: 'bold'
+                                    }}>
+                                      🟢 تم المرور ({facilityVisitStats[facility.id].count} مأمورية)
+                                    </span>
+                                  ) : (
+                                    <span style={{
+                                      background: '#f1f5f9',
+                                      color: '#64748b',
+                                      padding: '2px 8px',
+                                      borderRadius: '12px',
+                                      fontSize: '11px',
+                                      fontWeight: 'bold'
+                                    }}>
+                                      ⚪ لم يتم المرور بعد
+                                    </span>
+                                  )
+                                )}
+                              </div>
                               <small style={{ display: 'block', color: '#78909c', fontSize: '11px', marginTop: '2px' }}>
-                                {facility.facility_type} • {facility.governorate ? `محافظة ${facility.governorate}` : ''} {facility.health_admin ? `• إدارة ${facility.health_admin}` : ''} {facility.village_city ? `• ${facility.village_city}` : ''}
+                                {formatFacilityType(facility.facility_type)} • {facility.governorate ? `محافظة ${facility.governorate}` : ''} {facility.health_admin ? `• إدارة ${facility.health_admin}` : ''} {facility.village_city ? `• ${facility.village_city}` : ''}
                               </small>
                             </div>
-                            {isSelected && <Check size={14} style={{ color: 'var(--brand)' }} />}
+                            {isSelected && <Check size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />}
                           </div>
                         )
                       })}

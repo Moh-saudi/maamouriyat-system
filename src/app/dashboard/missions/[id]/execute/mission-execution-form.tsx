@@ -2,13 +2,14 @@
 
 import { useMemo, useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { type CorrectionUnitOption } from '@/lib/correction-units'
+import { defaultCorrectionUnits, type CorrectionUnitOption } from '@/lib/correction-units'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
-import { Camera, Trash2, Building, Check } from 'lucide-react'
+import { Camera, Trash2, Building, Check, Star } from 'lucide-react'
 import imageCompression from 'browser-image-compression'
 import { getChecklistByDepartment } from '@/lib/checklist-data'
 import styles from './execute.module.css'
 import { SearchableAddableSelect } from '@/app/system-ui'
+import { formatFacilityType } from '@/lib/facility-types'
 
 type Facility = {
   id: string
@@ -93,6 +94,10 @@ export function MissionExecutionForm({
   const [actualGovernorateId, setActualGovernorateId] = useState(
     mission.actual_governorate_id ?? mission.target_governorate_id ?? '',
   )
+  const [showChangeDestination, setShowChangeDestination] = useState(Boolean(mission.destination_changed || mission.change_reason))
+  const [showMap, setShowMap] = useState(false)
+  const [availableTemplates, setAvailableTemplates] = useState<any[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
   const [correctionUnit, setCorrectionUnit] = useState('')
   const [localCorrectionUnits, setLocalCorrectionUnits] = useState(correctionUnits)
 
@@ -101,12 +106,60 @@ export function MissionExecutionForm({
     setLocalCorrectionUnits(prev => [...prev, newUnit])
     setCorrectionUnit(newName)
   }
+
+  // Selected Facility object helper
+  const selectedFacility = useMemo(() => {
+    if (!actualFacilityId) return null
+    return facilities.find((f) => f.id === actualFacilityId) ?? null
+  }, [facilities, actualFacilityId])
+
+  // Filter and deduplicate correction units strictly by current facility's governorate
+  const correctionUnitOptions = useMemo(() => {
+    const currentGov = selectedFacility?.governorate || mission.governorates?.name || ''
+
+    const list: { name: string }[] = defaultCorrectionUnits.map((name) => ({ name }))
+
+    if (orgUnits && orgUnits.length > 0) {
+      orgUnits.forEach((org: any) => {
+        if (!org.name) return
+        const isCentral = org.level && org.level <= 4
+        const matchesGov =
+          !currentGov ||
+          !org.governorate ||
+          org.governorate === currentGov ||
+          (org.governorate_id && org.governorate_id === mission.target_governorate_id)
+
+        if (isCentral || matchesGov) {
+          list.push({ name: org.name })
+        }
+      })
+    }
+
+    localCorrectionUnits.forEach((u: any) => {
+      if (u.name) list.push({ name: u.name })
+    })
+
+    // Deduplicate strictly by name
+    const seen = new Set<string>()
+    const uniqueOptions: { value: string; label: string }[] = []
+
+    list.forEach((u) => {
+      const trimmed = (u.name || '').trim()
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed)
+        uniqueOptions.push({ value: trimmed, label: trimmed })
+      }
+    })
+
+    return uniqueOptions
+  }, [orgUnits, selectedFacility?.governorate, mission.governorates?.name, mission.target_governorate_id, localCorrectionUnits])
+
   const [changeReason, setChangeReason] = useState(mission.change_reason ?? '')
 
   const facilityOptions = useMemo(() => {
     return facilities.map((f: any) => ({
       value: f.id,
-      label: `${f.name} ${f.governorate ? `(${f.governorate} - ${f.health_admin || f.address || f.facility_type || 'منشأة صحية'})` : (f.address ? `(${f.address})` : '')}`
+      label: `${f.name} ${f.governorate ? `(${f.governorate} - ${f.health_admin || f.address || formatFacilityType(f.facility_type)})` : (f.address ? `(${f.address})` : '')}`
     }))
   }, [facilities])
 
@@ -268,6 +321,8 @@ export function MissionExecutionForm({
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({})
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [showLiveScoreModal, setShowLiveScoreModal] = useState<boolean>(false)
+  const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false)
+  const [showConfirmSubmitModal, setShowConfirmSubmitModal] = useState<boolean>(false)
 
   // --- Dynamic Client-Side Leaflet Ingestion ---
   useEffect(() => {
@@ -338,10 +393,13 @@ export function MissionExecutionForm({
   }
 
   useEffect(() => {
-    if (!leafletLoaded || !inspectorLat || !inspectorLng) return
+    if (!leafletLoaded || !inspectorLat || !inspectorLng || !showMap) return
     const win = window as any
     const L = win.L
     if (!L) return
+
+    const container = document.getElementById('execution-map')
+    if (!container) return
 
     // Find official coords of selected/target facility
     let targetLat: number | null = null
@@ -355,8 +413,21 @@ export function MissionExecutionForm({
       }
     }
 
-    const container = document.getElementById('execution-map')
-    if (!container) return
+    // If map already exists on a previous or detached container, remove it
+    if (mapRef.current) {
+      try {
+        const mapContainer = mapRef.current.getContainer()
+        if (!container.contains(mapContainer) && mapContainer !== container) {
+          mapRef.current.remove()
+          mapRef.current = null
+          markerRef.current = null
+          targetMarkerRef.current = null
+          lineRef.current = null
+        }
+      } catch (err) {
+        mapRef.current = null
+      }
+    }
 
     // Initialize Map if not present
     if (!mapRef.current) {
@@ -459,22 +530,41 @@ export function MissionExecutionForm({
       map.setView([inspectorLat, inspectorLng], 15)
     }
 
-  }, [leafletLoaded, inspectorLat, inspectorLng, actualFacilityId, isUnregisteredFacility])
+    // Ensure map size is accurately calculated after browser DOM repaint
+    const timer = setTimeout(() => {
+      if (mapRef.current) {
+        try {
+          mapRef.current.invalidateSize()
+        } catch (e) {}
+      }
+    }, 150)
+
+    return () => clearTimeout(timer)
+
+  }, [leafletLoaded, inspectorLat, inspectorLng, actualFacilityId, isUnregisteredFacility, showMap])
 
   // Checklist States & Dynamic Resolvers
   const [answers, setAnswers] = useState<Record<string, { answer: any; notes: string }>>(() => {
     const initial: Record<string, { answer: any; notes: string }> = {}
     if (savedResults && savedResults.length > 0) {
       savedResults.forEach((res: any) => {
-        let itemId = res.checklist_item_id
+        let itemId = res.checklist_item_id || res.item_id
         let notes = res.notes || ''
         
-        // Handle prefix for static items
-        if (!itemId && notes.startsWith('__static_id__:')) {
-          const delimiterIdx = notes.indexOf('||')
-          if (delimiterIdx !== -1) {
-            itemId = notes.substring('__static_id__:'.length, delimiterIdx)
-            notes = notes.substring(delimiterIdx + 2)
+        // Handle prefix for custom/static items
+        if (notes) {
+          if (notes.startsWith('__item_id__:')) {
+            const delimiterIdx = notes.indexOf('||')
+            if (delimiterIdx !== -1) {
+              itemId = notes.substring('__item_id__:'.length, delimiterIdx)
+              notes = notes.substring(delimiterIdx + 2)
+            }
+          } else if (notes.startsWith('__static_id__:')) {
+            const delimiterIdx = notes.indexOf('||')
+            if (delimiterIdx !== -1) {
+              itemId = notes.substring('__static_id__:'.length, delimiterIdx)
+              notes = notes.substring(delimiterIdx + 2)
+            }
           }
         }
         
@@ -505,16 +595,8 @@ export function MissionExecutionForm({
   }, [answers])
 
   const [localCustomChecklists, setLocalCustomChecklists] = useState<any[]>([])
-  const [showChecklistBuilder, setShowChecklistBuilder] = useState(false)
-  const [newChecklistTitle, setNewChecklistTitle] = useState('')
-  const [newChecklistType, setNewChecklistType] = useState('استثنائي')
-  const [newQuestions, setNewQuestions] = useState<Array<{ text: string; type: 'yes_no' | 'dropdown' | 'stars' | 'text'; priority: 'critical' | 'high' | 'medium' | 'low'; correctionDept: string }>>([
-    { text: '', type: 'yes_no', priority: 'high', correctionDept: 'إدارة الصيانة والتشغيل' }
-  ])
-  const [builderSuccess, setBuilderSuccess] = useState('')
-  const [builderError, setBuilderError] = useState('')
 
-  // Load official 37 sections & 290 criteria from form_templates API
+  // Load official form templates and criteria from form_templates API
   useEffect(() => {
     const loadCustomChecklists = async () => {
       try {
@@ -526,9 +608,10 @@ export function MissionExecutionForm({
         const resData = await apiRes.json()
         const templates = resData.templates || (Array.isArray(resData) ? resData : [])
 
-        const mappedSections: any[] = []
+        const mappedTemplates: any[] = []
         templates.forEach((tmpl: any) => {
-          (tmpl.sections || []).forEach((sec: any) => {
+          const mappedSections: any[] = []
+          ;(tmpl.sections || []).forEach((sec: any) => {
             const items = (sec.criteria || sec.checklist_items || [])
               .filter((c: any) => {
                 const t = (c.criterion_text || c.text || '').trim()
@@ -545,35 +628,54 @@ export function MissionExecutionForm({
                 )
               })
               .map((c: any) => {
-              const maxLabel = c.score_max_label || 'مطابق'
-              const midLabel = c.score_mid_label || (c.score_mid_value ? 'مطابق جزئياً' : '')
-              const zeroLabel = c.score_0_label || 'غير مطابق'
-              const hasMid = Boolean(c.score_mid_value || c.score_type === 'ternary' || c.score_type === '3_level')
+                const scoreType = c.score_type || 'compliance_3level'
+                const maxLabel = c.score_max_label || (scoreType === 'availability' ? 'متوفر ومطابق' : scoreType === 'yes_no' ? 'نعم' : 'مطابق')
+                const midLabel = c.score_mid_label || (c.score_mid_value ? 'مطابق جزئياً' : '')
+                const zeroLabel = c.score_0_label || (scoreType === 'availability' ? 'غير متوفر' : scoreType === 'yes_no' ? 'لا' : 'غير مطابق')
+                const hasMid = Boolean(c.score_mid_value || scoreType === 'ternary' || scoreType === '3_level' || scoreType === 'compliance_3level')
 
-              let optionsStr = c.options || ''
-              if (!optionsStr) {
-                if (hasMid && midLabel) {
-                  optionsStr = `${maxLabel}, ${midLabel}, ${zeroLabel}, لا ينطبق`
-                } else {
-                  optionsStr = `${maxLabel}, ${zeroLabel}, لا ينطبق`
+                let optionsStr = c.options || ''
+                if (!optionsStr) {
+                  if (scoreType === 'availability') {
+                    optionsStr = 'متوفر ومطابق, متوفر وغير مطابق, غير متوفر, لا ينطبق'
+                  } else if (scoreType === 'yes_no') {
+                    optionsStr = 'نعم, لا, لا ينطبق'
+                  } else if (hasMid && midLabel) {
+                    optionsStr = `${maxLabel}, ${midLabel}, ${zeroLabel}, لا ينطبق`
+                  } else {
+                    optionsStr = `${maxLabel}, ${zeroLabel}, لا ينطبق`
+                  }
                 }
-              }
 
-              return {
-                id: c.id,
-                text: c.criterion_text || c.text,
-                answer_type: (hasMid || c.score_type === 'dropdown' || c.score_type === 'ternary') ? 'chips_options' : 'yes_no',
-                is_required: true,
-                violation_priority: (c.score_max_value >= 4 ? 'high' : 'medium') as any,
-                correction_dept: sec.name,
-                options: optionsStr,
-                score_max_value: c.score_max_value || 2,
-                score_mid_value: c.score_mid_value || 1,
-                score_0_label: zeroLabel,
-                score_mid_label: midLabel,
-                score_max_label: maxLabel
-              }
-            })
+                let computedAnswerType = 'yes_no'
+                if (scoreType === 'rating_5') {
+                  computedAnswerType = 'rating_5'
+                } else if (scoreType === 'percentage') {
+                  computedAnswerType = 'percentage'
+                } else if (scoreType === 'availability') {
+                  computedAnswerType = 'availability'
+                } else if (scoreType === 'yes_no') {
+                  computedAnswerType = 'yes_no'
+                } else if (hasMid || scoreType === 'dropdown' || scoreType === 'ternary' || scoreType === 'compliance_3level') {
+                  computedAnswerType = 'chips_options'
+                }
+
+                return {
+                  id: c.id,
+                  text: c.criterion_text || c.text,
+                  answer_type: computedAnswerType,
+                  score_type: scoreType,
+                  is_required: true,
+                  violation_priority: (c.score_max_value >= 4 ? 'high' : 'medium') as any,
+                  correction_dept: sec.name,
+                  options: optionsStr,
+                  score_max_value: Number(c.score_max_value) || 2,
+                  score_mid_value: Number(c.score_mid_value) || ((Number(c.score_max_value) || 2) * 0.5),
+                  score_0_label: zeroLabel,
+                  score_mid_label: midLabel,
+                  score_max_label: maxLabel
+                }
+              })
 
             mappedSections.push({
               id: sec.id,
@@ -584,10 +686,21 @@ export function MissionExecutionForm({
               items
             })
           })
+
+          mappedTemplates.push({
+            id: tmpl.id,
+            name: tmpl.name,
+            version: tmpl.version,
+            is_base: tmpl.is_base,
+            sections: mappedSections
+          })
         })
 
-        if (mappedSections.length > 0) {
-          setLocalCustomChecklists(mappedSections)
+        if (mappedTemplates.length > 0) {
+          setAvailableTemplates(mappedTemplates)
+          const baseTmpl = mappedTemplates.find((t: any) => t.is_base) || mappedTemplates[0]
+          setSelectedTemplateId(prev => prev || baseTmpl.id)
+          setLocalCustomChecklists(baseTmpl.sections || [])
         }
       } catch (e) {
         console.error('Error loading official checklist items:', e)
@@ -630,7 +743,14 @@ export function MissionExecutionForm({
   }, [orgUnits, currentUserOrgUnitId, currentUserDept])
 
   const checklistSections = useMemo(() => {
-    // 1. Display official checklist sections and criteria directly from form_templates
+    // 1. Display official checklist sections and criteria from selected template
+    if (availableTemplates.length > 0) {
+      const activeTmpl = availableTemplates.find(t => t.id === selectedTemplateId) || availableTemplates[0]
+      if (activeTmpl && activeTmpl.sections.length > 0) {
+        return activeTmpl.sections
+      }
+    }
+
     if (localCustomChecklists.length > 0) {
       return localCustomChecklists
     }
@@ -638,7 +758,7 @@ export function MissionExecutionForm({
     // 2. Fallback to built-in department checklist if API is unavailable
     const baseChecklist = getChecklistByDepartment(currentUserDept)
     return baseChecklist
-  }, [currentUserDept, localCustomChecklists])
+  }, [currentUserDept, availableTemplates, selectedTemplateId, localCustomChecklists])
 
   // Live Real-Time Evaluation Metrics Computation
   const liveScoreStats = useMemo(() => {
@@ -673,17 +793,33 @@ export function MissionExecutionForm({
           const itemMax = item.score_max_value || 2
           const itemMid = item.score_mid_value || 1
 
-          if (ans === 'yes' || ans === 'مطابق' || ans === 'مطابق بالكامل' || ans === 'ملتزم' || ans === true) {
+          if (ans === 'yes' || ans === 'مطابق' || ans === 'مطابق بالكامل' || ans === 'ملتزم' || ans === true || ans === 'متوفر' || ans === 'متوفر ومطابق' || ans === 'available') {
             totalScore += itemMax
             maxScore += itemMax
             secEarned += itemMax
             secMax += itemMax
-          } else if (ans === 'مطابق جزئياً' || ans === 'متوسط' || ans === 'مقبول') {
+          } else if (ans === 'مطابق جزئياً' || ans === 'متوسط' || ans === 'مقبول' || ans === 'partial' || ans === 'متوفر وغير مطابق') {
             totalScore += itemMid
             maxScore += itemMax
             secEarned += itemMid
             secMax += itemMax
-          } else if (ans === 'no' || ans === 'غير مطابق' || ans === 'غير مطابق بالكامل' || ans === 'غير ملتزم' || ans === false) {
+            violationsCount++
+          } else if (typeof ans === 'number') {
+            let earned = 0
+            if (item.answer_type === 'rating_5' || item.score_type === 'rating_5') {
+              earned = (ans / 5) * itemMax
+              if (ans <= 2) violationsCount++
+            } else if (item.answer_type === 'percentage' || item.score_type === 'percentage') {
+              earned = (ans / 100) * itemMax
+              if (ans < 50) violationsCount++
+            } else {
+              earned = Math.min(itemMax, Math.max(0, ans))
+            }
+            totalScore += earned
+            maxScore += itemMax
+            secEarned += earned
+            secMax += itemMax
+          } else if (ans === 'no' || ans === 'غير مطابق' || ans === 'غير مطابق بالكامل' || ans === 'غير ملتزم' || ans === false || ans === 'غير متوفر' || ans === 'not_available') {
             maxScore += itemMax
             secMax += itemMax
             violationsCount++
@@ -722,143 +858,6 @@ export function MissionExecutionForm({
       sectionScores
     }
   }, [checklistSections, answers])
-
-  function addBuilderQuestion() {
-    setNewQuestions(prev => [
-      ...prev,
-      { text: '', type: 'yes_no', priority: 'high', correctionDept: 'إدارة الصيانة والتشغيل' }
-    ])
-  }
-
-  function removeBuilderQuestion(index: number) {
-    if (newQuestions.length === 1) return
-    setNewQuestions(prev => prev.filter((_, idx) => idx !== index))
-  }
-
-  function updateBuilderQuestion(index: number, key: string, val: any) {
-    setNewQuestions(prev => prev.map((q, idx) => {
-      if (idx === index) {
-        return { ...q, [key]: val }
-      }
-      return q
-    }))
-  }
-
-  async function handleDeployChecklist() {
-    setBuilderError('')
-    setBuilderSuccess('')
-
-    if (!newChecklistTitle.trim()) {
-      setBuilderError('يرجى كتابة اسم الاستمارة الجديدة.')
-      return
-    }
-
-    const invalidQuestion = newQuestions.some(q => !q.text.trim())
-    if (invalidQuestion) {
-      setBuilderError('يرجى كتابة نص جميع الأسئلة والبنود.')
-      return
-    }
-
-    if (!supabase) {
-      setBuilderError('إعداد Supabase غير مكتمل.')
-      return
-    }
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      const { data: profile } = await supabase
-        .from('users')
-        .select('id')
-        .eq('auth_id', user?.id)
-        .maybeSingle()
-
-      // 1. Create main checklist entry
-      const { data: newChk, error: chkErr } = await supabase
-        .from('checklists')
-        .insert({
-          name: newChecklistTitle.trim(),
-          facility_type: 'general',
-          description: `${currentUserDept || 'المرور العام'}|${newChecklistType}`,
-          created_by: profile?.id || null,
-          is_active: true
-        })
-        .select('id')
-        .single()
-
-      if (chkErr || !newChk) {
-        setBuilderError(`فشل حفظ الاستمارة في قاعدة البيانات: ${chkErr?.message}`)
-        return
-      }
-
-      // 2. Create checklist section
-      const { data: newSec, error: secErr } = await supabase
-        .from('checklist_sections')
-        .insert({
-          checklist_id: newChk.id,
-          name: newChecklistTitle.trim(),
-          sort_order: 0
-        })
-        .select('id')
-        .single()
-
-      if (secErr || !newSec) {
-        setBuilderError(`فشل حفظ أقسام الاستمارة: ${secErr?.message}`)
-        return
-      }
-
-      // 3. Create items payload
-      const itemsPayload = newQuestions.map((q, idx) => ({
-        checklist_id: newChk.id,
-        section_id: newSec.id,
-        text: q.text.trim(),
-        answer_type: q.type || 'yes_no',
-        is_required: true,
-        violation_priority: q.priority || 'medium',
-        correction_dept: q.correctionDept || currentUserDept || 'المرور العام',
-        sort_order: idx
-      }))
-
-      const { data: insertedItems, error: itemsErr } = await supabase
-        .from('checklist_items')
-        .insert(itemsPayload)
-        .select('id, text, answer_type, violation_priority, correction_dept, is_required')
-
-      if (itemsErr || !insertedItems) {
-        setBuilderError(`فشل حفظ بنود الاستمارة: ${itemsErr?.message || 'تعذر جلب معرفات الأسئلة الحقيقية'}`)
-        return
-      }
-
-      // Update state locally so it renders immediately with real Database UUIDs
-      const newSection = {
-        id: newChk.id,
-        name: newChecklistTitle.trim(),
-        dept_name: currentUserDept || 'المرور العام',
-        checklist_type: newChecklistType,
-        items: insertedItems.map((item: any) => ({
-          id: item.id,
-          text: item.text,
-          answer_type: item.answer_type as any,
-          violation_priority: item.violation_priority as any,
-          correction_dept: item.correction_dept,
-          is_required: item.is_required ?? true
-        }))
-      }
-
-      setLocalCustomChecklists(prev => [newSection, ...prev])
-      setBuilderSuccess('🎉 تم إنشاء استمارة المرور المخصصة واعتمادها فوراً لهذه المأمورية!')
-      
-      setNewChecklistTitle('')
-      setNewChecklistType('استثنائي')
-      setNewQuestions([{ text: '', type: 'yes_no', priority: 'high', correctionDept: 'إدارة الصيانة والتشغيل' }])
-
-      setTimeout(() => {
-        setShowChecklistBuilder(false)
-        setBuilderSuccess('')
-      }, 1500)
-    } catch (err: any) {
-      setBuilderError(`خطأ أثناء النشر: ${err.message || err}`)
-    }
-  }
 
   function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 6371e3 // Earth radius in metres
@@ -1070,15 +1069,51 @@ export function MissionExecutionForm({
     setPhotoSizeCompressed('')
   }
 
-  const selectedFacility = useMemo(
-    () => facilities.find((facility) => facility.id === actualFacilityId),
-    [actualFacilityId, facilities],
-  )
-
   const changed =
     destinationType !== mission.destination_type ||
     actualFacilityId !== (mission.target_facility_id ?? '') ||
     actualGovernorateId !== (mission.target_governorate_id ?? '')
+
+  function handleInitiateComplete() {
+    setError('')
+    if (destinationType === 'facility' && !isUnregisteredFacility && !actualFacilityId) {
+      setError('يرجى اختيار المنشأة الفعلية.')
+      return
+    }
+
+    if (destinationType === 'facility' && isUnregisteredFacility) {
+      if (!newFacilityName.trim()) {
+        setError('يرجى كتابة اسم المنشأة الجديدة.')
+        return
+      }
+      if (!newFacilityGovId) {
+        setError('يرجى اختيار المحافظة التابعة لها المنشأة الجديدة.')
+        return
+      }
+    }
+
+    if (destinationType === 'governorate' && !actualGovernorateId) {
+      setError('يرجى اختيار المحافظة الفعلية.')
+      return
+    }
+
+    if (changed && !changeReason.trim()) {
+      setError('عند تغيير الوجهة يجب كتابة سبب التغيير.')
+      return
+    }
+
+    if (!recommendations.trim()) {
+      setError('حقل "توصيات وقرارات المأمورية الميدانية" إلزامي. يرجى كتابة التوصيات قبل الحفظ أو اعتماد التقرير.')
+      return
+    }
+
+    if (violationDescription.trim() && !correctionUnit.trim()) {
+      setError('يرجى اختيار أو كتابة الإدارة المختصة بالتصحيح.')
+      return
+    }
+
+    setShowConfirmSubmitModal(true)
+  }
 
   async function save(status: 'in_progress' | 'completed') {
     setError('')
@@ -1107,6 +1142,11 @@ export function MissionExecutionForm({
 
     if (changed && !changeReason.trim()) {
       setError('عند تغيير الوجهة يجب كتابة سبب التغيير.')
+      return
+    }
+
+    if (!recommendations.trim()) {
+      setError('حقل "توصيات وقرارات المأمورية الميدانية" إلزامي. يرجى كتابة التوصيات قبل الحفظ أو اعتماد التقرير.')
       return
     }
 
@@ -1189,35 +1229,48 @@ export function MissionExecutionForm({
 
     const scorePct = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0
 
+    const finalFacilityId = (destinationType === 'facility' && savedActualFacilityId && String(savedActualFacilityId).trim()) 
+      ? String(savedActualFacilityId).trim() 
+      : ((mission as any).facility_id || mission.target_facility_id || null)
+
+    const missionUpdatePayload: Record<string, any> = {
+      facility_id: finalFacilityId,
+      notes: finalExecutionNotes || mission.notes || null,
+      status,
+      gps_verified: gpsVerified,
+      total_score: totalScore,
+      max_score: maxScore,
+      score_pct: scorePct,
+      total_criteria: criteriaCount,
+      violations_count: computedViolations,
+      violation_count: computedViolations
+    }
+
+    if (mission.status === 'assigned' || !(mission as any).checkin_time) {
+      missionUpdatePayload.checkin_time = now
+    }
+
+    if (inspectorLat !== null && inspectorLat !== undefined) {
+      missionUpdatePayload.checkin_lat = inspectorLat
+    }
+    if (inspectorLng !== null && inspectorLng !== undefined) {
+      missionUpdatePayload.checkin_lng = inspectorLng
+    }
+
+    if (status === 'completed') {
+      missionUpdatePayload.completed_at = now
+      missionUpdatePayload.checkout_time = now
+      if (inspectorLat !== null && inspectorLat !== undefined) {
+        missionUpdatePayload.checkout_lat = inspectorLat
+      }
+      if (inspectorLng !== null && inspectorLng !== undefined) {
+        missionUpdatePayload.checkout_lng = inspectorLng
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('missions')
-      .update({
-        actual_facility_id: destinationType === 'facility' ? savedActualFacilityId : null,
-        actual_governorate_id:
-          destinationType === 'facility' 
-            ? (isUnregisteredFacility ? newFacilityGovId : (selectedFacility?.governorate_id ?? actualGovernorateId)) 
-            : actualGovernorateId,
-        destination_changed: changed || isUnregisteredFacility,
-        change_reason: (changed || isUnregisteredFacility) 
-          ? (changeReason.trim() || (isUnregisteredFacility ? `تسجيل وزيارة منشأة جديدة ميدانياً: ${newFacilityName}` : 'تغيير وجهة المأمورية')) 
-          : null,
-        execution_notes: finalExecutionNotes || null,
-        started_at: mission.status === 'assigned' || !mission.started_at ? now : undefined,
-        completed_at: status === 'completed' ? now : null,
-        status,
-        checkin_lat: inspectorLat,
-        checkin_lng: inspectorLng,
-        checkin_time: mission.status === 'assigned' || !mission.started_at ? now : undefined,
-        checkout_lat: status === 'completed' ? inspectorLat : undefined,
-        checkout_lng: status === 'completed' ? inspectorLng : undefined,
-        checkout_time: status === 'completed' ? now : undefined,
-        gps_verified: gpsVerified,
-        total_score: totalScore,
-        max_score: maxScore,
-        score_pct: scorePct,
-        total_criteria: criteriaCount,
-        violations_count: computedViolations
-      })
+      .update(missionUpdatePayload)
       .eq('id', mission.id)
 
     if (updateError) {
@@ -1248,47 +1301,53 @@ export function MissionExecutionForm({
       let violationPhotoUrl = null
 
       if (photoFile) {
-        // Upload photo to Supabase Storage
+        // Upload photo via secure backend route with auto-bucket creation and service role
         const fileExt = photoFile.name.split('.').pop() || 'jpg'
         const fileName = `${mission.id}/${Date.now()}_violation.${fileExt}`
         
         try {
-          const { data: uploadData, error: uploadError } = await supabase
-            .storage
-            .from('violation-photos')
-            .upload(fileName, photoFile, {
-              cacheControl: '3600',
-              upsert: true
-            })
+          const uploadFd = new FormData()
+          uploadFd.append('file', photoFile)
+          uploadFd.append('bucket', 'violation-photos')
+          uploadFd.append('path', fileName)
 
-          if (uploadError) {
-            setLoading(false)
-            setError(`فشل رفع الصورة: ${uploadError.message}`)
-            return
+          const upRes = await fetch('/api/upload', {
+            method: 'POST',
+            body: uploadFd
+          })
+
+          if (upRes.ok) {
+            const upJson = await upRes.json()
+            if (upJson.publicUrl) {
+              violationPhotoUrl = upJson.publicUrl
+            }
+          } else {
+            console.warn('Backend storage upload returned status:', upRes.status)
+            // Fallback to local preview URL if server upload had an issue
+            if (photoPreview) {
+              violationPhotoUrl = photoPreview
+            }
           }
-
-          // Get public URL
-          const { data: { publicUrl } } = supabase
-            .storage
-            .from('violation-photos')
-            .getPublicUrl(fileName)
-
-          violationPhotoUrl = publicUrl
         } catch (uploadErr: any) {
-          setLoading(false)
-          setError(`خطأ أثناء رفع الصورة: ${uploadErr.message || uploadErr}`)
-          return
+          console.error('Error during photo upload:', uploadErr)
+          if (photoPreview) {
+            violationPhotoUrl = photoPreview
+          }
         }
       }
 
+      const violationFacId = (destinationType === 'facility' && savedActualFacilityId && String(savedActualFacilityId).trim()) 
+        ? String(savedActualFacilityId).trim() 
+        : null
+
       const { error: violationError } = await supabase.from('violations').insert({
-        assigned_to_dept: correctionUnit.trim(),
+        assigned_to_dept: correctionUnit.trim() || null,
         description: violationDescription.trim(),
-        facility_id: destinationType === 'facility' ? savedActualFacilityId : null,
+        facility_id: violationFacId,
         mission_id: mission.id,
-        priority: violationPriority,
+        priority: violationPriority || 'medium',
         status: 'new',
-        violation_photo_url: violationPhotoUrl,
+        violation_photo_url: violationPhotoUrl || null,
       })
 
       if (violationError) {
@@ -1305,19 +1364,12 @@ export function MissionExecutionForm({
 
     // Save dynamic checklist results via our secure backend API route to clear old and write fresh results cleanly
     if (Object.keys(answers).length > 0) {
-      const resultsPayload = Object.entries(answers).map(([itemId, val]) => {
-        const isStatic = itemId.startsWith('item-')
-        const checklist_item_id = isStatic ? null : itemId
-        const notes = isStatic 
-          ? `__static_id__:${itemId}||${val.notes || ''}` 
-          : (val.notes || null)
-
-        return {
-          checklist_item_id,
-          answer: val.answer,
-          notes
-        }
-      })
+      const resultsPayload = Object.entries(answers).map(([itemId, val]) => ({
+        item_id: itemId,
+        checklist_item_id: itemId,
+        answer: val.answer,
+        notes: val.notes || null
+      }))
 
       try {
         const resultsRes = await fetch('/api/missions/results', {
@@ -1341,7 +1393,12 @@ export function MissionExecutionForm({
     }
 
     setLoading(false)
-    setSuccess(status === 'completed' ? 'تم إنهاء المأمورية وتوثيق الحضور جغرافياً.' : 'تم بدء/تحديث المأمورية.')
+    if (status === 'completed') {
+      setSuccess('تم اعتماد المأمورية وتوثيق الحضور والنتائج بنجاح.')
+      setShowSuccessModal(true)
+    } else {
+      setSuccess('تم حفظ مسودة نتائج المأمورية بنجاح.')
+    }
     router.refresh()
   }
 
@@ -1489,640 +1546,523 @@ export function MissionExecutionForm({
 
   return (
     <section className={styles.panel}>
-      <div className={styles.summary}>
-        <div>
-          <span>الوجهة الأصلية</span>
-          <strong>{mission.destination_type === 'governorate' ? mission.governorates?.name : mission.facilities?.name}</strong>
+      <div className={styles.summary} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+          <div>
+            <span>الوجهة الأصلية</span>
+            <strong>{mission.destination_type === 'governorate' ? mission.governorates?.name : mission.facilities?.name}</strong>
+          </div>
+          <div>
+            <span>الغرض من الزيارة</span>
+            <strong>{mission.visit_purpose || 'غير مسجل'}</strong>
+          </div>
         </div>
-        <div>
-          <span>الغرض من الزيارة</span>
-          <strong>{mission.visit_purpose || 'غير مسجل'}</strong>
-        </div>
+        <button
+          type="button"
+          onClick={() => router.push('/dashboard/missions')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: '#ffffff',
+            color: '#1e293b',
+            border: '1px solid #cbd5e1',
+            borderRadius: '8px',
+            padding: '7px 14px',
+            fontSize: '12.5px',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          ← العودة لجدول المأموريات
+        </button>
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
       {success && <div className={styles.success}>{success}</div>}
 
-      {/* GPS MOBILE CHECK-IN VERIFICATION PANEL */}
+      {/* 2-COLUMN BALANCED TOP DASHBOARD (SIDE-BY-SIDE / متجاورة) */}
       <div style={{
-        background: '#f0f9f8',
-        border: '1px solid #ccebe6',
-        borderRadius: '12px',
-        padding: '16px',
         display: 'grid',
-        gap: '12px'
+        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+        gap: '14px',
+        alignItems: 'start',
+        marginBottom: '16px'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <span style={{ display: 'block', fontSize: '13.5px', fontWeight: 'bold', color: '#006d77' }}>📍 التوثيق الجغرافي التلقائي ومنع التلاعب (Automated GPS Verification & Anti-Tampering)</span>
-            <span style={{ fontSize: '11px', color: '#546e7a' }}>يتم التقاط ومطابقة موقعك الجغرافي تلقائياً بالخلفية فور فتح الزيارة لإثبات وتأكيد الحضور الفعلي ميدانياً ومنع أي تلاعب بالتكليفات.</span>
-          </div>
-          <button
-            type="button"
-            onClick={captureInspectorGPS}
-            disabled={gpsLoading}
-            style={{
-              background: 'var(--brand)',
-              color: 'white',
-              border: 0,
-              borderRadius: '8px',
-              padding: '8px 16px',
-              fontSize: '12.5px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              boxShadow: '0 2px 8px rgba(0, 109, 119, 0.2)'
-            }}
-          >
-            {gpsLoading ? (
-              <>
-                <div className={styles.spinner} style={{ borderColor: '#e0f0f1', borderTopColor: 'white' }} />
-                جاري تحديد موقعك...
-              </>
-            ) : (
-              '📍 تحديد موقعي والتحقق الجغرافي'
-            )}
-          </button>
-        </div>
-
-        {/* GPS STATE VISUAL FEEDBACK BOX */}
-        {gpsStatus !== 'idle' && (
+        {/* Column 1: Official Target Facility & Emergency Destination Change */}
+        <div style={{ display: 'grid', gap: '10px' }}>
+          {/* Target Facility Card */}
           <div style={{
-            background: 'white',
-            border: `1px solid ${gpsStatus === 'success' ? '#81c784' : gpsStatus === 'warn' ? '#ffb74d' : '#e57373'}`,
-            borderRadius: '8px',
-            padding: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
+            background: 'linear-gradient(135deg, #f0fdfa 0%, #e6fffa 100%)',
+            border: '1px solid #99f6e4',
+            borderRadius: '12px',
+            padding: '16px',
+            display: 'grid',
+            gap: '10px',
+            boxShadow: '0 2px 8px rgba(0,109,119,0.04)'
           }}>
-            <div style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '50%',
-              background: gpsStatus === 'success' ? '#e8f5e9' : gpsStatus === 'warn' ? '#fff3e0' : '#ffebee',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              color: gpsStatus === 'success' ? '#2e7d32' : gpsStatus === 'warn' ? '#e65100' : '#c62828'
-            }}>
-              {gpsStatus === 'success' ? '✓' : gpsStatus === 'warn' ? '⚠️' : '❌'}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <strong style={{ fontSize: '13px', color: gpsStatus === 'success' ? '#2e7d32' : gpsStatus === 'warn' ? '#e65100' : '#c62828' }}>
-                  {gpsStatus === 'success' && 'تم توثيق الحضور الجغرافي بنجاح!'}
-                  {gpsStatus === 'warn' && 'تنبيه: الموقع بعيد عن إحداثيات المستشفى!'}
-                  {gpsStatus === 'error' && 'فشل الاتصال بالـ GPS!'}
-                </strong>
-                {inspectorLat && (
-                  <span style={{ fontSize: '10.5px', background: '#f0f4f8', color: '#455a64', padding: '2px 8px', borderRadius: '4px', direction: 'ltr' }}>
-                    Lat: {inspectorLat.toFixed(5)}, Lng: {inspectorLng?.toFixed(5)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '22px' }}>🏥</span>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#0d9488', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    المنشأة المستهدفة بالمرور (المعتمدة بالتكليف)
                   </span>
-                )}
-              </div>
-              <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#455a64', lineHeight: '1.4' }}>
-                {gpsStatus === 'success' && (
-                  gpsDistance !== null 
-                    ? `تطابق رائع! أنت على بُعد ${gpsDistance} متر فقط من الموقع المسجل للمستشفى. تم إثبات الزيارة فعلياً بنجاح.` 
-                    : 'تم التقاط إحداثيات موقعك بنجاح. سيتم توثيق هذه الإحداثيات رسمياً لإدراج المنشأة الجديدة في مكانك الحالي.'
-                )}
-                {gpsStatus === 'warn' && (
-                  `يبعد موقعك الحالي مسافة ${gpsDistance} متر عن الإحداثيات الرسمية للمستشفى. سيتم حفظ هذا التباين للتوثيق والحوكمة الإدارية.`
-                )}
-                {gpsStatus === 'error' && 'تعذر قراءة الـ GPS. يرجى التأكد من تشغيل الموقع الجغرافي بهاتفك ومنح المتصفح صلاحية الوصول لإثبات الزيارة.'}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* INTERACTIVE GEOLOCATION PIN ADJUSTER MAP */}
-        {inspectorLat && inspectorLng && (
-          <div style={{ display: 'grid', gap: '6px', background: 'white', border: '1px solid #ccebe6', borderRadius: '10px', padding: '12px', marginTop: '4px' }}>
-            <span style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#006d77', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              🗺️ خريطة التحقق الميداني التفاعلية (انقر على الخريطة أو اسحب الدبوس لضبط موقعك بدقة بالغة):
-            </span>
-            <div id="execution-map" style={{
-              height: '240px',
-              borderRadius: '8px',
-              border: '1px solid #cfdcde',
-              overflow: 'hidden',
-              background: '#eceff1',
-              boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
-            }}>
-              {!leafletLoaded && (
-                <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#78909c', fontSize: '12px' }}>
-                  جاري تحميل الخريطة التفاعلية...
+                  <h3 style={{ margin: '2px 0 0', fontSize: '16px', fontWeight: 'bold', color: '#134e4a' }}>
+                    {selectedFacility ? selectedFacility.name : (mission?.facilities?.name || 'منشأة تابعة للمحافظة')}
+                  </h3>
                 </div>
+              </div>
+              <span style={{
+                background: '#ccfbf1',
+                color: '#0f766e',
+                border: '1px solid #5eead4',
+                padding: '4px 10px',
+                borderRadius: '20px',
+                fontSize: '11.5px',
+                fontWeight: 'bold',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}>
+                🔒 وجهة معتمدة بالتكليف
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '12px', color: '#334155', borderTop: '1px solid #ccfbf1', paddingTop: '8px' }}>
+              {selectedFacility?.facility_type && (
+                <span><strong>النوع:</strong> {selectedFacility.facility_type}</span>
+              )}
+              {selectedFacility?.governorate && (
+                <span><strong>المحافظة:</strong> {selectedFacility.governorate}</span>
+              )}
+              {selectedFacility?.health_admin && (
+                <span><strong>الإدارة الصحية:</strong> {selectedFacility.health_admin}</span>
+              )}
+              {selectedFacility?.address && (
+                <span><strong>العنوان:</strong> {selectedFacility.address}</span>
               )}
             </div>
-            <span style={{ fontSize: '11px', color: '#546e7a' }}>
-              💡 إذا كان استقبال الـ GPS ضعيفاً أو كنت داخل مبنى خرساني مغلق، يمكنك نقر الخريطة أو سحب الدبوس لتحديد مكانك بدقة، وسيعيد النظام احتساب المسافة والمطابقة الجغرافية فوراً لمنع التلاعب الجغرافي.
-            </span>
           </div>
-        )}
-      </div>
 
-      <div className={styles.segmented}>
-        <button className={destinationType === 'facility' ? styles.active : ''} type="button" onClick={() => setDestinationType('facility')}>
-          منشأة فعلية
-        </button>
-        <button className={destinationType === 'governorate' ? styles.active : ''} type="button" onClick={() => setDestinationType('governorate')}>
-          محافظة فعلية
-        </button>
-      </div>
-
-      <div className={styles.grid}>
-        {destinationType === 'facility' ? (
-          <div style={{ gridColumn: '1 / -1', display: 'grid', gap: '14px' }}>
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', background: '#f8fbfb', border: '1px solid #cfdcde', padding: '12px', borderRadius: '10px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>تسجيل زيارة المنشأة:</span>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#102027', cursor: 'pointer', margin: 0 }}>
-                <input
-                  type="radio"
-                  name="facility_select_mode"
-                  checked={!isUnregisteredFacility}
-                  onChange={() => {
-                    setIsUnregisteredFacility(false)
-                    setGpsStatus('idle')
-                  }}
-                />
-                منشأة مسجلة بالنظام
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#102027', cursor: 'pointer', margin: 0 }}>
-                <input
-                  type="radio"
-                  name="facility_select_mode"
-                  checked={isUnregisteredFacility}
-                  onChange={() => {
-                    setIsUnregisteredFacility(true)
-                    setGpsStatus('idle')
-                  }}
-                />
-                <span style={{ color: 'var(--brand)', fontWeight: 'bold' }}>➕ تسجيل منشأة جديدة غير مدرجة</span>
-              </label>
-            </div>
-
-            {!isUnregisteredFacility ? (
-              <div style={{ display: 'grid', gap: '6px' }}>
-                <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>اختر المنشأة التي تم المرور عليها *</span>
-                <SearchableAddableSelect
-                  options={facilityOptions}
-                  value={actualFacilityId}
-                  onChange={(val) => handleFacilityChange(val)}
-                  placeholder="🔍 اكتب اسم المنشأة أو المحافظة للبحث الفوري..."
-                />
-                {selectedFacility && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#006d77', fontWeight: 'bold', background: '#e0f2f1', padding: '6px 12px', borderRadius: '6px', marginTop: '4px' }}>
-                    <span>🏥 المنشأة المحددة:</span>
-                    <span>{selectedFacility.name} {selectedFacility.address ? `— ${selectedFacility.address}` : ''}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{
-                background: '#fffbf7',
-                border: '1px solid #ffe8cc',
-                borderRadius: '10px',
-                padding: '16px',
-                display: 'grid',
-                gap: '12px',
-                animation: 'fadeIn 0.2s'
-              }}>
-                <strong style={{ fontSize: '13.5px', color: '#e65100' }}>➕ تسجيل منشأة صحية جديدة ميدانياً وتوثيقها فوراً بالـ GPS:</strong>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-                  <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', color: '#37474f' }}>
-                    اسم المنشأة الجديدة *
-                    <input
-                      type="text"
-                      value={newFacilityName}
-                      onChange={(e) => setNewFacilityName(e.target.value)}
-                      placeholder="مثال: وحدة الرعاية الصحية بقرية السلام"
-                      style={{ background: 'white' }}
-                    />
-                  </label>
-                  <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', color: '#37474f' }}>
-                    نوع وتصنيف المنشأة *
-                    <select
-                      value={newFacilityType}
-                      onChange={(e) => setNewFacilityType(e.target.value)}
-                      style={{ background: 'white' }}
-                    >
-                      {FACILITY_CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-                  <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', color: '#37474f' }}>
-                    المحافظة الجغرافية للمنشأة *
-                    <select
-                      value={newFacilityGovId}
-                      onChange={(e) => setNewFacilityGovId(e.target.value)}
-                      style={{ background: 'white' }}
-                    >
-                      <option value="">اختر المحافظة</option>
-                      {governorates.map((gov) => (
-                        <option key={gov.id} value={gov.id}>{gov.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', color: '#37474f' }}>
-                    العنوان التفصيلي
-                    <input
-                      type="text"
-                      value={newFacilityAddress}
-                      onChange={(e) => setNewFacilityAddress(e.target.value)}
-                      placeholder="الشارع، المنطقة، أو أقرب علامة مميزة"
-                      style={{ background: 'white' }}
-                    />
-                  </label>
-                </div>
-
-                <p style={{ margin: 0, fontSize: '11.5px', color: '#e65100', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  💡 سيتم التقاط إحداثيات الهاتف الحالية ({inspectorLat ? `خط عرض: ${inspectorLat.toFixed(5)}، خط طول: ${inspectorLng?.toFixed(5)}` : 'يرجى النقر على زر التوثيق الجغرافي بالأعلى'}) لتسجيل هذه المنشأة الجديدة على خريطة الدولة تلقائياً!
-                </p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <label>
-            المحافظة التي تم/سيتم التوجه إليها
-            <select value={actualGovernorateId} onChange={(event) => setActualGovernorateId(event.target.value)}>
-              <option value="">اختر المحافظة</option>
-              {governorates.map((governorate) => (
-                <option key={governorate.id} value={governorate.id}>
-                  {governorate.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <label>
-          سبب تغيير الوجهة
-          <textarea value={changeReason} onChange={(event) => setChangeReason(event.target.value)} rows={3} placeholder="يُكتب عند اختلاف الوجهة الفعلية عن الأصلية" />
-        </label>
-
-        <label className={styles.wide}>
-          ملاحظات التنفيذ
-          <textarea value={executionNotes} onChange={(event) => setExecutionNotes(event.target.value)} rows={4} />
-        </label>
-
-        <div style={{ position: 'relative', display: 'grid', gap: '7px' }} className={styles.wide}>
-          <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#42555d', fontSize: '14px', fontWeight: 'bold' }}>
-            <span>📋 توصيات وقرارات المأمورية الميدانية</span>
-            <span style={{ fontSize: '11.5px', color: '#006d77', background: '#e0f2f1', padding: '2px 8px', borderRadius: '12px', fontWeight: 'normal' }}>
-              💡 اكتب @ للإشارة لمسؤول بالهيكل الإداري وإشعاره فوراً
-            </span>
-          </label>
-          
-          <div style={{ position: 'relative' }}>
-            <textarea
-              id="recommendations-textarea"
-              value={recommendations}
-              onChange={handleRecommendationsChange}
-              onKeyDown={handleRecommendationsKeyDown}
-              rows={4}
-              placeholder="مثال: يرجى التنبيه على @د. أحمد عبد الرحمن لتوفير المستلزمات الطبية اللازمة لقسم الطوارئ فوراً..."
-              style={{ width: '100%', background: '#f8fbfb', border: '1px solid #cfdcde', borderRadius: '8px', color: '#102027', font: 'inherit', padding: '10px 12px', resize: 'vertical', minHeight: '88px' }}
-            />
-            
-            {mentionOpen && filteredUsers.length > 0 && (
-              <div style={{
-                position: 'absolute',
-                bottom: '100%',
-                right: '0',
-                left: '0',
-                zIndex: 50,
-                marginBottom: '6px',
-                maxHeight: '220px',
-                overflowY: 'auto',
-                background: 'rgba(255, 255, 255, 0.98)',
-                backdropFilter: 'blur(8px)',
-                border: '1px solid #006d77',
-                borderRadius: '8px',
-                boxShadow: '0 4px 20px rgba(0, 109, 119, 0.15)',
-                display: 'flex',
-                flexDirection: 'column',
-                padding: '4px'
-              }}>
-                <div style={{
-                  padding: '6px 10px',
-                  fontSize: '11px',
-                  color: '#546e7a',
-                  borderBottom: '1px solid #e0f0f1',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}>
-                  <span>مسؤولين متاحين للإشعار (مستويات أقل إدارياً):</span>
-                  <span>اضغط Tab/Enter أو انقر للاختيار</span>
-                </div>
-                {filteredUsers.map((u, index) => {
-                  const isActive = index === mentionActiveIndex
-                  return (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onClick={() => insertMention(u)}
-                      onMouseEnter={() => setMentionActiveIndex(index)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '10px 12px',
-                        border: 0,
-                        borderRadius: '6px',
-                        background: isActive ? '#006d77' : 'transparent',
-                        color: isActive ? 'white' : '#102027',
-                        cursor: 'pointer',
-                        textAlign: 'right',
-                        width: '100%',
-                        transition: 'all 0.1s ease',
-                        gap: '8px',
-                        font: 'inherit'
-                      }}
-                    >
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', flex: 1 }}>
-                        <span style={{ fontWeight: 'bold', fontSize: '13px' }}>{u.full_name}</span>
-                        <span style={{ fontSize: '11px', color: isActive ? '#b2dfdb' : '#64747d', marginTop: '2px' }}>
-                          {u.job_title} • {u.department || 'إدارة غير محددة'}
-                        </span>
-                      </div>
-                      <span style={{
-                        fontSize: '10px',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        background: isActive ? 'rgba(255,255,255,0.2)' : '#e0f2f1',
-                        color: isActive ? '#006d77' : '#006d77',
-                        fontWeight: 'bold'
-                      }}>
-                        مستوى {u.level}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            
-            {mentionOpen && filteredUsers.length === 0 && (
-              <div style={{
-                position: 'absolute',
-                bottom: '100%',
-                right: '0',
-                left: '0',
-                zIndex: 50,
-                marginBottom: '6px',
-                background: 'white',
-                border: '1px solid #cfdcde',
-                borderRadius: '8px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                padding: '12px',
-                color: '#78909c',
-                fontSize: '12.5px',
-                textAlign: 'center'
-              }}>
-                🔍 لم يتم العثور على مسؤولين متوافقين بالمستويات الأدنى...
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Dynamic Specialization Checklist */}
-      <section className={styles.checklistSection}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', borderBottom: '1px solid #e0f0f0', paddingBottom: '12px', marginBottom: '16px' }}>
-          <div>
-            <span className={styles.checklistHeading}>قائمة بنود التفتيش التخصصية والمخصصة ({currentUserDept || 'المرور العام'})</span>
-            <p className={styles.checklistSubheading}>يرجى الإجابة وتوثيق بنود الالتزام وتوليد المخالفات تلقائياً عند عدم المطابقة</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowChecklistBuilder(!showChecklistBuilder)}
-            style={{
-              background: showChecklistBuilder ? '#eceff1' : 'linear-gradient(135deg, #006d77 0%, #004d54 100%)',
-              color: showChecklistBuilder ? '#37474f' : 'white',
-              border: '1px solid ' + (showChecklistBuilder ? '#cfdcde' : 'transparent'),
-              borderRadius: '8px',
-              padding: '8px 16px',
-              fontSize: '12.5px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              transition: 'all 0.2s',
-              boxShadow: showChecklistBuilder ? 'none' : '0 2px 6px rgba(0,109,119,0.12)'
-            }}
-          >
-            {showChecklistBuilder ? '✕ إغلاق منشئ الاستمارات' : '➕ إنشاء استمارة مرور مخصصة فوراً'}
-          </button>
-        </div>
-
-        {/* Dynamic Checklist Builder Container */}
-        {showChecklistBuilder && (
+          {/* Collapsible Destination Change Accordion */}
           <div style={{
-            background: 'linear-gradient(180deg, #fdfefe 0%, #f8fbfb 100%)',
-            border: '2px dashed #006d77',
-            borderRadius: '16px',
-            padding: '20px',
-            marginBottom: '20px',
-            display: 'grid',
-            gap: '16px',
-            boxShadow: '0 4px 15px rgba(0,109,119,0.04)',
-            animation: 'fadeIn 0.2s'
+            background: '#ffffff',
+            border: showChangeDestination ? '1px solid #f59e0b' : '1px solid #e2e8f0',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            transition: 'all 0.2s ease'
           }}>
-            <h4 style={{ margin: 0, fontSize: '15px', color: '#006d77', fontWeight: 'bold', borderBottom: '1px solid #e0f0f0', paddingBottom: '8px' }}>
-              🛠️ منشئ استمارات المرور الميدانية التفاعلي السريع (On-the-go Builder)
-            </h4>
-
-            {builderError && (
-              <div style={{ background: '#fff3f3', border: '1px solid #ffcdd2', borderRadius: '6px', color: '#c62828', padding: '10px 14px', fontSize: '12.5px', fontWeight: 'bold' }}>
-                {builderError}
+            <button
+              type="button"
+              onClick={() => setShowChangeDestination(!showChangeDestination)}
+              style={{
+                width: '100%',
+                padding: '12px 14px',
+                background: showChangeDestination ? '#fffbeb' : '#f8fafc',
+                border: 'none',
+                borderBottom: showChangeDestination ? '1px solid #fde68a' : 'none',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'pointer',
+                textAlign: 'right'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '15px' }}>🔄</span>
+                <div>
+                  <strong style={{ fontSize: '12.5px', color: showChangeDestination ? '#b45309' : '#475569' }}>
+                    طلب تغيير الوجهة أو تسجيل منشأة بديلة اضطرارياً (اختياري)
+                  </strong>
+                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#64748b' }}>
+                    {showChangeDestination ? 'انقر للطي والالتزام بالمنشأة المعتمدة' : 'في حال تعذر الوصول للمنشأة المقررة'}
+                  </p>
+                </div>
               </div>
-            )}
-            {builderSuccess && (
-              <div style={{ background: '#eaf8f3', border: '1px solid #ccebe6', borderRadius: '6px', color: '#16725a', padding: '10px 14px', fontSize: '12.5px', fontWeight: 'bold' }}>
-                {builderSuccess}
-              </div>
-            )}
+              <span style={{ fontSize: '12px', color: showChangeDestination ? '#b45309' : '#94a3b8', fontWeight: 'bold' }}>
+                {showChangeDestination ? '▲ طي' : '▼ فتح'}
+              </span>
+            </button>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
-              <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
-                اسم استمارة المرور الجديدة *
-                <input
-                  type="text"
-                  placeholder="مثال: تقييم النظافة والسلامة بقسم الطوارئ..."
-                  value={newChecklistTitle}
-                  onChange={(e) => setNewChecklistTitle(e.target.value)}
-                  style={{ minHeight: '40px', borderRadius: '6px', border: '1px solid #cfdcde', padding: '0 10px', fontSize: '13px', outline: 'none' }}
-                />
-              </label>
+            {showChangeDestination && (
+              <div style={{ padding: '14px', display: 'grid', gap: '12px', background: '#fffefc' }}>
+                <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 12px', fontSize: '12px', color: '#92400e' }}>
+                  ⚠️ <strong>تنبيه إداري:</strong> تغيير الوجهة عن التكليف المعتمد يتطلب كتابة سبب التغيير وسيتم توثيقه في تقرير الحوكمة.
+                </div>
 
-              <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
-                نوع استمارة المرور / التصنيف
-                <select
-                  value={newChecklistType}
-                  onChange={(e) => setNewChecklistType(e.target.value)}
-                  style={{ minHeight: '40px', borderRadius: '6px', border: '1px solid #cfdcde', padding: '0 10px', fontSize: '13px', background: 'white', outline: 'none' }}
-                >
-                  <option value="دوري">دوري عادي</option>
-                  <option value="مفاجئ">مرور مفاجئ</option>
-                  <option value="استثنائي">استثنائي طارئ</option>
-                  <option value="توجيهي">توجيهي محوكم</option>
-                </select>
-              </label>
-            </div>
+                <div className={styles.segmented}>
+                  <button className={destinationType === 'facility' ? styles.active : ''} type="button" onClick={() => setDestinationType('facility')}>
+                    منشأة بديلة
+                  </button>
+                  <button className={destinationType === 'governorate' ? styles.active : ''} type="button" onClick={() => setDestinationType('governorate')}>
+                    محافظة بديلة
+                  </button>
+                </div>
 
-            <div style={{ display: 'grid', gap: '12px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#006d77' }}>أسئلة وبنود التقييم الفني:</span>
-              
-              {newQuestions.map((q, idx) => (
-                <div key={idx} style={{
-                  background: 'white',
-                  border: '1px solid #cfdcde',
-                  borderRadius: '10px',
-                  padding: '14px',
-                  display: 'grid',
-                  gap: '12px',
-                  position: 'relative'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#546e7a' }}>البند / السؤال رقم {idx + 1}</span>
-                    {newQuestions.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeBuilderQuestion(idx)}
-                        style={{ background: 'transparent', border: 0, color: '#d32f2f', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold' }}
-                      >
-                        ✕ إزالة البند
-                      </button>
+                {destinationType === 'facility' ? (
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    <div style={{ display: 'flex', gap: '14px', alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '10px 12px', borderRadius: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#334155' }}>نوع المنشأة البديلة:</span>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#1e293b', cursor: 'pointer', margin: 0 }}>
+                        <input
+                          type="radio"
+                          name="facility_select_mode"
+                          checked={!isUnregisteredFacility}
+                          onChange={() => {
+                            setIsUnregisteredFacility(false)
+                            setGpsStatus('idle')
+                          }}
+                        />
+                        منشأة مسجلة بالنظام
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#1e293b', cursor: 'pointer', margin: 0 }}>
+                        <input
+                          type="radio"
+                          name="facility_select_mode"
+                          checked={isUnregisteredFacility}
+                          onChange={() => {
+                            setIsUnregisteredFacility(true)
+                            setGpsStatus('idle')
+                          }}
+                        />
+                        <span style={{ color: '#d97706', fontWeight: 'bold' }}>➕ تسجيل منشأة جديدة غير مدرجة</span>
+                      </label>
+                    </div>
+
+                    {!isUnregisteredFacility ? (
+                      <div style={{ display: 'grid', gap: '6px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#334155' }}>اختر المنشأة البديلة *</span>
+                        <SearchableAddableSelect
+                          options={facilityOptions}
+                          value={actualFacilityId}
+                          onChange={(val) => handleFacilityChange(val)}
+                          placeholder="🔍 اكتب اسم المنشأة أو المحافظة للبحث الفوري..."
+                        />
+                      </div>
+                    ) : (
+                      <div style={{
+                        background: '#fffbf7',
+                        border: '1px solid #ffe8cc',
+                        borderRadius: '10px',
+                        padding: '12px',
+                        display: 'grid',
+                        gap: '10px'
+                      }}>
+                        <strong style={{ fontSize: '12.5px', color: '#ea580c' }}>➕ تسجيل منشأة صحية جديدة ميدانياً وتوثيقها فوراً بالـ GPS:</strong>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                          <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            اسم المنشأة الجديدة *
+                            <input
+                              type="text"
+                              value={newFacilityName}
+                              onChange={(e) => setNewFacilityName(e.target.value)}
+                              placeholder="مثال: وحدة الرعاية الصحية بقرية السلام"
+                              style={{ background: 'white' }}
+                            />
+                          </label>
+                          <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            نوع وتصنيف المنشأة *
+                            <select
+                              value={newFacilityType}
+                              onChange={(e) => setNewFacilityType(e.target.value)}
+                              style={{ background: 'white' }}
+                            >
+                              {FACILITY_CATEGORIES.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                          <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            المحافظة الجغرافية للمنشأة *
+                            <select
+                              value={newFacilityGovId}
+                              onChange={(e) => setNewFacilityGovId(e.target.value)}
+                              style={{ background: 'white' }}
+                            >
+                              <option value="">اختر المحافظة</option>
+                              {governorates.map((gov) => (
+                                <option key={gov.id} value={gov.id}>{gov.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                            العنوان التفصيلي
+                            <input
+                              type="text"
+                              value={newFacilityAddress}
+                              onChange={(e) => setNewFacilityAddress(e.target.value)}
+                              placeholder="الشارع، المنطقة، أو أقرب علامة مميزة"
+                              style={{ background: 'white' }}
+                            />
+                          </label>
+                        </div>
+                      </div>
                     )}
                   </div>
+                ) : (
+                  <label style={{ display: 'grid', gap: '4px', fontSize: '12.5px', color: '#334155' }}>
+                    المحافظة البديلة التي تم التوجه إليها *
+                    <select value={actualGovernorateId} onChange={(event) => setActualGovernorateId(event.target.value)}>
+                      <option value="">اختر المحافظة</option>
+                      {governorates.map((governorate) => (
+                        <option key={governorate.id} value={governorate.id}>
+                          {governorate.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
 
+                <label style={{ display: 'grid', gap: '4px', fontSize: '12px', color: '#334155' }}>
+                  <span style={{ fontWeight: 'bold', color: '#b45309' }}>سبب تغيير الوجهة *</span>
                   <textarea
-                    placeholder="اكتب السؤال بوضوح، مثال: هل أجهزة التعقيم تعمل بشكل سليم ويتم توثيق قراءات الضغط؟..."
-                    value={q.text}
-                    onChange={(e) => updateBuilderQuestion(idx, 'text', e.target.value)}
+                    value={changeReason}
+                    onChange={(event) => setChangeReason(event.target.value)}
                     rows={2}
-                    style={{ width: '100%', borderRadius: '6px', border: '1px solid #cfdcde', padding: '8px 10px', fontSize: '13px', outline: 'none', resize: 'vertical' }}
+                    placeholder="يرجى كتابة سبب تغيير المنشأة أو المحافظة المقررة في أمر التكليف..."
+                    style={{ width: '100%', borderRadius: '6px', border: '1px solid #cbd5e1', padding: '8px' }}
                   />
+                </label>
+              </div>
+            )}
+          </div>
+        </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-                    <label style={{ display: 'grid', gap: '4px', fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>
-                      نوع الإجابة المطلوبة
-                      <select
-                        value={q.type}
-                        onChange={(e) => updateBuilderQuestion(idx, 'type', e.target.value)}
-                        style={{ minHeight: '34px', borderRadius: '4px', border: '1px solid #cfdcde', fontSize: '12px', background: 'white', outline: 'none' }}
-                      >
-                        <option value="yes_no">ملتزم / غير ملتزم / لا ينطبق</option>
-                        <option value="dropdown">قائمة اختيار مخصصة</option>
-                        <option value="stars">تقييم بالنجوم (1 إلى 5 نجوم)</option>
-                        <option value="text">ملاحظات نصية حرة</option>
-                      </select>
-                    </label>
-
-                    <label style={{ display: 'grid', gap: '4px', fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>
-                      مستوى الخطورة عند المخالفة
-                      <select
-                        value={q.priority}
-                        onChange={(e) => updateBuilderQuestion(idx, 'priority', e.target.value)}
-                        style={{ minHeight: '34px', borderRadius: '4px', border: '1px solid #cfdcde', fontSize: '12px', background: 'white', outline: 'none' }}
-                      >
-                        <option value="low">بسيطة (مهلة تصحيح 30 يوم)</option>
-                        <option value="medium">متوسطة (مهلة تصحيح 7 أيام)</option>
-                        <option value="high">عالية (مهلة تصحيح 3 أيام)</option>
-                        <option value="critical">حرجة (تنبيه فوري 24 ساعة)</option>
-                      </select>
-                    </label>
-
-                    <label style={{ display: 'grid', gap: '4px', fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>
-                      الإدارة المعنية بالتصحيح
-                      <select
-                        value={q.correctionDept}
-                        onChange={(e) => updateBuilderQuestion(idx, 'correctionDept', e.target.value)}
-                        style={{ minHeight: '34px', borderRadius: '4px', border: '1px solid #cfdcde', fontSize: '12px', background: 'white', outline: 'none' }}
-                      >
-                        <option value="إدارة الصيانة والتشغيل">إدارة الصيانة والتشغيل</option>
-                        <option value="إدارة مكافحة العدوى">إدارة مكافحة العدوى</option>
-                        <option value="إدارة التفتيش الصيدلي">إدارة التفتيش الصيدلي</option>
-                        <option value="إدارة الجودة والسلامة">إدارة الجودة والسلامة</option>
-                        <option value="إدارة التمريض">إدارة التمريض</option>
-                        <option value="أخرى / جهات غير مصنفة">أخرى / جهات غير مصنفة</option>
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              ))}
-
+        {/* Column 2: GPS Attendance & Interactive Verification Map */}
+        <div style={{ display: 'grid', gap: '10px' }}>
+          {/* GPS Check-in Card */}
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #ccebe6',
+            borderRadius: '12px',
+            padding: '14px',
+            display: 'grid',
+            gap: '10px',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '13px', fontWeight: 'bold', color: '#006d77' }}>
+                  📍 إثبات الحضور والموقع الميداني (GPS)
+                </span>
+                <span style={{ fontSize: '11px', color: '#546e7a' }}>
+                  مطابقة موقعك تلقائياً لإثبات الحضور ومنع التلاعب
+                </span>
+              </div>
               <button
                 type="button"
-                onClick={addBuilderQuestion}
+                onClick={captureInspectorGPS}
+                disabled={gpsLoading}
                 style={{
-                  background: '#eef6f6',
-                  color: 'var(--brand)',
-                  border: '1px dashed var(--brand)',
+                  background: 'var(--brand)',
+                  color: 'white',
+                  border: 0,
                   borderRadius: '8px',
-                  minHeight: '38px',
+                  padding: '7px 14px',
+                  fontSize: '12px',
                   fontWeight: 'bold',
-                  fontSize: '12.5px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
                   gap: '6px',
-                  transition: 'all 0.15s'
+                  boxShadow: '0 2px 6px rgba(0, 109, 119, 0.15)'
                 }}
               >
-                ➕ إضافة بند / سؤال تقييمي جديد
+                {gpsLoading ? (
+                  <>
+                    <div className={styles.spinner} style={{ borderColor: '#e0f0f1', borderTopColor: 'white' }} />
+                    جاري التحديد...
+                  </>
+                ) : (
+                  '📍 تحديث موقعي'
+                )}
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px', borderTop: '1px solid #e0f0f0', paddingTop: '12px' }}>
-              <button
-                type="button"
-                onClick={() => setShowChecklistBuilder(false)}
-                style={{ background: '#eceff1', border: 0, borderRadius: '6px', padding: '8px 16px', fontSize: '12.5px', fontWeight: 'bold', color: '#37474f', cursor: 'pointer' }}
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                onClick={handleDeployChecklist}
-                style={{ background: 'linear-gradient(135deg, #006d77 0%, #004d54 100%)', border: 0, borderRadius: '6px', padding: '8px 24px', fontSize: '12.5px', fontWeight: 'bold', color: 'white', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,109,119,0.15)' }}
-              >
-                💾 اعتماد ونشر الاستمارة الجارية فورا
-              </button>
+            {/* GPS Feedback Box */}
+            {gpsStatus !== 'idle' && (
+              <div style={{
+                background: gpsStatus === 'success' ? '#f0fdf4' : gpsStatus === 'warn' ? '#fffbeb' : '#fef2f2',
+                border: `1px solid ${gpsStatus === 'success' ? '#86efac' : gpsStatus === 'warn' ? '#fde68a' : '#fca5a5'}`,
+                borderRadius: '8px',
+                padding: '10px 12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px'
+              }}>
+                <span style={{ fontSize: '16px' }}>
+                  {gpsStatus === 'success' ? '✅' : gpsStatus === 'warn' ? '⚠️' : '❌'}
+                </span>
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                  <strong style={{ fontSize: '12px', color: gpsStatus === 'success' ? '#15803d' : gpsStatus === 'warn' ? '#b45309' : '#b91c1c' }}>
+                    {gpsStatus === 'success' && 'تم توثيق الحضور الجغرافي بنجاح!'}
+                    {gpsStatus === 'warn' && (gpsDistance !== null ? `تنبيه: يبعد ${gpsDistance}م عن إحداثيات المستشفى!` : 'تنبيه: الموقع بعيد عن المستشفى!')}
+                    {gpsStatus === 'error' && 'تعذر تحديد الموقع بدقة!'}
+                  </strong>
+                  {inspectorLat && (
+                    <span style={{ fontSize: '10px', background: 'white', border: '1px solid #e2e8f0', color: '#475569', padding: '1px 6px', borderRadius: '4px', direction: 'ltr' }}>
+                      Lat: {inspectorLat.toFixed(5)}, Lng: {inspectorLng?.toFixed(5)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Collapsible Interactive Map Toggle & Content */}
+            {inspectorLat && inspectorLng && (
+              <div style={{ marginTop: '2px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowMap(!showMap)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    background: '#f0f9f8',
+                    border: '1px solid #b2dfdb',
+                    borderRadius: showMap ? '8px 8px 0 0' : '8px',
+                    color: '#006d77',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    🗺️ خريطة التحقق والمطابقة الجغرافية التفاعلية
+                  </span>
+                  <span style={{ fontSize: '11px', color: '#006d77', background: '#e0f2f1', padding: '2px 6px', borderRadius: '10px' }}>
+                    {showMap ? 'إخفاء الخريطة ▲' : 'عرض الخريطة وضبط الدبوس ▼'}
+                  </span>
+                </button>
+
+                {showMap && (
+                  <div style={{ display: 'grid', gap: '6px', background: 'white', border: '1px solid #b2dfdb', borderTop: 'none', borderBottomLeftRadius: '10px', borderBottomRightRadius: '10px', padding: '10px' }}>
+                    <div id="execution-map" style={{
+                      height: '220px',
+                      borderRadius: '6px',
+                      border: '1px solid #cfdcde',
+                      overflow: 'hidden',
+                      background: '#eceff1',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}>
+                      {!leafletLoaded && (
+                        <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#78909c', fontSize: '12px' }}>
+                          جاري تحميل الخريطة التفاعلية...
+                        </div>
+                      )}
+                    </div>
+                    <span style={{ fontSize: '10.5px', color: '#64748b' }}>
+                      💡 اسحب الدبوس لتحديد مكانك بدقة داخل المبنى وسيعيد النظام احتساب المسافة فوراً.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+
+
+      {/* Dynamic Approved Checklist Section */}
+      <section className={styles.checklistSection} id="approved-checklist-section">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', borderBottom: '1px solid #e2e8f0', paddingBottom: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <span className={styles.checklistHeading}>استمارة المرور ونموذج التقييم الفني المعتمد</span>
+              <p className={styles.checklistSubheading}>يرجى تقييم بنود الاستمارة وتوثيق الملاحظات والمخالفات الميدانية بدقة</p>
+            </div>
+            <div style={{
+              background: '#ecfdf5',
+              border: '1px solid #a7f3d0',
+              borderRadius: '8px',
+              padding: '6px 12px',
+              fontSize: '12px',
+              color: '#047857',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <span>🛡️ نماذج معتمدة رسمياً</span>
             </div>
           </div>
-        )}
 
-        {/* If no checklists exist at all and builder is closed */}
-        {checklistSections.length === 0 && !showChecklistBuilder && (
+          {/* Available Approved Templates Switcher Tabs */}
+          {availableTemplates.length > 1 && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+              {availableTemplates.map((tpl) => {
+                const isSelected = selectedTemplateId === tpl.id;
+                return (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => setSelectedTemplateId(tpl.id)}
+                    style={{
+                      background: isSelected ? 'linear-gradient(135deg, #006d77 0%, #004d54 100%)' : '#f1f5f9',
+                      color: isSelected ? '#ffffff' : '#334155',
+                      border: isSelected ? '1px solid #006d77' : '1px solid #cbd5e1',
+                      borderRadius: '20px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: isSelected ? 'bold' : 'normal',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>{tpl.type === 'infection_control' ? '🧪' : tpl.type === 'adolescent_health' ? '🩺' : '📋'}</span>
+                    <span>{tpl.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Technical Support Notification Notice */}
           <div style={{
-            background: '#f8fbfb',
-            border: '1px dashed #006d77',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            fontSize: '11.5px',
+            color: '#64748b',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}>
+            <span>ℹ️</span>
+            <span>لطلب إضافة أو تعديل نماذج واستمارات المرور المعتمدة، يُرجى التواصل مع الدعم الفني الخاص بالمشروع.</span>
+          </div>
+        </div>
+
+        {checklistSections.length === 0 && (
+          <div style={{
+            background: '#f8fafc',
+            border: '1px dashed #cbd5e1',
             borderRadius: '12px',
-            padding: '30px 20px',
+            padding: '24px 16px',
             textAlign: 'center',
-            color: '#546e7a',
+            color: '#64748b',
             display: 'grid',
-            gap: '12px',
+            gap: '8px',
             justifyItems: 'center',
             marginBottom: '20px'
           }}>
-            <strong style={{ fontSize: '14.5px', color: '#102027' }}>لا توجد استمارات مرور جاهزة لتخصصك الجاري ({currentUserDept || 'المرور العام'})</strong>
-            <p style={{ margin: 0, fontSize: '12.5px', maxWidth: '400px', lineHeight: '1.6' }}>
-              حسابك لا يحتوي على بنود تفتيش معتمدة لهذا التخصص حالياً. يمكنك النقر على زر "➕ إنشاء استمارة مرور مخصصة فوراً" بالأعلى لتصميم وإنشاء استمارة مرور مخصصة ومطابقة فوراً لهذه المأمورية!
+            <span style={{ fontSize: '24px' }}>📋</span>
+            <strong style={{ fontSize: '14px', color: '#1e293b' }}>جاري تحميل استمارة المرور المعتمدة...</strong>
+            <p style={{ margin: 0, fontSize: '12px', maxWidth: '400px', lineHeight: '1.5' }}>
+              لطلب إضافة أو تعديل نماذج واستمارات المرور المعتمدة، يُرجى التواصل مع الدعم الفني الخاص بالمشروع.
             </p>
           </div>
         )}
@@ -2151,7 +2091,7 @@ export function MissionExecutionForm({
 
           const progressPct = totalCriteria > 0 ? Math.round((answeredCriteria / totalCriteria) * 100) : 0;
 
-          // Filter sections based on selected stage and search query
+          // Filter sections based on selected stage (for 37-section standard checklist) and search query
           const filteredSections = checklistSections.filter((section: any, sIdx: number) => {
             const secNum = sIdx + 1;
             
@@ -2162,9 +2102,9 @@ export function MissionExecutionForm({
               return nameMatch || itemMatch;
             }
 
-            if (selectedStage > 0) {
+            if (checklistSections.length >= 25 && selectedStage > 0) {
               const currentStage = CHECKLIST_STAGES[selectedStage];
-              return secNum >= currentStage.start && secNum <= currentStage.end;
+              return currentStage ? secNum >= currentStage.start && secNum <= currentStage.end : true;
             }
 
             return true;
@@ -2187,26 +2127,28 @@ export function MissionExecutionForm({
                 </div>
               </div>
 
-              {/* Stage Stepper Tabs */}
-              <div className={styles.stageStepper}>
-                {CHECKLIST_STAGES.map((stg) => {
-                  const isActive = selectedStage === stg.id;
-                  return (
-                    <button
-                      key={stg.id}
-                      type="button"
-                      className={`${styles.stageBtn} ${isActive ? styles.stageBtnActive : ''}`}
-                      onClick={() => {
-                        setSelectedStage(stg.id);
-                        setSearchQuery('');
-                      }}
-                    >
-                      <span>{stg.icon}</span>
-                      <span>{stg.title}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {/* Stage Stepper Tabs - Only for standard comprehensive checklist (37 sections) */}
+              {checklistSections.length >= 25 && (
+                <div className={styles.stageStepper}>
+                  {CHECKLIST_STAGES.map((stg) => {
+                    const isActive = selectedStage === stg.id;
+                    return (
+                      <button
+                        key={stg.id}
+                        type="button"
+                        className={`${styles.stageBtn} ${isActive ? styles.stageBtnActive : ''}`}
+                        onClick={() => {
+                          setSelectedStage(stg.id);
+                          setSearchQuery('');
+                        }}
+                      >
+                        <span>{stg.icon}</span>
+                        <span>{stg.title}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Instant Search Bar */}
               <div>
@@ -2297,38 +2239,186 @@ export function MissionExecutionForm({
                                   <p style={{ margin: 0, fontSize: '13.5px', color: '#37474f', lineHeight: '1.6', fontWeight: 'bold', textAlign: 'right', flex: 1 }}>
                                     {item.text}
                                   </p>
-                                  <span
-                                    style={{
-                                      fontSize: '10px',
-                                      fontWeight: 'bold',
-                                      color: item.violation_priority === 'critical' ? '#d32f2f' : item.violation_priority === 'high' ? '#e65100' : '#f57c00',
-                                      background: item.violation_priority === 'critical' ? '#ffebee' : '#fff3e0',
-                                      padding: '2px 6px',
-                                      borderRadius: '4px',
-                                      flexShrink: 0
-                                    }}
-                                  >
-                                    {item.violation_priority === 'critical' ? 'حرجة' : item.violation_priority === 'high' ? 'عالية' : item.violation_priority === 'medium' ? 'متوسطة' : 'بسيطة'}
-                                  </span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                                    <span
+                                      style={{
+                                        fontSize: '11px',
+                                        fontWeight: 'bold',
+                                        color: '#1565c0',
+                                        background: '#e3f2fd',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px'
+                                      }}
+                                    >
+                                      الوزن: {item.score_max_value}%
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontSize: '10px',
+                                        fontWeight: 'bold',
+                                        color: item.violation_priority === 'critical' ? '#d32f2f' : item.violation_priority === 'high' ? '#e65100' : '#f57c00',
+                                        background: item.violation_priority === 'critical' ? '#ffebee' : '#fff3e0',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px'
+                                      }}
+                                    >
+                                      {item.violation_priority === 'critical' ? 'حرجة' : item.violation_priority === 'high' ? 'عالية' : item.violation_priority === 'medium' ? 'متوسطة' : 'بسيطة'}
+                                    </span>
+                                  </div>
                                 </div>
 
                                 {/* Answers Touch Grid */}
                                 <div style={{ marginTop: '4px', width: '100%' }}>
+                                  {/* 1. Rating 5 Stars */}
+                                  {answerType === 'rating_5' && (
+                                    <div style={{ background: '#ffffff', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cfdcde', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                          {[1, 2, 3, 4, 5].map((star) => {
+                                            const starVal = Number(currentAnswer) || 0
+                                            const isFilled = starVal >= star
+                                            return (
+                                              <button
+                                                key={star}
+                                                type="button"
+                                                onClick={() => handleAnswerChangeCustom(item.id, star, star >= 3, item.violation_priority, item.correction_dept, item.text)}
+                                                style={{ background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px' }}
+                                              >
+                                                <Star size={30} fill={isFilled ? '#f59e0b' : 'transparent'} color={isFilled ? '#f59e0b' : '#cbd5e1'} />
+                                              </button>
+                                            )
+                                          })}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          className={`${styles.answerBtn} ${currentAnswer === 'na' ? styles.naActive : ''}`}
+                                          style={{ minWidth: '70px', padding: '4px 10px', fontSize: '11px' }}
+                                          onClick={() => handleAnswerChange(item.id, 'na', item.violation_priority, item.correction_dept, item.text)}
+                                        >
+                                          لا ينطبق
+                                        </button>
+                                      </div>
+                                      <span style={{ fontSize: '11.5px', color: '#64748b' }}>
+                                        {currentAnswer && typeof currentAnswer === 'number'
+                                          ? `التقييم المسجل: ${currentAnswer} من 5 نجوم (الدرجة المكتسبة: ${((currentAnswer / 5) * (item.score_max_value || 2)).toFixed(1)}%)`
+                                          : 'اضغط على النجوم لتسجيل التقييم'}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* 2. Percentage Range Slider */}
+                                  {answerType === 'percentage' && (
+                                    <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '8px', border: '1px solid #cfdcde', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#1e293b' }}>
+                                          نسبة التحقق المقدرة: <strong style={{ color: 'var(--brand)', fontSize: '14px' }}>{typeof currentAnswer === 'number' ? `${currentAnswer}%` : 'لم تحدد'}</strong>
+                                        </span>
+                                        <button
+                                          type="button"
+                                          className={`${styles.answerBtn} ${currentAnswer === 'na' ? styles.naActive : ''}`}
+                                          style={{ minWidth: '70px', padding: '4px 10px', fontSize: '11px' }}
+                                          onClick={() => handleAnswerChange(item.id, 'na', item.violation_priority, item.correction_dept, item.text)}
+                                        >
+                                          لا ينطبق
+                                        </button>
+                                      </div>
+                                      <input
+                                        type="range"
+                                        min={0}
+                                        max={100}
+                                        step={5}
+                                        value={typeof currentAnswer === 'number' ? currentAnswer : 50}
+                                        onChange={(e) => {
+                                          const v = Number(e.target.value)
+                                          handleAnswerChangeCustom(item.id, v, v >= 50, item.violation_priority, item.correction_dept, item.text)
+                                        }}
+                                        style={{ width: '100%', cursor: 'pointer' }}
+                                      />
+                                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {[0, 25, 50, 75, 100].map((pct) => (
+                                          <button
+                                            key={pct}
+                                            type="button"
+                                            onClick={() => handleAnswerChangeCustom(item.id, pct, pct >= 50, item.violation_priority, item.correction_dept, item.text)}
+                                            style={{
+                                              flex: 1,
+                                              padding: '4px 6px',
+                                              borderRadius: '6px',
+                                              fontSize: '11px',
+                                              fontWeight: 'bold',
+                                              border: currentAnswer === pct ? '2px solid var(--brand)' : '1px solid #e2e8f0',
+                                              background: currentAnswer === pct ? '#e0f2fe' : '#f8fafc',
+                                              color: currentAnswer === pct ? 'var(--brand)' : '#475569',
+                                              cursor: 'pointer'
+                                            }}
+                                          >
+                                            {pct}%
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* 3. Availability Check (3 Realistic States) */}
+                                  {answerType === 'availability' && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
+                                      <button
+                                        type="button"
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'متوفر ومطابق' || currentAnswer === 'available' || currentAnswer === 'yes') ? styles.yesActive : ''}`}
+                                        onClick={() => handleAnswerChangeCustom(item.id, 'متوفر ومطابق', true, item.violation_priority, item.correction_dept, item.text)}
+                                      >
+                                        ✓ متوفر ومطابق
+                                      </button>
+                                      <button
+                                        type="button"
+                                        style={{
+                                          padding: '8px 10px',
+                                          borderRadius: '8px',
+                                          border: currentAnswer === 'متوفر وغير مطابق' ? '2px solid #f57c00' : '1px solid #fed7aa',
+                                          background: currentAnswer === 'متوفر وغير مطابق' ? '#fff7ed' : '#ffffff',
+                                          color: '#c2410c',
+                                          fontWeight: 'bold',
+                                          fontSize: '12px',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.15s'
+                                        }}
+                                        onClick={() => handleAnswerChangeCustom(item.id, 'متوفر وغير مطابق', false, item.violation_priority, item.correction_dept, item.text)}
+                                      >
+                                        ⚠️ متوفر وغير مطابق
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'غير متوفر' || currentAnswer === 'not_available' || currentAnswer === 'no') ? styles.noActive : ''}`}
+                                        onClick={() => handleAnswerChangeCustom(item.id, 'غير متوفر', false, item.violation_priority, item.correction_dept, item.text)}
+                                      >
+                                        ✕ غير متوفر
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'na' || currentAnswer === 'لا ينطبق') ? styles.naActive : ''}`}
+                                        onClick={() => handleAnswerChange(item.id, 'na', item.violation_priority, item.correction_dept, item.text)}
+                                      >
+                                        لا ينطبق
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {/* 4. Binary Yes/No */}
                                   {answerType === 'yes_no' && optionsList.length <= 3 && (
                                     <div className={styles.radioGroup}>
                                       <button
                                         type="button"
-                                        className={`${styles.answerBtn} ${(currentAnswer === 'yes' || currentAnswer === 'مطابق' || currentAnswer === 'ملتزم') ? styles.yesActive : ''}`}
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'yes' || currentAnswer === 'نعم' || currentAnswer === 'مطابق' || currentAnswer === 'ملتزم') ? styles.yesActive : ''}`}
                                         onClick={() => handleAnswerChange(item.id, 'yes', item.violation_priority, item.correction_dept, item.text)}
                                       >
-                                        مطابق
+                                        ✓ نعم / مطابق
                                       </button>
                                       <button
                                         type="button"
-                                        className={`${styles.answerBtn} ${(currentAnswer === 'no' || currentAnswer === 'غير مطابق' || currentAnswer === 'غير ملتزم') ? styles.noActive : ''}`}
+                                        className={`${styles.answerBtn} ${(currentAnswer === 'no' || currentAnswer === 'لا' || currentAnswer === 'غير مطابق' || currentAnswer === 'غير ملتزم') ? styles.noActive : ''}`}
                                         onClick={() => handleAnswerChange(item.id, 'no', item.violation_priority, item.correction_dept, item.text)}
                                       >
-                                        غير مطابق
+                                        ✕ لا / غير مطابق
                                       </button>
                                       <button
                                         type="button"
@@ -2498,16 +2588,141 @@ export function MissionExecutionForm({
           <label style={{ display: 'grid', gap: '6px', fontSize: '13px', fontWeight: 'bold', color: '#37474f' }}>
             الإدارة المختصة بالتصحيح *
             <SearchableAddableSelect
-              options={localCorrectionUnits.map((unit) => ({
-                value: unit.name,
-                label: unit.name
-              }))}
+              options={correctionUnitOptions}
               value={correctionUnit}
               onChange={(val) => setCorrectionUnit(val)}
               placeholder="اختر أو ابحث عن الإدارة للتصحيح..."
               onAdd={handleAddCorrectionUnit}
             />
           </label>
+        </div>
+      </section>
+
+      {/* 2-Column Side-by-Side Bottom Section: Execution Notes & Mission Recommendations */}
+      <section style={{
+        background: '#ffffff',
+        border: '1px solid #cfdcde',
+        borderRadius: '12px',
+        padding: '18px',
+        marginBottom: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.03)'
+      }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '16px',
+          alignItems: 'start'
+        }}>
+          {/* Column 1: Execution Notes */}
+          <div style={{ display: 'grid', gap: '8px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#1e293b', fontSize: '14px', fontWeight: 'bold' }}>
+              <span>📝 ملاحظات التنفيذ الميداني</span>
+            </label>
+            <textarea
+              value={executionNotes}
+              onChange={(event) => setExecutionNotes(event.target.value)}
+              rows={5}
+              placeholder="اكتب أي ملاحظات عامة حول تنفيذ المأمورية وسير العمل..."
+              style={{
+                width: '100%',
+                background: '#f8fbfb',
+                border: '1px solid #cfdcde',
+                borderRadius: '8px',
+                color: '#102027',
+                font: 'inherit',
+                padding: '10px 12px',
+                resize: 'vertical',
+                minHeight: '110px'
+              }}
+            />
+          </div>
+
+          {/* Column 2: Mission Recommendations with @ Mention */}
+          <div style={{ position: 'relative', display: 'grid', gap: '8px' }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#1e293b', fontSize: '14px', fontWeight: 'bold' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>📋 توصيات وقرارات المأمورية الميدانية</span>
+                <span style={{ color: '#e53935', fontSize: '12px', fontWeight: 'bold' }}>* (إلزامي)</span>
+              </span>
+              <span style={{ fontSize: '11.5px', color: '#006d77', background: '#e0f2f1', padding: '2px 8px', borderRadius: '12px', fontWeight: 'normal' }}>
+                💡 اكتب @ للإشارة لمسؤول
+              </span>
+            </label>
+            
+            <div style={{ position: 'relative' }}>
+              <textarea
+                id="recommendations-textarea"
+                value={recommendations}
+                onChange={handleRecommendationsChange}
+                onKeyDown={handleRecommendationsKeyDown}
+                required
+                rows={5}
+                placeholder="اكتب توصيات وقرارات المأمورية (إلزامي) - مثال: يرجى التنبيه على @د. أحمد بمتابعة إجراءات التصحيح..."
+                style={{
+                  width: '100%',
+                  background: '#f8fbfb',
+                  border: '1.5px solid #cfdcde',
+                  borderRadius: '8px',
+                  color: '#102027',
+                  font: 'inherit',
+                  padding: '10px 12px',
+                  resize: 'vertical',
+                  minHeight: '110px'
+                }}
+              />
+              
+              {mentionOpen && filteredUsers.length > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  right: '0',
+                  left: '0',
+                  zIndex: 50,
+                  marginBottom: '6px',
+                  maxHeight: '220px',
+                  overflowY: 'auto',
+                  background: 'rgba(255, 255, 255, 0.98)',
+                  backdropFilter: 'blur(8px)',
+                  border: '1px solid #006d77',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 20px rgba(0, 109, 119, 0.15)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: '4px'
+                }}>
+                  {filteredUsers.map((u, index) => {
+                    const isActive = index === mentionActiveIndex
+                    return (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => insertMention(u)}
+                        onMouseEnter={() => setMentionActiveIndex(index)}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          padding: '8px 12px',
+                          background: isActive ? '#e0f2f1' : 'transparent',
+                          border: 0,
+                          borderBottom: '1px solid #f0f4f4',
+                          cursor: 'pointer',
+                          textAlign: 'right',
+                          width: '100%',
+                          transition: 'background 0.1s'
+                        }}
+                      >
+                        <strong style={{ fontSize: '13px', color: '#102027' }}>{u.full_name}</strong>
+                        <span style={{ fontSize: '11px', color: '#546e7a' }}>
+                          {u.role_title || u.role} {u.department ? `(${u.department})` : ''} {u.governorate_name ? `• ${u.governorate_name}` : ''}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2629,7 +2844,40 @@ export function MissionExecutionForm({
         </div>
       )}
 
+      {/* Bottom Sticky Action Bar with Immediate Alerts */}
       <div className={styles.mobileStickyBar}>
+        {/* Floating Quick Alert Banner if error exists */}
+        {error && (
+          <div style={{
+            position: 'absolute',
+            bottom: '100%',
+            left: '12px',
+            right: '12px',
+            marginBottom: '8px',
+            background: '#fef2f2',
+            border: '1px solid #f87171',
+            borderRadius: '8px',
+            padding: '8px 12px',
+            color: '#b91c1c',
+            fontSize: '12.5px',
+            fontWeight: 'bold',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px'
+          }}>
+            <span>⚠️ {error}</span>
+            <button
+              type="button"
+              onClick={() => setError('')}
+              style={{ background: 'transparent', border: 0, color: '#b91c1c', cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         <div 
           style={{ display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer' }}
           onClick={() => setShowLiveScoreModal(true)}
@@ -2664,7 +2912,7 @@ export function MissionExecutionForm({
             type="button"
             className={styles.complete}
             disabled={loading}
-            onClick={() => save('completed')}
+            onClick={handleInitiateComplete}
             style={{
               background: 'var(--brand)',
               color: 'white',
@@ -2684,6 +2932,297 @@ export function MissionExecutionForm({
           </button>
         </div>
       </div>
+
+      {/* Confirmation Before Final Completion Modal */}
+      {showConfirmSubmitModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px',
+          direction: 'rtl'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '520px',
+            width: '100%',
+            padding: '28px 24px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+            textAlign: 'center',
+            display: 'grid',
+            gap: '16px',
+            animation: 'fadeIn 0.2s ease-out'
+          }}>
+            <div style={{
+              width: '68px',
+              height: '68px',
+              borderRadius: '50%',
+              background: '#e0f2fe',
+              border: '2px solid #7dd3fc',
+              color: '#0284c7',
+              fontSize: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto'
+            }}>
+              📋
+            </div>
+
+            <div>
+              <h2 style={{ fontSize: '19px', fontWeight: 'bold', color: '#0f172a', margin: '0 0 6px' }}>
+                تأكيد اعتماد التقرير وإغلاق المأمورية
+              </h2>
+              <p style={{ fontSize: '13px', color: '#475569', margin: 0, lineHeight: '1.6' }}>
+                هل أنت متأكد من رغبتك في اعتماد وإغلاق تقرير المأمورية نهائياً؟
+                <br />
+                <span style={{ color: '#006d77', fontWeight: 'bold' }}>
+                  أم ترغب في مراجعة بنود أخرى أو تقييم استمارات إضافية لنفس المنشأة؟
+                </span>
+              </p>
+            </div>
+
+            {/* Quick Status Pill */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '8px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '10px'
+            }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>المنشأة المزارة</span>
+                <strong style={{ fontSize: '12px', color: '#1e293b' }}>
+                  {selectedFacility?.name || 'المنشأة المعتمدة'}
+                </strong>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>البنود المقيّمة</span>
+                <strong style={{ fontSize: '13px', color: '#006d77' }}>
+                  {liveScoreStats.answeredCount} بند 📊
+                </strong>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>المخالفات المرصودة</span>
+                <strong style={{ fontSize: '13px', color: liveScoreStats.violationsCount > 0 ? '#dc2626' : '#059669' }}>
+                  {liveScoreStats.violationsCount > 0 ? `${liveScoreStats.violationsCount} مخالفة` : 'لا توجد'}
+                </strong>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'grid', gap: '8px', marginTop: '6px' }}>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  setShowConfirmSubmitModal(false)
+                  save('completed')
+                }}
+                style={{
+                  background: '#006d77',
+                  color: 'white',
+                  border: 0,
+                  borderRadius: '10px',
+                  padding: '12px 18px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(0, 109, 119, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                {loading ? 'جاري الاعتماد...' : '✅ نعم، اعتماد وإغلاق المأمورية نهائياً'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConfirmSubmitModal(false)
+                  const el = document.getElementById('approved-checklist-section')
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }
+                }}
+                style={{
+                  background: '#fffbeb',
+                  color: '#b45309',
+                  border: '1.5px solid #fde68a',
+                  borderRadius: '10px',
+                  padding: '11px 18px',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                📝 اختيار استمارة / أقسام أخرى للمراجعة والتقييم
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowConfirmSubmitModal(false)}
+                style={{
+                  background: 'transparent',
+                  color: '#64748b',
+                  border: 'none',
+                  padding: '8px 12px',
+                  fontSize: '12.5px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                إلغاء والعودة
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Completion Success Modal */}
+      {showSuccessModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '16px',
+          direction: 'rtl'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            maxWidth: '480px',
+            width: '100%',
+            padding: '28px 24px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+            textAlign: 'center',
+            display: 'grid',
+            gap: '16px',
+            animation: 'fadeIn 0.2s ease-out'
+          }}>
+            <div style={{
+              width: '72px',
+              height: '72px',
+              borderRadius: '50%',
+              background: '#ecfdf5',
+              border: '2px solid #a7f3d0',
+              color: '#059669',
+              fontSize: '36px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto'
+            }}>
+              ✅
+            </div>
+
+            <div>
+              <h2 style={{ fontSize: '20px', fontWeight: 'bold', color: '#064e3b', margin: '0 0 6px' }}>
+                تم اعتماد وإرسال تقرير المأمورية بنجاح!
+              </h2>
+              <p style={{ fontSize: '13px', color: '#4b5563', margin: 0 }}>
+                تم توثيق الحضور الجغرافي وحفظ كافة بنود التقييم والملاحظات والتوصيات بنجاح.
+              </p>
+            </div>
+
+            {/* Quick Stats Summary */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '8px',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '12px'
+            }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>نسبة الامتثال</span>
+                <strong style={{ fontSize: '16px', color: liveScoreStats.overallPct >= 80 ? '#059669' : '#d97706' }}>
+                  {liveScoreStats.overallPct}%
+                </strong>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>البنود المقيّمة</span>
+                <strong style={{ fontSize: '16px', color: '#006d77' }}>
+                  {liveScoreStats.answeredCount}
+                </strong>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>المخالفات</span>
+                <strong style={{ fontSize: '16px', color: liveScoreStats.violationsCount > 0 ? '#dc2626' : '#059669' }}>
+                  {liveScoreStats.violationsCount}
+                </strong>
+              </div>
+            </div>
+
+            {/* Navigation Buttons */}
+            <div style={{ display: 'grid', gap: '8px', marginTop: '6px' }}>
+              <button
+                type="button"
+                onClick={() => router.push(`/dashboard/missions/${mission.id}/print`)}
+                style={{
+                  background: '#006d77',
+                  color: 'white',
+                  border: 0,
+                  borderRadius: '10px',
+                  padding: '12px 18px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(0, 109, 119, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }}
+              >
+                🖨️ عرض وطباعة التقرير الفني المعتمد
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard/missions')}
+                style={{
+                  background: '#f1f5f9',
+                  color: '#334155',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '10px',
+                  padding: '10px 18px',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                📋 العودة إلى جدول المأموريات
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

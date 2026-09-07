@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, X, Mail, Phone, Hash, Search, Shield, Activity, MapPin, BadgeCheck, Filter, Trash2, LayoutGrid, List, Copy, Check, FileSpreadsheet, Edit2, Key } from 'lucide-react'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
+import { formatFacilityType } from '@/lib/facility-types'
 
 
 type UserRow = {
@@ -1920,7 +1921,7 @@ export function UserPortal({
                 <option value="">-- اختياري: تسكين على منشأة طبية محددة --</option>
                 {filteredFacilitiesForAdd.slice(0, 500).map((fac) => (
                   <option key={fac.id} value={fac.id}>
-                    🏥 {fac.name} {fac.facility_type ? `[${fac.facility_type}]` : ''} {fac.health_admin ? `• ${fac.health_admin}` : ''} {fac.governorate ? `• ${fac.governorate}` : ''}
+                    🏥 {fac.name} {fac.facility_type ? `[${formatFacilityType(fac.facility_type)}]` : ''} {fac.health_admin ? `• ${fac.health_admin}` : ''} {fac.governorate ? `• ${fac.governorate}` : ''}
                   </option>
                 ))}
               </select>
@@ -2614,7 +2615,7 @@ export function UserPortal({
                 <option value="">-- اختياري: تسكين على منشأة طبية محددة --</option>
                 {filteredFacilitiesForEdit.slice(0, 500).map((fac) => (
                   <option key={fac.id} value={fac.id}>
-                    🏥 {fac.name} {fac.facility_type ? `[${fac.facility_type}]` : ''} {fac.health_admin ? `• ${fac.health_admin}` : ''} {fac.governorate ? `• ${fac.governorate}` : ''}
+                    🏥 {fac.name} {fac.facility_type ? `[${formatFacilityType(fac.facility_type)}]` : ''} {fac.health_admin ? `• ${fac.health_admin}` : ''} {fac.governorate ? `• ${fac.governorate}` : ''}
                   </option>
                 ))}
               </select>
