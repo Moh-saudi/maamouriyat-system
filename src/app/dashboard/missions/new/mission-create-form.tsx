@@ -123,29 +123,31 @@ function missionDuration(startDate: string, endDate: string) {
 
 const PURPOSE_TEMPLATES = {
   general: [
-    { label: 'مرور مفاجئ وانضباط', text: 'مرور مفاجئ لتقييم انضباط الأطقم الطبية، ومتابعة جودة تقديم الخدمة للمواطنين بالاستقبال والعيادات الخارجية.' },
-    { label: 'تقييم كفاءة الطوارئ', text: 'فحص انتظام العمل بنوبتجيات الطوارئ والعمليات، ورصد كفاءة التجهيزات والأجهزة الطبية الحرجة.' },
-    { label: 'توجيهات ورصد أداء', text: 'معاينة الخدمات الطبية العلاجية ومطابقة الحضور الفعلي للأطباء الاستشاريين والتأكد من جداول النوبتجية.' }
+    { label: 'مرور مفاجئ وانضباط', text: 'مرور ميداني مفاجئ لمتابعة الانضباط وتواجد الأطقم الطبية والإدارية، وتقييم جودة تقديم الخدمات للمواطنين.' },
+    { label: 'متابعة سير العمل والخدمات', text: 'متابعة انتظام تقديم الخدمات الصحية للمنتفعين، ورصد الاحتياجات والمعوقات الميدانية وسرعة تلافيها.' },
+    { label: 'مؤشرات الأداء والتردد', text: 'متابعة معدلات التردد اليومي للمواطنين، ومراجعة سجلات الكشف الطبي والخدمات المقدمة.' }
   ],
-  infection: [
-    { label: 'بروتوكولات التطهير والنفايات', text: 'تقييم التزام الأقسام الحرجة (الرعاية، العمليات، الحضانات) ببروتوكولات مكافحة العدوى والتعقيم وسياسات التخلص الآمن من النفايات.' },
-    { label: 'تعقيم عيادات الجراحة', text: 'متابعة تطبيق شروط السلامة والصحة المهنية وتطهير عيادات الأسنان وأدوات الجراحة الفورية.' }
+  primary_care: [
+    { label: 'طب الأسرة والمبادرات', text: 'متابعة انتظام خدمات طب الأسرة والمبادرات الرئاسية الصحية والتسجيل الإلكتروني للملفات العائلية.' },
+    { label: 'التطعيمات وصحة الأم والطفل', text: 'متابعة جلسات التطعيمات الروتينية للأطفال، وخدمات رعاية الحوامل ومتابعة النمو لحديثي الولادة.' },
+    { label: 'مكاتب الصحة والخدمات الوقائية', text: 'متابعة تسجيل المواليد والوفيات، وتوافر السجلات الدفترية ومطابقتها مع الأنظمة الإلكترونية المعتمدة.' }
   ],
   pharmacy: [
-    { label: 'جرد العهد والنواقص', text: 'جرد العهد الدوائية ومخازن المستلزمات، وحصر حركة النواقص والبدائل العلاجية المتوفرة بصيدلية الطوارئ.' },
-    { label: 'تخزين الأمصال المبرد', text: 'متابعة شروط التخزين الجاف والمبرد للأمصال والطعوم بالصيدليات والمخزن الإقليمي الفرعي.' }
+    { label: 'الأدوية والمستلزمات الأساسية', text: 'فحص توافر الأدوية والمستلزمات الأساسية، وحصر أي نواقص مع توفير البدائل العلاجية المعتمدة.' },
+    { label: 'سلسلة التبريد للطعوم والأمصال', text: 'متابعة كفاءة سلسلة التبريد وثلاجات حفظ الطعوم والأمصال وتسجيل درجات الحرارة مرتين يومياً.' },
+    { label: 'جرد العهد ومطابقة الأرصدة', text: 'مطابقة الأرصدة الفعلية بصيدليات ومخازن المنشأة مع السجلات الدفترية ومنظومة الصرف.' }
   ],
-  maintenance: [
-    { label: 'سلامة شبكات الأكسجين', text: 'التفتيش على كفاءة شبكات الغازات والأكسجين وتوافر المولدات البديلة للكهرباء ومحطات معالجة المياه.' },
-    { label: 'أعطال الأجهزة والأشعة', text: 'فحص خطط الصيانة الوقائية لأقسام الأشعة والرنين المغناطيسي، ومعاينة الغلايات والمصاعد التالفة.' }
+  infection: [
+    { label: 'معايير مكافحة العدوى والتعقيم', text: 'متابعة الالتزام بمعايير مكافحة العدوى والتطهير اليومي، والتخلص الآمن والمنضبط من النفايات الطبية الخطرة.' },
+    { label: 'السلامة والصحة المهنية', text: 'معاينة النظافة العامة والبيئة الصحية للمنشأة وتوافر مهمات الوقاية الشخصية للأطقم العاملة.' }
   ]
 }
 
 const NOTES_TEMPLATES = [
-  { label: 'التوثيق بالـ GPS', text: 'يرجى توثيق الزيارة بالـ GPS وإعداد التقرير المحوكم فور انتهاء المرور وبحد أقصى ٢٤ ساعة.' },
-  { label: 'مطابقة دفاتر الحضور', text: 'يجب مطابقة التزام الأطقم الطبية بجدول النوبتجية ومراجعة الدفاتر الورقية للحضور والانصراف.' },
-  { label: 'استبيان رضا المرضى', text: 'التركيز التام على استبيان رضا المرضى بالاستقبال وحل مشكلات قوائم الانتظار للجراحات الحرجة.' },
-  { label: 'إخطار الشئون العلاجية', text: 'يُرجى إخطار الإدارة المركزية للشئون العلاجية فوراً برصد أي مخالفات جسيمة تهدد سلامة المرضى.' }
+  { label: 'التوثيق بالـ GPS', text: 'يرجى توثيق الزيارة بموقع المنشأة بالـ GPS وإعداد التقرير الميداني فور انتهاء المرور وبحد أقصى ٢٤ ساعة.' },
+  { label: 'مطابقة دفاتر الحضور', text: 'مراجعة الالتزام بجداول ونوبتجيات العمل ومطابقة الحضور الفعلي للأطقم الطبية والإدارية بالدفاتر المعتمدة.' },
+  { label: 'استبيان رضا المواطنين', text: 'الاستماع للمواطنين والمنتفعين واستطلاع آرائهم حول جودة الخدمة المقدمة والتعامل الفوري مع أي ملاحظات.' },
+  { label: 'إخطار الإدارة المشرفة', text: 'يُرجى إخطار الإدارة والقيادات المشرفة فوراً برصد أي معوقات أو ملاحظات حرجة لسرعة اتخاذ اللازم.' }
 ]
 
 type StoredMission = {
@@ -255,7 +257,7 @@ export function MissionCreateForm({
   const [facilitySearch, setFacilitySearch] = useState('')
   
   // Active template category for rapid purpose writing
-  const [activePurposeCategory, setActivePurposeCategory] = useState<'general' | 'infection' | 'pharmacy' | 'maintenance'>('general')
+  const [activePurposeCategory, setActivePurposeCategory] = useState<'general' | 'primary_care' | 'pharmacy' | 'infection'>('general')
   
   // Validation feedback
   const [error, setError] = useState('')
@@ -1882,15 +1884,15 @@ export function MissionCreateForm({
                       whiteSpace: 'nowrap'
                     }}
                   >
-                    📋 تفتيش فني وطبي
+                    📋 مرور ومتابعة عامة
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActivePurposeCategory('infection')}
+                    onClick={() => setActivePurposeCategory('primary_care')}
                     style={{
-                      background: activePurposeCategory === 'infection' ? '#e0f2f1' : '#f5f5f5',
-                      color: activePurposeCategory === 'infection' ? 'var(--brand)' : '#546e7a',
-                      border: '1px solid ' + (activePurposeCategory === 'infection' ? '#80cbc4' : '#e0e0e0'),
+                      background: activePurposeCategory === 'primary_care' ? '#e0f2f1' : '#f5f5f5',
+                      color: activePurposeCategory === 'primary_care' ? 'var(--brand)' : '#546e7a',
+                      border: '1px solid ' + (activePurposeCategory === 'primary_care' ? '#80cbc4' : '#e0e0e0'),
                       borderRadius: '20px',
                       padding: '4px 10px',
                       fontSize: '11px',
@@ -1899,7 +1901,7 @@ export function MissionCreateForm({
                       whiteSpace: 'nowrap'
                     }}
                   >
-                    🦠 مكافحة عدوى
+                    🩺 رعاية أساسية وطب أسرة
                   </button>
                   <button
                     type="button"
@@ -1916,15 +1918,15 @@ export function MissionCreateForm({
                       whiteSpace: 'nowrap'
                     }}
                   >
-                    💊 تموين وصيدليات
+                    💊 أدوية وطعوم ومستلزمات
                   </button>
                   <button
                     type="button"
-                    onClick={() => setActivePurposeCategory('maintenance')}
+                    onClick={() => setActivePurposeCategory('infection')}
                     style={{
-                      background: activePurposeCategory === 'maintenance' ? '#e0f2f1' : '#f5f5f5',
-                      color: activePurposeCategory === 'maintenance' ? 'var(--brand)' : '#546e7a',
-                      border: '1px solid ' + (activePurposeCategory === 'maintenance' ? '#80cbc4' : '#e0e0e0'),
+                      background: activePurposeCategory === 'infection' ? '#e0f2f1' : '#f5f5f5',
+                      color: activePurposeCategory === 'infection' ? 'var(--brand)' : '#546e7a',
+                      border: '1px solid ' + (activePurposeCategory === 'infection' ? '#80cbc4' : '#e0e0e0'),
                       borderRadius: '20px',
                       padding: '4px 10px',
                       fontSize: '11px',
@@ -1933,7 +1935,7 @@ export function MissionCreateForm({
                       whiteSpace: 'nowrap'
                     }}
                   >
-                    🔧 صيانة وتشغيل
+                    🛡️ مكافحة عدوى وبيئة العمل
                   </button>
                 </div>
 
