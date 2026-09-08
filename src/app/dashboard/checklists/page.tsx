@@ -1678,8 +1678,42 @@ export default function ChecklistsPage() {
                                   #{idx + 1}
                                 </span>
                                 <div>
-                                  <div style={{ fontSize: '13px', color: '#263238', fontWeight: '600', lineHeight: '1.5' }}>
-                                    {criterion.criterion_text}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: '13px', color: '#263238', fontWeight: '600', lineHeight: '1.5' }}>
+                                      {criterion.criterion_text}
+                                    </span>
+                                    {criterion.requires_photo && (
+                                      <span style={{
+                                        fontSize: '10.5px',
+                                        color: '#047857',
+                                        background: '#ecfdf5',
+                                        border: '1px solid #a7f3d0',
+                                        padding: '2px 7px',
+                                        borderRadius: '6px',
+                                        fontWeight: '700',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}>
+                                        📷 صورة إلزامية
+                                      </span>
+                                    )}
+                                    {criterion.requires_note && (
+                                      <span style={{
+                                        fontSize: '10.5px',
+                                        color: '#b45309',
+                                        background: '#fffbeb',
+                                        border: '1px solid #fde68a',
+                                        padding: '2px 7px',
+                                        borderRadius: '6px',
+                                        fontWeight: '700',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}>
+                                        📝 ملاحظة إلزامية
+                                      </span>
+                                    )}
                                   </div>
                                   {criterion.guidance && (
                                     <div style={{ fontSize: '11px', color: '#78909c', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -3226,9 +3260,43 @@ export default function ChecklistsPage() {
                                     }}>
                                       {cIdx + 1}
                                     </span>
-                                    <span style={{ fontSize: '13.5px', fontWeight: '600', color: '#0f172a', lineHeight: '1.5' }}>
-                                      {c.criterion_text}
-                                    </span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
+                                      <span style={{ fontSize: '13.5px', fontWeight: '600', color: '#0f172a', lineHeight: '1.5' }}>
+                                        {c.criterion_text}
+                                      </span>
+                                      {c.requires_photo && (
+                                        <span style={{
+                                          fontSize: '10.5px',
+                                          color: '#047857',
+                                          background: '#ecfdf5',
+                                          border: '1px solid #a7f3d0',
+                                          padding: '2px 7px',
+                                          borderRadius: '6px',
+                                          fontWeight: '700',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '3px'
+                                        }}>
+                                          📷 صورة إلزامية
+                                        </span>
+                                      )}
+                                      {c.requires_note && (
+                                        <span style={{
+                                          fontSize: '10.5px',
+                                          color: '#b45309',
+                                          background: '#fffbeb',
+                                          border: '1px solid #fde68a',
+                                          padding: '2px 7px',
+                                          borderRadius: '6px',
+                                          fontWeight: '700',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '3px'
+                                        }}>
+                                          📝 ملاحظة إلزامية
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
 
                                   <span style={{

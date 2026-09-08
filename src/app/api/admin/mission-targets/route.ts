@@ -43,29 +43,47 @@ export type MissionTarget = {
   completion_rate?: number
 }
 
+import defaultTargetsData from '@/data/mission-targets.json'
+
 // ─── Data File ───────────────────────────────────────────────────────────────
 const DATA_PATH = path.join(process.cwd(), 'src', 'data', 'mission-targets.json')
 
 function readTargets(): MissionTarget[] {
   try {
-    if (!fs.existsSync(DATA_PATH)) return []
-    return JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'))
-  } catch {
-    return []
+    if (fs.existsSync(DATA_PATH)) {
+      const content = fs.readFileSync(DATA_PATH, 'utf8')
+      return JSON.parse(content)
+    }
+  } catch (e) {
+    console.warn('Could not read dynamic targets from fs, falling back to bundled data:', e)
   }
+  return (defaultTargetsData as unknown as MissionTarget[]) || []
 }
 
 function writeTargets(targets: MissionTarget[]) {
-  const dir = path.dirname(DATA_PATH)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(DATA_PATH, JSON.stringify(targets, null, 2), 'utf8')
+  try {
+    const dir = path.dirname(DATA_PATH)
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(DATA_PATH, JSON.stringify(targets, null, 2), 'utf8')
+  } catch (e) {
+    console.warn('Could not write targets to disk (read-only filesystem in serverless):', e)
+  }
 }
 
 // ─── Supabase Client ──────────────────────────────────────────────────────────
 function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://upxmlpiemqdfbhyipihh.supabase.co'
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || 
+              process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 
+              process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+              ''
+  if (!url || !key) return null
+  try {
+    return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
+  } catch (e) {
+    console.error('Failed to create Supabase client:', e)
+    return null
+  }
 }
 
 // ─── Helper: Count executed missions & enrich facility status ────────────────
@@ -73,6 +91,7 @@ async function enrichTargetExecution(
   admin: ReturnType<typeof getAdminClient>,
   target: MissionTarget
 ): Promise<{ executed: number; facilities?: TargetFacility[] }> {
+  if (!admin) return { executed: 0, facilities: target.target_facilities }
   try {
     // 1. If specific facilities are targeted: check each facility individually
     if (target.target_type === 'specific_facilities' && target.target_facilities && target.target_facilities.length > 0) {
@@ -184,7 +203,7 @@ export async function GET(request: Request) {
       const serverClient = await createServerSupabaseClient()
       if (serverClient) {
         const { data: { user } } = await serverClient.auth.getUser()
-        if (user) {
+        if (user && admin) {
           const { data: profile } = await admin
             .from('users')
             .select('id, full_name, level, org_level, sector_id, organization_id')
@@ -258,7 +277,7 @@ export async function GET(request: Request) {
 
     // Fetch subordinate users (who caller is allowed to set targets for)
     let users: any[] = []
-    if (callerLevel <= 6) {
+    if (admin && callerLevel <= 6) {
       let usersQuery = admin
         .from('users')
         .select('id, full_name, job_title, level, org_level, sector_id, organization_id')
@@ -284,7 +303,7 @@ export async function GET(request: Request) {
 
     // Fetch facilities available for facility-based target selection
     let facilities: any[] = []
-    if (callerLevel <= 6) {
+    if (admin && callerLevel <= 6) {
       let facQuery = admin
         .from('facilities')
         .select('id, name, facility_type, governorate, health_admin, sector_id')
@@ -364,7 +383,15 @@ export async function GET(request: Request) {
       report,
     })
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    console.error('Error in /api/admin/mission-targets GET:', err)
+    return NextResponse.json({
+      targets: readTargets(),
+      users: [],
+      facilities: [],
+      callerLevel: 1,
+      report: null,
+      error: err?.message || 'Internal Server Error',
+    }, { status: 200 })
   }
 }
 
@@ -377,6 +404,8 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const admin = getAdminClient()
+    if (!admin) return NextResponse.json({ error: 'Supabase service is unavailable' }, { status: 503 })
+
     const { data: profile } = await admin
       .from('users')
       .select('id, full_name, level, org_level, sector_id')

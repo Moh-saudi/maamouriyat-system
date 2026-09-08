@@ -673,7 +673,9 @@ export function MissionExecutionForm({
                   score_mid_value: Number(c.score_mid_value) || ((Number(c.score_max_value) || 2) * 0.5),
                   score_0_label: zeroLabel,
                   score_mid_label: midLabel,
-                  score_max_label: maxLabel
+                  score_max_label: maxLabel,
+                  requires_photo: Boolean(c.requires_photo),
+                  requires_note: Boolean(c.requires_note)
                 }
               })
 
@@ -2236,9 +2238,51 @@ export function MissionExecutionForm({
                                 }}
                               >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                                  <p style={{ margin: 0, fontSize: '13.5px', color: '#37474f', lineHeight: '1.6', fontWeight: 'bold', textAlign: 'right', flex: 1 }}>
-                                    {item.text}
-                                  </p>
+                                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    <p style={{ margin: 0, fontSize: '13.5px', color: '#37474f', lineHeight: '1.6', fontWeight: 'bold', textAlign: 'right' }}>
+                                      {item.text}
+                                    </p>
+                                    {(item.requires_photo || item.requires_note) && (
+                                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+                                        {item.requires_photo && (
+                                          <span
+                                            style={{
+                                              fontSize: '10.5px',
+                                              fontWeight: 'bold',
+                                              color: '#047857',
+                                              background: '#ecfdf5',
+                                              border: '1px solid #a7f3d0',
+                                              padding: '2px 7px',
+                                              borderRadius: '4px',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '3px'
+                                            }}
+                                          >
+                                            📷 صورة إلزامية
+                                          </span>
+                                        )}
+                                        {item.requires_note && (
+                                          <span
+                                            style={{
+                                              fontSize: '10.5px',
+                                              fontWeight: 'bold',
+                                              color: '#b45309',
+                                              background: '#fffbeb',
+                                              border: '1px solid #fde68a',
+                                              padding: '2px 7px',
+                                              borderRadius: '4px',
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '3px'
+                                            }}
+                                          >
+                                            📝 ملاحظة إلزامية
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                                     <span
                                       style={{

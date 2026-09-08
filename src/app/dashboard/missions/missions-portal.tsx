@@ -138,11 +138,21 @@ export function MissionsPortal({
       try {
         const supabase = createBrowserSupabaseClient()
         if (supabase) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from('violations')
             .select('id, title, description, priority, status, assigned_to_dept, corrective_action_required, deadline')
             .eq('mission_id', auditMission.id)
-          setAuditViolations(data || [])
+          
+          if (error) {
+            console.warn('Violations select error, trying wildcard fallback:', error)
+            const { data: fallbackData } = await supabase
+              .from('violations')
+              .select('*')
+              .eq('mission_id', auditMission.id)
+            setAuditViolations(fallbackData || [])
+          } else {
+            setAuditViolations(data || [])
+          }
         }
       } catch (e) {
         console.error('Error fetching violations for audit:', e)
