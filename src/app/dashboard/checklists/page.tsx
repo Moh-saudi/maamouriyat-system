@@ -174,6 +174,7 @@ export default function ChecklistsPage() {
   const [simAnswers, setSimAnswers] = useState<Record<string, any>>({})
   const [simNotes, setSimNotes] = useState<Record<string, string>>({})
   const [simPhotos, setSimPhotos] = useState<Record<string, boolean>>({})
+  const [simOpenNotes, setSimOpenNotes] = useState<Record<string, boolean>>({})
   const [showSimSummaryModal, setShowSimSummaryModal] = useState(false)
 
   // Load Data
@@ -3535,6 +3536,136 @@ export default function ChecklistsPage() {
                                     </>
                                   )}
                                 </div>
+
+                                {/* Per-Question Action Bar (Note & Photo Sandbox) */}
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  flexWrap: 'wrap',
+                                  gap: '8px',
+                                  marginTop: '8px',
+                                  paddingTop: '8px',
+                                  borderTop: '1px dashed #e2e8f0'
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    {/* Note Toggle Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setSimOpenNotes(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                                      style={{
+                                        background: simNotes[c.id] ? '#fef3c7' : '#f8fafc',
+                                        border: simNotes[c.id] ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
+                                        color: simNotes[c.id] ? '#b45309' : '#334155',
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        fontSize: '11.5px',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                    >
+                                      <span>📝</span>
+                                      <span>{simNotes[c.id] ? 'ملاحظة مدونة ✓' : 'كتابة ملاحظة'}</span>
+                                      {c.requires_note && (
+                                        <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 'bold' }}>*إلزامي</span>
+                                      )}
+                                    </button>
+
+                                    {/* Photo Toggle Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setSimPhotos(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                                      style={{
+                                        background: simPhotos[c.id] ? '#dcfce7' : '#f8fafc',
+                                        border: simPhotos[c.id] ? '1.5px solid #22c55e' : '1px solid #cbd5e1',
+                                        color: simPhotos[c.id] ? '#15803d' : '#334155',
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        fontSize: '11.5px',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                    >
+                                      <Camera size={13} color={simPhotos[c.id] ? '#16a34a' : '#64748b'} />
+                                      <span>{simPhotos[c.id] ? 'تم إرفاق صورة ✓' : 'إرفاق صورة توثيقية'}</span>
+                                      {c.requires_photo && (
+                                        <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 'bold' }}>*إلزامي</span>
+                                      )}
+                                    </button>
+                                  </div>
+
+                                  {/* Status indicator badges */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {c.requires_photo && !simPhotos[c.id] && (
+                                      <span style={{ fontSize: '10px', color: '#047857', background: '#ecfdf5', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                        📷 مطلوب صورة
+                                      </span>
+                                    )}
+                                    {c.requires_note && !simNotes[c.id]?.trim() && (
+                                      <span style={{ fontSize: '10px', color: '#b45309', background: '#fffbeb', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                        📝 مطلوب ملاحظة
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Note Textarea */}
+                                {(simOpenNotes[c.id] || Boolean(simNotes[c.id]) || (c.requires_note && !simNotes[c.id])) && (
+                                  <div style={{ marginTop: '6px' }}>
+                                    <input
+                                      type="text"
+                                      value={simNotes[c.id] || ''}
+                                      onChange={(e) => setSimNotes(prev => ({ ...prev, [c.id]: e.target.value }))}
+                                      placeholder="اكتب هنا ملاحظة أو توثيقاً خاصاً بهذا السؤال تحديداً..."
+                                      style={{
+                                        width: '100%',
+                                        height: '34px',
+                                        boxSizing: 'border-box',
+                                        background: '#ffffff',
+                                        border: c.requires_note && !simNotes[c.id]?.trim() ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
+                                        borderRadius: '6px',
+                                        padding: '0 10px',
+                                        fontSize: '12px',
+                                        color: '#1e293b',
+                                        outline: 'none'
+                                      }}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Photo Preview Indicator */}
+                                {simPhotos[c.id] && (
+                                  <div style={{
+                                    marginTop: '6px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    background: '#f0fdf4',
+                                    border: '1px solid #bbf7d0',
+                                    borderRadius: '6px',
+                                    padding: '5px 10px',
+                                    fontSize: '11px',
+                                    color: '#15803d',
+                                    fontWeight: 'bold'
+                                  }}>
+                                    <span>📷 تم ربط صورة توثيقية تجريبية بهذا المعيار</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSimPhotos(prev => ({ ...prev, [c.id]: false }))}
+                                      style={{ background: 'transparent', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}
+                                    >
+                                      حذف
+                                    </button>
+                                  </div>
+                                )}
 
                                 {/* Interactive Violation Box */}
                                 {isViolation && (

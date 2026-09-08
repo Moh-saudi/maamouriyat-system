@@ -42,7 +42,7 @@ export async function GET(request: Request) {
     const adminClient = getAdminClient()
     const { data, error } = await adminClient
       .from('mission_results')
-      .select('checklist_item_id, answer, notes')
+      .select('checklist_item_id, answer, notes, photo_url')
       .eq('mission_id', missionId)
 
     if (error) {
@@ -73,7 +73,8 @@ export async function GET(request: Request) {
         checklist_item_id: itemId,
         item_id: itemId,
         answer: row.answer,
-        notes
+        notes,
+        photo_url: row.photo_url || null
       }
     })
 
@@ -136,7 +137,8 @@ export async function POST(request: Request) {
           mission_id,
           checklist_item_id,
           answer: r.answer,
-          notes: finalNotes
+          notes: finalNotes,
+          photo_url: r.photo_url || null
         }
       })
 

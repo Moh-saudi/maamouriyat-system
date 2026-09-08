@@ -544,8 +544,8 @@ export function MissionExecutionForm({
   }, [leafletLoaded, inspectorLat, inspectorLng, actualFacilityId, isUnregisteredFacility, showMap])
 
   // Checklist States & Dynamic Resolvers
-  const [answers, setAnswers] = useState<Record<string, { answer: any; notes: string }>>(() => {
-    const initial: Record<string, { answer: any; notes: string }> = {}
+  const [answers, setAnswers] = useState<Record<string, { answer: any; notes: string; photo_url?: string }>>(() => {
+    const initial: Record<string, { answer: any; notes: string; photo_url?: string }> = {}
     if (savedResults && savedResults.length > 0) {
       savedResults.forEach((res: any) => {
         let itemId = res.checklist_item_id || res.item_id
@@ -571,13 +571,18 @@ export function MissionExecutionForm({
         if (itemId) {
           initial[itemId] = {
             answer: res.answer,
-            notes: notes
+            notes: notes,
+            photo_url: res.photo_url || undefined
           }
         }
       })
     }
     return initial
   })
+
+  // Per-question Note and Photo upload states
+  const [uploadingItemPhoto, setUploadingItemPhoto] = useState<Record<string, boolean>>({})
+  const [expandedItemNotes, setExpandedItemNotes] = useState<Record<string, boolean>>({})
 
   const answeredStats = useMemo(() => {
     let answered = 0
@@ -976,7 +981,11 @@ export function MissionExecutionForm({
   ) {
     setAnswers((current) => ({
       ...current,
-      [itemId]: { answer, notes: current[itemId]?.notes || '' }
+      [itemId]: {
+        ...(current[itemId] || {}),
+        answer,
+        notes: current[itemId]?.notes || ''
+      }
     }))
 
     // Auto-populate violation description if not compliant
@@ -1004,7 +1013,11 @@ export function MissionExecutionForm({
   ) {
     setAnswers((current) => ({
       ...current,
-      [itemId]: { answer: answerValue, notes: current[itemId]?.notes || '' }
+      [itemId]: {
+        ...(current[itemId] || {}),
+        answer: answerValue,
+        notes: current[itemId]?.notes || ''
+      }
     }))
 
     // Auto-populate violation description if explicitly marked non-compliant
@@ -1020,6 +1033,157 @@ export function MissionExecutionForm({
       setSuccess('تم رصد عدم التزام! تم نسخ البند تلقائياً إلى صندوق تسجيل المخالفات أدناه للتوجيه والمتابعة.')
       setTimeout(() => setSuccess(''), 5000)
     }
+  }
+
+  const handleItemNoteChange = (itemId: string, noteText: string) => {
+    setAnswers((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || { answer: '' }),
+        notes: noteText
+      }
+    }))
+  }
+
+  const handleUploadItemPhoto = async (itemId: string, file: File) => {
+    if (!file) return
+    setUploadingItemPhoto((prev) => ({ ...prev, [itemId]: true }))
+    setError('')
+    try {
+      let finalFile = file
+      try {
+        finalFile = await imageCompression(file, {
+          maxSizeMB: 0.8,
+          maxWidthOrHeight: 1600,
+          useWebWorker: true
+        })
+      } catch (e) {
+        console.warn('Image compression fallback for item photo:', e)
+      }
+
+      const ext = (finalFile.name.split('.').pop() || 'jpg').toLowerCase()
+      const storagePath = `${mission.id}/items/${itemId}_${Date.now()}.${ext}`
+
+      const formData = new FormData()
+      formData.append('file', finalFile)
+      formData.append('bucket', 'violation-photos')
+      formData.append('path', storagePath)
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!res.ok) {
+        throw new Error('فشل رفع الصورة على خادم التخزين السحابي')
+      }
+
+      const data = await res.json()
+      const publicUrl = data.url
+
+      setAnswers((prev) => ({
+        ...prev,
+        [itemId]: {
+          ...(prev[itemId] || { answer: '' }),
+          photo_url: publicUrl
+        }
+      }))
+      setSuccess('تم رفع صورة توثيق المعيار وحفظها بنجاح.')
+      setTimeout(() => setSuccess(''), 4000)
+    } catch (err: any) {
+      alert('خطأ أثناء رفع الصورة: ' + (err.message || 'فشل الرفع'))
+    } finally {
+      setUploadingItemPhoto((prev) => ({ ...prev, [itemId]: false }))
+    }
+  }
+
+  const handleRemoveItemPhoto = (itemId: string) => {
+    setAnswers((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...(prev[itemId] || { answer: '' }),
+        photo_url: undefined
+      }
+    }))
+  }
+
+  function validateChecklistCompletion(): { valid: boolean; error?: string; targetItemId?: string; targetSectionId?: string } {
+    const allSections = checklistSections
+    if (!allSections || allSections.length === 0) {
+      return { valid: true }
+    }
+
+    const unansweredList: { id: string; text: string; sectionName: string; sectionId: string }[] = []
+    const missingPhotoList: { id: string; text: string; sectionName: string; sectionId: string }[] = []
+    const missingNoteList: { id: string; text: string; sectionName: string; sectionId: string }[] = []
+    let totalCriteria = 0
+
+    allSections.forEach((sec: any) => {
+      const items = sec.items || []
+      items.forEach((item: any) => {
+        totalCriteria++
+        const ansObj = answers[item.id]
+        const hasAnswer = ansObj?.answer !== undefined && ansObj?.answer !== null && ansObj?.answer !== ''
+
+        if (!hasAnswer) {
+          unansweredList.push({
+            id: item.id,
+            text: item.text,
+            sectionName: sec.name || `القسم ${sec.section_number || ''}`,
+            sectionId: sec.id
+          })
+        } else {
+          if (item.requires_photo && !ansObj?.photo_url) {
+            missingPhotoList.push({
+              id: item.id,
+              text: item.text,
+              sectionName: sec.name || `القسم ${sec.section_number || ''}`,
+              sectionId: sec.id
+            })
+          }
+          if (item.requires_note && (!ansObj?.notes || !ansObj.notes.trim())) {
+            missingNoteList.push({
+              id: item.id,
+              text: item.text,
+              sectionName: sec.name || `القسم ${sec.section_number || ''}`,
+              sectionId: sec.id
+            })
+          }
+        }
+      })
+    })
+
+    if (unansweredList.length > 0) {
+      const first = unansweredList[0]
+      return {
+        valid: false,
+        error: `⚠️ لا يمكن اعتماد المأمورية كمنتهية لوجود (${unansweredList.length}) معيار/سؤال لم تتم الإجابة عليه بعد (من إجمالي ${totalCriteria} معيار).\nيجب الإجابة على جميع المعايير أولاً.\nأول معيار غير مجاب: "${first.text}" في [${first.sectionName}].`,
+        targetItemId: first.id,
+        targetSectionId: first.sectionId
+      }
+    }
+
+    if (missingPhotoList.length > 0) {
+      const first = missingPhotoList[0]
+      return {
+        valid: false,
+        error: `📷 المعيار "${first.text}" في [${first.sectionName}] يتطلب إرفاق صورة توثيقية إلزامية قبل اعتماد الاستمارة كمنتهية.`,
+        targetItemId: first.id,
+        targetSectionId: first.sectionId
+      }
+    }
+
+    if (missingNoteList.length > 0) {
+      const first = missingNoteList[0]
+      return {
+        valid: false,
+        error: `📝 المعيار "${first.text}" في [${first.sectionName}] يتطلب كتابة ملاحظة توضيحية إلزامية قبل اعتماد الاستمارة كمنتهية.`,
+        targetItemId: first.id,
+        targetSectionId: first.sectionId
+      }
+    }
+
+    return { valid: true }
   }
 
   async function handlePhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -1114,6 +1278,24 @@ export function MissionExecutionForm({
       return
     }
 
+    // Strict validation: Do not allow completing the mission if any question is unanswered or missing required attachments
+    const validation = validateChecklistCompletion()
+    if (!validation.valid) {
+      setError(validation.error || 'يرجى الإجابة على جميع المعايير والأسئلة أولاً.')
+      if (validation.targetSectionId) {
+        setExpandedSections((prev) => ({ ...prev, [validation.targetSectionId!]: true }))
+      }
+      if (validation.targetItemId) {
+        setTimeout(() => {
+          const el = document.getElementById(`criterion-card-${validation.targetItemId}`)
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }, 120)
+      }
+      return
+    }
+
     setShowConfirmSubmitModal(true)
   }
 
@@ -1155,6 +1337,26 @@ export function MissionExecutionForm({
     if (violationDescription.trim() && !correctionUnit.trim()) {
       setError('يرجى اختيار أو كتابة الإدارة المختصة بالتصحيح.')
       return
+    }
+
+    // Strict enforcement on final completion
+    if (status === 'completed') {
+      const validation = validateChecklistCompletion()
+      if (!validation.valid) {
+        setError(validation.error || 'لا يمكن اعتماد المأمورية كمنتهية قبل الإجابة على جميع المعايير.')
+        if (validation.targetSectionId) {
+          setExpandedSections((prev) => ({ ...prev, [validation.targetSectionId!]: true }))
+        }
+        if (validation.targetItemId) {
+          setTimeout(() => {
+            const el = document.getElementById(`criterion-card-${validation.targetItemId}`)
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+          }, 120)
+        }
+        return
+      }
     }
 
     setLoading(true)
@@ -1370,7 +1572,8 @@ export function MissionExecutionForm({
         item_id: itemId,
         checklist_item_id: itemId,
         answer: val.answer,
-        notes: val.notes || null
+        notes: val.notes || null,
+        photo_url: val.photo_url || null
       }))
 
       try {
@@ -2225,16 +2428,18 @@ export function MissionExecutionForm({
                             return (
                               <div
                                 key={item.id}
+                                id={`criterion-card-${item.id}`}
                                 style={{
                                   display: 'flex',
                                   flexDirection: 'column',
                                   gap: '8px',
                                   padding: '12px',
-                                  background: '#f8fbfb',
-                                  border: '1px solid #cfdcde',
+                                  background: currentAnswer ? '#f8fbfb' : '#ffffff',
+                                  border: currentAnswer ? '1.5px solid #b2dfdb' : '1.5px solid #cfdcde',
                                   borderRadius: '10px',
                                   boxSizing: 'border-box',
-                                  width: '100%'
+                                  width: '100%',
+                                  transition: 'all 0.2s ease'
                                 }}
                               >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
@@ -2539,6 +2744,181 @@ export function MissionExecutionForm({
                                     </div>
                                   )}
                                 </div>
+
+                                {/* Per-Question Note & Photo Action Toolbar */}
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  flexWrap: 'wrap',
+                                  gap: '8px',
+                                  marginTop: '8px',
+                                  paddingTop: '8px',
+                                  borderTop: '1px dashed #cfdcde'
+                                }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    {/* Note Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedItemNotes((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        padding: '5px 11px',
+                                        borderRadius: '6px',
+                                        fontSize: '11.5px',
+                                        fontWeight: 'bold',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s ease',
+                                        background: answers[item.id]?.notes ? '#fef3c7' : '#ffffff',
+                                        border: answers[item.id]?.notes ? '1.5px solid #f59e0b' : '1px solid #cfdcde',
+                                        color: answers[item.id]?.notes ? '#b45309' : '#455a64'
+                                      }}
+                                    >
+                                      <span>📝</span>
+                                      <span>{answers[item.id]?.notes ? 'الملاحظة (مدونة) ✓' : 'كتابة ملاحظة'}</span>
+                                      {item.requires_note && (
+                                        <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 'bold' }}>*إلزامي</span>
+                                      )}
+                                    </button>
+
+                                    {/* Photo Button */}
+                                    <label
+                                      htmlFor={`file-input-${item.id}`}
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '5px',
+                                        padding: '5px 11px',
+                                        borderRadius: '6px',
+                                        fontSize: '11.5px',
+                                        fontWeight: 'bold',
+                                        cursor: uploadingItemPhoto[item.id] ? 'wait' : 'pointer',
+                                        transition: 'all 0.15s ease',
+                                        background: answers[item.id]?.photo_url ? '#ecfdf5' : '#ffffff',
+                                        border: answers[item.id]?.photo_url ? '1.5px solid #10b981' : '1px solid #cfdcde',
+                                        color: answers[item.id]?.photo_url ? '#047857' : '#455a64'
+                                      }}
+                                    >
+                                      <Camera size={13} color={answers[item.id]?.photo_url ? '#059669' : '#546e7a'} />
+                                      <span>
+                                        {uploadingItemPhoto[item.id]
+                                          ? 'جاري الرفع...'
+                                          : answers[item.id]?.photo_url
+                                          ? 'تم إرفاق صورة ✓'
+                                          : 'إرفاق صورة توثيقية'}
+                                      </span>
+                                      {item.requires_photo && (
+                                        <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 'bold' }}>*إلزامي</span>
+                                      )}
+                                      <input
+                                        type="file"
+                                        id={`file-input-${item.id}`}
+                                        accept="image/*"
+                                        capture="environment"
+                                        style={{ display: 'none' }}
+                                        disabled={uploadingItemPhoto[item.id]}
+                                        onChange={(e) => {
+                                          const file = e.target.files?.[0]
+                                          if (file) {
+                                            handleUploadItemPhoto(item.id, file)
+                                            e.target.value = ''
+                                          }
+                                        }}
+                                      />
+                                    </label>
+                                  </div>
+
+                                  {/* Status tags */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    {item.requires_photo && !answers[item.id]?.photo_url && (
+                                      <span style={{ fontSize: '10.5px', color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', padding: '2px 7px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                        📷 صورة مطلوبة
+                                      </span>
+                                    )}
+                                    {item.requires_note && (!answers[item.id]?.notes || !answers[item.id]?.notes?.trim()) && (
+                                      <span style={{ fontSize: '10.5px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '2px 7px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                        📝 ملاحظة مطلوبة
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Expandable Note Textarea */}
+                                {(expandedItemNotes[item.id] || (item.requires_note && !answers[item.id]?.notes) || Boolean(answers[item.id]?.notes)) && (
+                                  <div style={{ marginTop: '6px' }}>
+                                    <textarea
+                                      rows={2}
+                                      value={answers[item.id]?.notes || ''}
+                                      onChange={(e) => handleItemNoteChange(item.id, e.target.value)}
+                                      placeholder="اكتب ملاحظة أو توثيقاً خاصاً بهذا السؤال تحديداً..."
+                                      style={{
+                                        width: '100%',
+                                        boxSizing: 'border-box',
+                                        border: item.requires_note && !answers[item.id]?.notes?.trim() ? '1.5px solid #f59e0b' : '1px solid #b0bec5',
+                                        borderRadius: '6px',
+                                        padding: '7px 10px',
+                                        fontSize: '12px',
+                                        fontFamily: 'inherit',
+                                        resize: 'vertical',
+                                        background: '#ffffff',
+                                        outline: 'none'
+                                      }}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Photo Preview Thumbnail & Delete */}
+                                {answers[item.id]?.photo_url && (
+                                  <div style={{
+                                    marginTop: '6px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '10px',
+                                    background: '#f0fdf4',
+                                    border: '1px solid #bbf7d0',
+                                    borderRadius: '8px',
+                                    padding: '6px 10px'
+                                  }}>
+                                    <a
+                                      href={answers[item.id]?.photo_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none' }}
+                                    >
+                                      <img
+                                        src={answers[item.id]?.photo_url}
+                                        alt="توثيق السؤال"
+                                        style={{ width: '42px', height: '42px', objectFit: 'cover', borderRadius: '6px', border: '1px solid #86efac' }}
+                                      />
+                                      <span style={{ fontSize: '11.5px', color: '#047857', fontWeight: 'bold' }}>
+                                        📷 عرض الصورة بالحجم الكامل ↗
+                                      </span>
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveItemPhoto(item.id)}
+                                      style={{
+                                        marginRight: 'auto',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: '#dc2626',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        fontSize: '11px',
+                                        fontWeight: 'bold'
+                                      }}
+                                      title="حذف الصورة"
+                                    >
+                                      <Trash2 size={13} />
+                                      <span>حذف</span>
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -3053,8 +3433,8 @@ export function MissionExecutionForm({
               </div>
               <div>
                 <span style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>البنود المقيّمة</span>
-                <strong style={{ fontSize: '13px', color: '#006d77' }}>
-                  {liveScoreStats.answeredCount} بند 📊
+                <strong style={{ fontSize: '13px', color: liveScoreStats.answeredCount === liveScoreStats.totalCount ? '#059669' : '#006d77' }}>
+                  {liveScoreStats.answeredCount} من {liveScoreStats.totalCount} بند {liveScoreStats.answeredCount === liveScoreStats.totalCount ? '✅' : '📊'}
                 </strong>
               </div>
               <div>
