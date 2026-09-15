@@ -93,6 +93,23 @@ export default async function DashboardPage() {
     ? await supabase.from('organizations').select('id, level, sector_id, governorate, health_admin').eq('id', profileData.organization_id || profileData.org_unit_id).maybeSingle()
     : { data: null }
 
+  // Resolve user's actual Sector ID & Dynamic Sector Name
+  const userSectorId = profileData?.sector_id || userOrg?.sector_id || null
+  let sectorName: string | null = null
+  if (userSectorId) {
+    const { data: secOrg } = await supabase.from('organizations').select('name').eq('id', userSectorId).maybeSingle()
+    sectorName = secOrg?.name || null
+  }
+
+  if (!sectorName) {
+    const combinedStr = `${profileData?.department || ''} ${profileData?.job_title || ''} ${profileData?.full_name || ''} ${user.email || ''}`
+    if (userSectorId === '00000000-0000-0000-0000-000000000010' || combinedStr.includes('رعاية') || combinedStr.toLowerCase().includes('phc')) {
+      sectorName = 'قطاع الرعاية الأساسية وتنمية الأسرة'
+    } else if (userSectorId === '00000000-0000-0000-0000-000000000011' || combinedStr.includes('علاجي')) {
+      sectorName = 'قطاع الطب العلاجي'
+    }
+  }
+
   const [missionsResult, violationsResult, facilitiesResult, usersResult] = await Promise.allSettled([
     supabase
       .from('missions')
@@ -118,7 +135,7 @@ export default async function DashboardPage() {
   }))
 
   const profile: DashboardProfile = {
-    department: profileData?.department ?? userOrg?.governorate ?? 'منظومة المأموريات',
+    department: profileData?.department ?? sectorName ?? userOrg?.governorate ?? 'منظومة المأموريات',
     fullName: profileData?.full_name ?? user.email ?? 'مستخدم النظام',
     jobTitle: profileData?.job_title ?? 'حساب نظام',
     level: userLevel,
@@ -132,7 +149,7 @@ export default async function DashboardPage() {
   if (userLevel > 1) {
     if (userLevel <= 4) {
       // Sector level
-      const secId = profileData?.sector_id || userOrg?.sector_id
+      const secId = userSectorId
       if (secId) {
         filteredFacilities = facilities.filter(f => f.sector_id === secId)
         filteredMissions = missions.filter(m => (m as any).sector_id === secId)
@@ -187,7 +204,9 @@ export default async function DashboardPage() {
     userGov: userOrg?.governorate || null,
     userHealthAdmin: userOrg?.health_admin || null,
     userId: profileData?.id || null,
-    userSectorId: profileData?.sector_id || userOrg?.sector_id || null,
+    userSectorId,
+    userSectorName: sectorName || null,
+    userName: profileData?.full_name || null,
     userLevel,
   })
 
@@ -227,6 +246,8 @@ function buildMetrics({
   userHealthAdmin = null,
   userId = null,
   userSectorId = null,
+  userSectorName = null,
+  userName = null,
   userLevel = 1,
 }: {
   facilities: FacilityRow[]
@@ -238,6 +259,8 @@ function buildMetrics({
   userHealthAdmin?: string | null
   userId?: string | null
   userSectorId?: string | null
+  userSectorName?: string | null
+  userName?: string | null
   userLevel?: number
 }): DashboardMetrics {
   const completed = missions.filter((mission) => isCompleted(mission.status)).length
@@ -256,10 +279,10 @@ function buildMetrics({
   const facilityMap = new Map(facilities.map((facility) => [facility.id, facility]))
   const userMap = new Map(users.map((nextUser) => [nextUser.id, nextUser]))
 
-  // Resolve Mission Targets (Unified system)
+  // Resolve Mission Targets (Unified system - Simplified & User-Centric)
   let targetMissions = 25
   let executedMissions = completed
-  let targetPeriodLabel = 'خطة مستهدفات سبتمبر 2026'
+  let targetPeriodLabel = userName ? `${userName} (الخطة الشهرية)` : 'الخطة الشهرية'
   let targetType: 'aggregate' | 'specific_facilities' | undefined = undefined
   let targetFacilities: any[] | undefined = undefined
 
@@ -274,30 +297,47 @@ function buildMetrics({
       const activeTargets = allMissionTargets.filter((t: any) => t.status === 'active')
 
       if (activeTargets.length > 0) {
-        // Find best matching target according to hierarchy
+        // Find best matching target: Priority to User's specific target
         let matched: any = null
 
+        // 1. Specific User Target
         if (userId) {
           matched = activeTargets.find((t: any) => t.scope_level === 'user' && t.assigned_user_id === userId)
         }
+        // 2. Health Administration Target
         if (!matched && userHealthAdmin) {
           matched = activeTargets.find((t: any) => t.scope_level === 'health_admin' && (t.scope_name || '').trim() === userHealthAdmin.trim())
         }
+        // 3. Governorate / Directorate Target
         if (!matched && userGov) {
           matched = activeTargets.find((t: any) => t.scope_level === 'governorate' && (t.scope_name || '').trim() === userGov.trim())
         }
-        if (!matched && userSectorId) {
-          matched = activeTargets.find((t: any) => t.scope_level === 'sector' && t.sector_id === userSectorId)
+        // 4. Sector Target (e.g. Primary Healthcare vs Curative)
+        if (!matched && (userSectorId || userSectorName)) {
+          matched = activeTargets.find((t: any) => 
+            t.scope_level === 'sector' && (
+              (userSectorId && t.sector_id === userSectorId) ||
+              (userSectorName && (t.scope_name || '').includes(userSectorName) || (userSectorName || '').includes(t.scope_name || ''))
+            )
+          )
         }
-        if (!matched && userLevel <= 2) {
-          // Ministry / General admin
+        // 5. Ministry General Level
+        if (!matched && userLevel <= 1) {
           matched = activeTargets.find((t: any) => t.scope_level === 'ministry')
         }
 
         if (matched) {
           targetMissions = Number(matched.target_missions) || 25
-          targetPeriodLabel = matched.title || `${matched.period_label} — ${matched.scope_name}`
           targetType = matched.target_type || 'aggregate'
+
+          // Clean, user-centric and general label (no confusing entity names)
+          if (matched.scope_level === 'user' && (matched.assigned_user_name || userName)) {
+            targetPeriodLabel = `${matched.assigned_user_name || userName} (الخطة الفردية)`
+          } else if (userName && userLevel >= 5) {
+            targetPeriodLabel = `${userName} (الخطة الشهرية)`
+          } else {
+            targetPeriodLabel = 'الخطة الشهرية المعتمدة'
+          }
 
           if (matched.target_type === 'specific_facilities' && Array.isArray(matched.target_facilities) && matched.target_facilities.length > 0) {
             const visitedIds = new Set<string>()
@@ -331,10 +371,10 @@ function buildMetrics({
           }
 
           resolved = true
-        } else if (userLevel <= 2) {
-          // Aggregate for leadership if no single ministry target
-          targetMissions = activeTargets.reduce((sum: number, t: any) => sum + (Number(t.target_missions) || 0), 0)
-          targetPeriodLabel = 'إجمالي مستهدفات الجمهورية (سبتمبر 2026)'
+        } else {
+          // General clean fallback
+          targetPeriodLabel = userName ? `${userName} (الخطة الشهرية)` : 'الخطة الشهرية'
+          targetMissions = userLevel >= 5 ? 12 : 25
           executedMissions = completed
           resolved = true
         }
@@ -344,18 +384,16 @@ function buildMetrics({
     // Fallback to leadership-targets.json if not resolved
     if (!resolved && fs.existsSync(leadershipTargetsPath)) {
       const allTargets: any[] = JSON.parse(fs.readFileSync(leadershipTargetsPath, 'utf8'))
-      const matched = userGov ? allTargets.find((t: any) => t.governorate === userGov) : allTargets[0]
+      const matched = userGov ? allTargets.find((t: any) => t.governorate === userGov) : (userLevel <= 1 ? allTargets[0] : null)
       if (matched) {
         targetMissions = Number(matched.target_missions) || 25
-        targetPeriodLabel = matched.title || `خطة مرور قيادات ${matched.governorate}`
+        targetPeriodLabel = userName ? `${userName} (الخطة الشهرية)` : 'الخطة الشهرية'
         if (userGov) {
           executedMissions = missions.filter(m => {
             const mGov = resolveGovernorateName(m, facilityMap, governorateMap)
             return mGov === userGov && isCompleted(m.status)
           }).length
         }
-      } else if (allTargets.length > 0) {
-        targetMissions = allTargets.reduce((sum: number, t: any) => sum + (Number(t.target_missions) || 0), 0)
       }
     }
   } catch (e) {
