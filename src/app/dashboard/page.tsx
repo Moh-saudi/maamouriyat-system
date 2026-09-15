@@ -280,7 +280,7 @@ function buildMetrics({
   const userMap = new Map(users.map((nextUser) => [nextUser.id, nextUser]))
 
   // Resolve Mission Targets (Unified system - Simplified & User-Centric)
-  let targetMissions = 25
+  let targetMissions = 0
   let executedMissions = completed
   let targetPeriodLabel = userName ? `${userName} (الخطة الشهرية)` : 'الخطة الشهرية'
   let targetType: 'aggregate' | 'specific_facilities' | undefined = undefined
@@ -374,7 +374,7 @@ function buildMetrics({
         } else {
           // General clean fallback
           targetPeriodLabel = userName ? `${userName} (الخطة الشهرية)` : 'الخطة الشهرية'
-          targetMissions = userLevel >= 5 ? 12 : 25
+          targetMissions = 0
           executedMissions = completed
           resolved = true
         }
