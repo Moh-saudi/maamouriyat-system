@@ -6,26 +6,32 @@ import Link from 'next/link'
 import { Bell } from 'lucide-react'
 import { UserMenu, type UserMenuProps } from './UserMenu'
 import { BRANDING } from '@/config/branding'
-import { V2_NAVIGATION_ITEMS } from '@/config/navigation'
+import { V2_NAVIGATION_ITEMS, type NavItem } from '@/config/navigation'
 
 interface TopbarProps {
   user?: UserMenuProps
+  items?: readonly NavItem[]
+  homeHref?: string
 }
 
-export function Topbar({ user }: TopbarProps) {
+export function Topbar({
+  user,
+  items = V2_NAVIGATION_ITEMS,
+  homeHref = '/v2/dashboard',
+}: TopbarProps) {
   const pathname = usePathname()
   
   // Resolve current active item from route
-  const currentNav = V2_NAVIGATION_ITEMS.find((item) =>
+  const currentNav = items.find((item) =>
     pathname === item.href || (item.href !== '/v2/dashboard' && pathname.startsWith(item.href))
-  ) || { label: 'لوحة التحكم', href: '/v2/dashboard' }
+  ) || { label: 'المنظومة', href: homeHref }
 
   return (
     <header className="sticky top-0 z-30 w-full h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/90 px-4 sm:px-6 flex items-center justify-between transition-colors">
       {/* Right Side (Title / Breadcrumb Area in RTL) */}
       <div className="flex items-center gap-3">
         {/* Mini Logo for Mobile (< 768px) where sidebar is completely hidden */}
-        <Link href="/v2/dashboard" className="md:hidden flex items-center gap-2 shrink-0">
+        <Link href={homeHref} className="md:hidden flex items-center gap-2 shrink-0">
           <Image
             src={BRANDING.logos.primary}
             alt={BRANDING.shortName}
