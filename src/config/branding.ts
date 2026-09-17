@@ -16,10 +16,8 @@ export const BRANDING = {
     favicon: '/favicon.ico',
     eagle: '/eagle.png',
   },
-  contact: {
-    supportEmail: 'support.maamouriyat@mohp.gov.eg',
-    emergencyHotline: '105',
-  },
+  // ملاحظة أمان الهوية: بيانات الاتصال والدعم الفني لا تُفترض مسبقاً
+  // وستُربط مستقبلاً فقط عند اعتماد القنوات الرسمية في إعدادات المنظومة
 } as const
 
 export type BrandingConfig = typeof BRANDING

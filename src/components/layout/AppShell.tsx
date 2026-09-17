@@ -60,11 +60,8 @@ export function AppShell({
 
       {/* ── Main Content Area ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
-        {/* Topbar */}
-        <Topbar
-          onToggleSidebar={handleToggleSidebar}
-          isSidebarCollapsed={sidebarCollapsed}
-        />
+        {/* Topbar with user profile wiring */}
+        <Topbar user={user} />
 
         {/* Primary Page Content Container */}
         <main

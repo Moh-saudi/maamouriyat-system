@@ -4,16 +4,15 @@ import { usePathname } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Bell } from 'lucide-react'
-import { UserMenu } from './UserMenu'
+import { UserMenu, type UserMenuProps } from './UserMenu'
 import { BRANDING } from '@/config/branding'
 import { V2_NAVIGATION_ITEMS } from '@/config/navigation'
 
 interface TopbarProps {
-  onToggleSidebar?: () => void
-  isSidebarCollapsed?: boolean
+  user?: UserMenuProps
 }
 
-export function Topbar({ onToggleSidebar, isSidebarCollapsed }: TopbarProps) {
+export function Topbar({ user }: TopbarProps) {
   const pathname = usePathname()
   
   // Resolve current active item from route
@@ -68,8 +67,8 @@ export function Topbar({ onToggleSidebar, isSidebarCollapsed }: TopbarProps) {
 
         <div className="h-5 w-[1px] bg-slate-200 mx-1 hidden sm:block" />
 
-        {/* User Profile Menu */}
-        <UserMenu />
+        {/* User Profile Menu with forwarded user props */}
+        <UserMenu {...user} />
       </div>
     </header>
   )

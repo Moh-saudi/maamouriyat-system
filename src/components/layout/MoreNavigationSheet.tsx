@@ -7,6 +7,7 @@ import { Drawer } from '@heroui/react'
 import { NavIcon } from './NavIcon'
 import {
   type NavItem,
+  V2_NAVIGATION_ITEMS,
   V2_NAV_GROUPS,
   getMobileMoreNavItems,
   isRouteActive,
@@ -24,14 +25,15 @@ export function MoreNavigationSheet({
   items,
 }: MoreNavigationSheetProps) {
   const pathname = usePathname()
-  const navItems = items ?? getMobileMoreNavItems()
+  const sourceItems = items ?? V2_NAVIGATION_ITEMS
+  const navItems = getMobileMoreNavItems(sourceItems, 4)
 
   if (navItems.length === 0) {
     return null
   }
 
-  // Group the items by their group key
-  const groups = ['operations', 'admin'] as const
+  // Derive unique active groups dynamically from the actual remaining items
+  const activeGroups = Array.from(new Set(navItems.map((item) => item.group)))
 
   return (
     <Drawer.Root isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -61,14 +63,14 @@ export function MoreNavigationSheet({
 
             {/* Scrollable Body */}
             <Drawer.Body className="p-4 overflow-y-auto space-y-5">
-              {groups.map((groupKey) => {
+              {activeGroups.map((groupKey) => {
                 const groupItems = navItems.filter((i) => i.group === groupKey)
                 if (groupItems.length === 0) return null
 
                 return (
                   <div key={groupKey} className="space-y-2">
                     <p className="px-2 text-xs font-bold text-slate-400 uppercase tracking-wide">
-                      {V2_NAV_GROUPS[groupKey]}
+                      {V2_NAV_GROUPS[groupKey] || groupKey}
                     </p>
                     <div className="space-y-1">
                       {groupItems.map((item) => {
