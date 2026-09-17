@@ -9,6 +9,7 @@ export type {
   V2AuthorizationSnapshot,
   V2EffectivePermission,
   V2PermissionEffect,
+  V2PermissionSource,
   V2RoleAssignment,
   V2RolePermissionGrant,
   V2ScopeType,
