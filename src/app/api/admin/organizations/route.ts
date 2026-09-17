@@ -147,6 +147,13 @@ export async function POST(request: NextRequest) {
     const resolvedGovernorate = governorate || parentOrg.governorate || null
     const resolvedHealthAdmin = health_admin || parentOrg.health_admin || null
     const resolvedLevel = Number(level || (parentOrg.level >= 5 ? 6 : parentOrg.level + 1))
+
+    // حظر أمني: رئيس القطاع (المستوى 2) لا يمكنه إضافة إدارات خارج نطاق قطاعه
+    if (userLevel === 2 && profile?.sector_id && !isSuperOrTech) {
+      if (resolvedSectorId !== profile.sector_id) {
+        return NextResponse.json({ error: 'لا يمكن لرئيس القطاع إضافة إدارات أو وحدات خارج نطاق قطاعه المعتمد' }, { status: 403 })
+      }
+    }
     
     // التوافق التام مع قيد قاعدة البيانات organizations_level_label_check
     const validLevelLabels: Record<number, string> = {

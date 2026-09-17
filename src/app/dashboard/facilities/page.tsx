@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { DashboardShell } from '@/app/system-ui'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { orgLevelToRole } from '@/lib/roles'
+import { realEgyptianSectors } from '@/lib/real-facilities'
 import { FacilitiesPortal } from './facilities-portal'
 
 export const dynamic = 'force-dynamic'
@@ -60,16 +61,35 @@ export default async function FacilitiesPage() {
   const orgLevel = profile?.org_level ?? 7
   const role = orgLevelToRole(orgLevel)
 
-  // Determine user's sector
+  // حصر نطاق القطاع: قيادة الوزارة فقط (المستوى 1) ترى كافة القطاعات
+  // رؤساء القطاعات (المستوى 2) وبقية المستويات محصورون بدقة في قطاعهم المحدد
   const userEmail = user.email || profile?.email || ''
-  let userSectorId = profile?.sector_id || null
-  if (!userSectorId) {
-    if (orgLevel === 1 || userEmail.toLowerCase().includes('admin@')) {
-      userSectorId = 'all' // مشرف عام ديوان الوزارة يرى كافة القطاعات
-    } else if (userEmail.toLowerCase().includes('phc') || profile?.department?.includes('رعاية') || profile?.department?.includes('أسرة')) {
-      userSectorId = '00000000-0000-0000-0000-000000000010'
+  let userSectorId: string | null = null
+
+  if (orgLevel === 1) {
+    userSectorId = 'all'
+  } else {
+    // التحقق من قطاع المستخدم المسجل في جدول users
+    const candidateSectorId = profile?.sector_id || profile?.organization_id
+    const isValidSector = realEgyptianSectors.some(s => s.id === candidateSectorId)
+
+    if (candidateSectorId && isValidSector) {
+      userSectorId = candidateSectorId
     } else {
-      userSectorId = '00000000-0000-0000-0000-000000000011'
+      // استنتاج القطاع بدقة من القسم أو البريد الإلكتروني في حال عدم تسجيله
+      const dept = (profile?.department || '').toLowerCase()
+      const em = userEmail.toLowerCase()
+      if (dept.includes('علاجي') || em.includes('cur') || em.includes('treatment') || em.includes('sector.head')) {
+        userSectorId = '00000000-0000-0000-0000-000000000011' // قطاع الطب العلاجي
+      } else if (dept.includes('وقائي') || em.includes('prv') || em.includes('preventive')) {
+        userSectorId = '00000000-0000-0000-0000-000000000012' // قطاع الصحة الوقائية
+      } else if (dept.includes('تدريب') || em.includes('trn') || em.includes('training')) {
+        userSectorId = '00000000-0000-0000-0000-000000000013' // قطاع التدريب
+      } else if (dept.includes('حوكمة') || em.includes('gov') || em.includes('governance')) {
+        userSectorId = '00000000-0000-0000-0000-000000000014' // قطاع الحوكمة
+      } else {
+        userSectorId = '00000000-0000-0000-0000-000000000010' // قطاع الرعاية الأولية وتنمية الأسرة
+      }
     }
   }
 

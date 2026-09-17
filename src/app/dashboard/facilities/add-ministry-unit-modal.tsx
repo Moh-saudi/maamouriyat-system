@@ -38,6 +38,7 @@ export function AddMinistryUnitModal({
   centralUnits,
   onAddUnit
 }: AddMinistryUnitModalProps) {
+  const [targetLevel, setTargetLevel] = useState<'general_admin' | 'section'>('general_admin')
   const [parentId, setParentId] = useState(centralUnits[0]?.id || activeSector?.id || '')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -118,36 +119,39 @@ export function AddMinistryUnitModal({
     e.preventDefault()
     setError('')
 
+    const isGeneral = targetLevel === 'general_admin'
+
     if (!name.trim()) {
-      setError('يرجى كتابة اسم الإدارة العامة بشكل صحيح')
+      setError(isGeneral ? 'يرجى كتابة اسم الإدارة العامة بشكل صحيح' : 'يرجى كتابة اسم القسم أو الوحدة التابعة')
       return
     }
 
     if (!parentId) {
-      setError('يرجى تحديد الإدارة المركزية التابعة لها')
+      setError('يرجى تحديد الجهة أو الإدارة التابعة لها')
       return
     }
 
     setSaving(true)
     try {
       const themeColors = getGradientAndColor(colorTheme)
-      const unitId = `custom-gen-${Date.now()}`
+      const unitId = `custom-${isGeneral ? 'gen' : 'sec'}-${Date.now()}`
+      const parentName = centralUnits.find(u => u.id === parentId)?.name || activeSector.name
 
       const newUnit: MinistryUnit = {
         id: unitId,
         sectorId: activeSector.id,
         name: name.trim(),
-        level: 'المستوى الثاني: الإدارات العامة (بدرجة مدير عام)',
-        type: 'إدارة عامة تخصصية',
+        level: isGeneral ? 'المستوى الثاني: الإدارات العامة (بدرجة مدير عام)' : 'المستوى الثالث: الوظائف والأقسام الإشرافية والتنفيذية',
+        type: isGeneral ? 'إدارة عامة تخصصية' : 'قسم / وحدة تنظيمية',
         icon: iconName,
         parent: parentId,
         color: themeColors.color,
         badgeColor: themeColors.badgeColor,
-        description: description.trim() || `إدارة عامة تخصصية تابعة لـ ${centralUnits.find(u => u.id === parentId)?.name || activeSector.name}.`,
+        description: description.trim() || `${isGeneral ? 'إدارة عامة تخصصية' : 'قسم / وحدة تنظيمية'} تابعة لـ ${parentName}.`,
         coreTasks: tasks.length > 0 ? tasks : ['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'],
         director: director.trim(),
         staffCount: 0,
-        levelIndex: 2,
+        levelIndex: isGeneral ? 2 : 3,
         isCustom: true
       }
 
@@ -218,9 +222,9 @@ export function AddMinistryUnitModal({
             </div>
             <div>
               <strong style={{ fontSize: '15px', color: '#102027', display: 'block' }}>
-                إضافة إدارة عامة جديدة ➕
+                إضافة إدارة عامة أو قسم تنظيمي ➕
               </strong>
-              <small style={{ color: '#546e7a', fontSize: '11px' }}>
+              <small style={{ color: '#00796b', fontSize: '11.5px', fontWeight: 'bold' }}>
                 {activeSector.name}
               </small>
             </div>
@@ -261,10 +265,64 @@ export function AddMinistryUnitModal({
             </div>
           )}
 
-          {/* Parent Central Admin Select */}
+          {/* Level Type Selector */}
+          <div>
+            <label style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#37474f', display: 'block', marginBottom: '8px' }}>
+              المستوى التنظيمي للوحدة المراد إضافتها <span style={{ color: '#e53935' }}>*</span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setTargetLevel('general_admin')}
+                style={{
+                  border: targetLevel === 'general_admin' ? '2px solid var(--brand)' : '1px solid #cfdcde',
+                  background: targetLevel === 'general_admin' ? '#e0f2f1' : '#ffffff',
+                  color: targetLevel === 'general_admin' ? '#004d40' : '#455a64',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Building2 size={16} />
+                <span>إدارة عامة (مدير عام)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTargetLevel('section')}
+                style={{
+                  border: targetLevel === 'section' ? '2px solid #3f51b5' : '1px solid #cfdcde',
+                  background: targetLevel === 'section' ? '#e8eaf6' : '#ffffff',
+                  color: targetLevel === 'section' ? '#1a237e' : '#455a64',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Activity size={16} />
+                <span>قسم / وحدة تنظيمية</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Parent Unit Select (Categorized by Sector, Central Admins, and General Admins) */}
           <div>
             <label style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#37474f', display: 'block', marginBottom: '6px' }}>
-              الجهة أو الإدارة المركزية التابع لها <span style={{ color: '#e53935' }}>*</span>
+              الجهة أو الإدارة التابعة لها مباشرة <span style={{ color: '#e53935' }}>*</span>
             </label>
             <select
               value={parentId}
@@ -282,28 +340,66 @@ export function AddMinistryUnitModal({
                 color: '#102027'
               }}
             >
-              {centralUnits.length === 0 ? (
-                <option value={activeSector.id}>
-                  🏛️ {activeSector.name} مباشرة (ديوان القطاع)
-                </option>
-              ) : (
-                centralUnits.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.type ? `[${u.type}] ` : ''}{u.name}
-                  </option>
-                ))
-              )}
+              {(() => {
+                const sectorOpts = centralUnits.filter(u => u.type === 'قطاع' || u.id === activeSector.id)
+                const centralOpts = centralUnits.filter(u => u.type === 'إدارة مركزية' && u.id !== activeSector.id)
+                const generalOpts = centralUnits.filter(u => u.type === 'إدارة عامة')
+
+                return (
+                  <>
+                    {sectorOpts.length > 0 && (
+                      <optgroup label="🏛️ رئاسة وديوان القطاع">
+                        {sectorOpts.map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {centralOpts.length > 0 && (
+                      <optgroup label="🏢 الإدارات المركزية التابعة للقطاع">
+                        {centralOpts.map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {generalOpts.length > 0 && (
+                      <optgroup label="🏬 الإدارات العامة التابعة للقطاع">
+                        {generalOpts.map(u => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {centralUnits.length === 0 && (
+                      <option value={activeSector.id}>
+                        🏛️ {activeSector.name} مباشرة (ديوان القطاع)
+                      </option>
+                    )}
+                  </>
+                )
+              })()}
             </select>
+            <small style={{ color: '#78909c', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+              {targetLevel === 'general_admin' 
+                ? 'يمكنك إلحاق الإدارة العامة برئاسة القطاع مباشرة أو بإحدى الإدارات المركزية للقطاع.' 
+                : 'يمكنك إلحاق القسم أو الوحدة بأي إدارة عامة أو إدارة مركزية تابعة للقطاع.'}
+            </small>
           </div>
 
           {/* Name Field */}
           <div>
             <label style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#37474f', display: 'block', marginBottom: '6px' }}>
-              اسم الإدارة العامة <span style={{ color: '#e53935' }}>*</span>
+              {targetLevel === 'general_admin' ? 'اسم الإدارة العامة' : 'اسم القسم أو الوحدة التنظيمية'} <span style={{ color: '#e53935' }}>*</span>
             </label>
             <input
               type="text"
-              placeholder="مثال: الإدارة العامة لصحة وتنمية الأسرة والمبادرات..."
+              placeholder={targetLevel === 'general_admin' 
+                ? 'مثال: الإدارة العامة لصحة وتنمية الأسرة والمبادرات...' 
+                : 'مثال: قسم التفتيش الميداني والمتابعة الدورية...'}
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -325,7 +421,9 @@ export function AddMinistryUnitModal({
             </label>
             <textarea
               rows={3}
-              placeholder="اكتب وصفاً موجزاً لاختصاصات ودور الإدارة العامة..."
+              placeholder={targetLevel === 'general_admin'
+                ? 'اكتب وصفاً موجزاً لاختصاصات ودور الإدارة العامة...'
+                : 'اكتب وصفاً موجزاً للمهام الرقابية أو التشغيلية للقسم...'}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               style={{
@@ -343,11 +441,11 @@ export function AddMinistryUnitModal({
           {/* Director / Leader Name */}
           <div>
             <label style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#37474f', display: 'block', marginBottom: '6px' }}>
-              المدير العام المسئول (اختياري)
+              {targetLevel === 'general_admin' ? 'المدير العام المسئول (اختياري)' : 'رئيس القسم / المشرف المسئول (اختياري)'}
             </label>
             <input
               type="text"
-              placeholder="اسم السيد المدير العام..."
+              placeholder={targetLevel === 'general_admin' ? 'اسم السيد المدير العام...' : 'اسم السيد رئيس القسم...'}
               value={director}
               onChange={(e) => setDirector(e.target.value)}
               style={{

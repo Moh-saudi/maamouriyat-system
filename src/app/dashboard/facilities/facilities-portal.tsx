@@ -181,7 +181,14 @@ export function FacilitiesPortal({
   const [activeTab, setActiveTab] = useState<'directory' | 'affiliations' | 'ministry_structure'>('directory')
 
   // Sector and dynamic units state
-  const defaultSectorId = userSectorId || (userEmail?.toLowerCase().includes('phc') ? '00000000-0000-0000-0000-000000000010' : '00000000-0000-0000-0000-000000000011')
+  // قيادة الوزارة فقط (المستوى الأول) أو الدعم الفني العام يمكنهم استعراض كافة القطاعات
+  // رؤساء القطاعات (المستوى الثاني) محصورون فقط في قطاعهم المعتمد ولا يمكنهم التبديل لكافة القطاعات
+  const isMinisterialLevel = userOrgLevel === 1 || (isWritable && userSectorId === 'all')
+
+  const defaultSectorId = isMinisterialLevel
+    ? (userSectorId || 'all')
+    : (userSectorId && userSectorId !== 'all' ? userSectorId : '00000000-0000-0000-0000-000000000010')
+
   const [selectedSectorId, setSelectedSectorId] = useState<string>(defaultSectorId)
   const [customUnits, setCustomUnits] = useState<MinistryUnit[]>([])
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
@@ -200,84 +207,112 @@ export function FacilitiesPortal({
     }
   }, [])
 
-  const activeSector = useMemo(() => getSectorById(selectedSectorId), [selectedSectorId])
+  // الحصر الأمني الصارم: غير قيادة الوزارة مثبتون في قطاعهم فقط
+  const effectiveSectorId = isMinisterialLevel ? selectedSectorId : defaultSectorId
+  const activeSector = useMemo(() => getSectorById(effectiveSectorId), [effectiveSectorId])
 
   const [localOrganizations, setLocalOrganizations] = useState(initialOrganizations)
   useEffect(() => {
     setLocalOrganizations(initialOrganizations)
   }, [initialOrganizations])
 
-  // Merge database level 4 organizations belonging to sector into customUnits
+  // دمج كافة الإدارات المركزية والعامة والأقسام التابعة للقطاع من قاعدة البيانات
   const dbUnitsForSector = useMemo(() => {
     if (!localOrganizations || localOrganizations.length === 0) return []
-    const level4Orgs = localOrganizations.filter(o => 
-      o.level === 4 && (
-        o.sector_id === selectedSectorId || 
-        selectedSectorId === 'all'
+    const sectorOrgs = localOrganizations.filter(o => 
+      (o.level >= 3 && o.level <= 5) && (
+        o.sector_id === effectiveSectorId || 
+        (isMinisterialLevel && effectiveSectorId === 'all')
       )
     )
 
-    return level4Orgs.map(org => {
-      // Check if already in realEgyptianMinistryUnits by name
-      const existsInStatic = realEgyptianMinistryUnits.some(u => u.name.trim() === org.name.trim())
+    return sectorOrgs.map(org => {
+      // التحقق مما إذا كانت مسجلة بالفعل بالهيكل الثابت
+      const existsInStatic = realEgyptianMinistryUnits.some(u => 
+        u.name.trim() === org.name.trim() && 
+        (u.sectorId === org.sector_id || effectiveSectorId === 'all')
+      )
       if (existsInStatic) return null
 
-      // Find parent in central units
-      const parentCentral = localOrganizations.find(p => p.id === org.parent_id)
-      const parentUnitName = parentCentral?.name || ''
-      const parentStaticUnit = realEgyptianMinistryUnits.find(u => u.name.trim() === parentUnitName.trim() && u.levelIndex === 1)
+      // تحديد الجهة الأم
+      const parentOrg = localOrganizations.find(p => p.id === org.parent_id)
+      const parentName = parentOrg?.name || ''
+      const parentStaticUnit = realEgyptianMinistryUnits.find(u => u.name.trim() === parentName.trim())
+
+      let levelTitle = 'المستوى الثاني: الإدارات العامة (بدرجة مدير عام)'
+      let typeLabel = 'إدارة عامة تخصصية'
+      let levelIdx = 2
+      let icon = 'Building2'
+
+      if (org.level === 3) {
+        levelTitle = 'المستوى الأول: الإدارات المركزية (المستوى العالي)'
+        typeLabel = 'إدارة مركزية رئيسية'
+        levelIdx = 1
+        icon = 'Building'
+      } else if (org.level === 5) {
+        levelTitle = 'المستوى الثالث: الوظائف والأقسام الإشرافية والتنفيذية'
+        typeLabel = 'قسم / وحدة تنظيمية'
+        levelIdx = 3
+        icon = 'Activity'
+      }
 
       return {
         id: org.id,
-        sectorId: org.sector_id || selectedSectorId,
+        sectorId: org.sector_id || effectiveSectorId,
         name: org.name,
-        level: 'المستوى الثاني: الإدارات العامة (بدرجة مدير عام)',
-        type: 'إدارة عامة تخصصية',
-        icon: 'Building2',
-        parent: parentStaticUnit ? parentStaticUnit.id : (org.parent_id || 'phc-sector'),
+        level: levelTitle,
+        type: typeLabel,
+        icon: icon,
+        parent: parentStaticUnit ? parentStaticUnit.id : (org.parent_id || activeSector.id),
         color: activeSector.color,
         badgeColor: activeSector.badgeColor,
-        description: `إدارة عامة تخصصية مسجلة بالهيكل التنظيمي المعتمد.`,
+        description: `وحدة تنظيمية مسجلة بالهيكل التنظيمي المعتمد لـ ${activeSector.name}.`,
         coreTasks: ['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'],
         director: '',
         staffCount: 0,
-        levelIndex: 2,
+        levelIndex: levelIdx,
         isCustom: true
       } as MinistryUnit
     }).filter(Boolean) as MinistryUnit[]
-  }, [localOrganizations, selectedSectorId, activeSector])
+  }, [localOrganizations, effectiveSectorId, activeSector, isMinisterialLevel])
 
   const mergedCustomUnits = useMemo(() => {
     const map = new Map<string, MinistryUnit>()
-    customUnits.forEach(u => map.set(u.id, u))
+    customUnits.forEach(u => {
+      if (u.sectorId === effectiveSectorId || (isMinisterialLevel && effectiveSectorId === 'all')) {
+        map.set(u.id, u)
+      }
+    })
     dbUnitsForSector.forEach(u => map.set(u.id, u))
     return Array.from(map.values())
-  }, [customUnits, dbUnitsForSector])
+  }, [customUnits, dbUnitsForSector, effectiveSectorId, isMinisterialLevel])
 
-  const currentSectorUnits = useMemo(() => getMinistryUnitsForSector(selectedSectorId, mergedCustomUnits), [selectedSectorId, mergedCustomUnits])
+  const currentSectorUnits = useMemo(() => 
+    getMinistryUnitsForSector(effectiveSectorId, mergedCustomUnits), 
+    [effectiveSectorId, mergedCustomUnits]
+  )
   const centralUnits = useMemo(() => currentSectorUnits.filter(u => u.levelIndex === 1), [currentSectorUnits])
 
-  // List of potential parent entities for creating a new General Administration:
-  // Includes direct Sector Head option + all Central Administrations from database & static config
+  // قائمة الجهات الأم المتاحة لإنشاء إدارة أو قسم جديد داخل القطاع
+  // تشمل: رئاسة القطاع مباشرة + كافة الإدارات المركزية + كافة الإدارات العامة للقطاع
   const parentUnitsForModal = useMemo(() => {
     const list: Array<{ id: string; name: string; type?: string }> = []
 
-    // 1. Direct Sector Head option (always available when sector is specific)
+    // 1. ديوان ورئاسة القطاع مباشرة
     if (activeSector && activeSector.id !== 'all') {
       list.push({
         id: activeSector.id,
         name: `رئاسة ${activeSector.name} مباشرة (ديوان القطاع)`,
-        type: 'قطاع مركزي'
+        type: 'قطاع'
       })
     }
 
-    // 2. Central administrations from localOrganizations (level 3)
+    // 2. الإدارات المركزية من قاعدة البيانات
     if (localOrganizations && localOrganizations.length > 0) {
       const dbCentral = localOrganizations.filter(o => 
         o.level === 3 && (
-          selectedSectorId === 'all' || 
-          o.sector_id === selectedSectorId ||
-          !o.sector_id
+          o.sector_id === activeSector.id ||
+          (isMinisterialLevel && activeSector.id === 'all')
         )
       )
       for (const org of dbCentral) {
@@ -291,13 +326,42 @@ export function FacilitiesPortal({
       }
     }
 
-    // 3. Central units from currentSectorUnits (levelIndex === 1)
+    // 3. الإدارات المركزية من الهيكل الحالي (levelIndex === 1)
     for (const u of currentSectorUnits) {
       if (u.levelIndex === 1 && !list.some(item => item.id === u.id || item.name.trim() === u.name.trim())) {
         list.push({
           id: u.id,
           name: u.name,
           type: 'إدارة مركزية'
+        })
+      }
+    }
+
+    // 4. الإدارات العامة التابعة للقطاع (لإتاحة إضافة قسم أو وحدة تحت إدارة عامة)
+    if (localOrganizations && localOrganizations.length > 0) {
+      const dbGeneral = localOrganizations.filter(o => 
+        o.level === 4 && (
+          o.sector_id === activeSector.id ||
+          (isMinisterialLevel && activeSector.id === 'all')
+        )
+      )
+      for (const org of dbGeneral) {
+        if (!list.some(item => item.id === org.id || item.name.trim() === org.name.trim())) {
+          list.push({
+            id: org.id,
+            name: org.name,
+            type: 'إدارة عامة'
+          })
+        }
+      }
+    }
+
+    for (const u of currentSectorUnits) {
+      if (u.levelIndex === 2 && !list.some(item => item.id === u.id || item.name.trim() === u.name.trim())) {
+        list.push({
+          id: u.id,
+          name: u.name,
+          type: 'إدارة عامة'
         })
       }
     }
@@ -312,7 +376,7 @@ export function FacilitiesPortal({
     }
 
     return list
-  }, [activeSector, selectedSectorId, localOrganizations, currentSectorUnits])
+  }, [activeSector, localOrganizations, currentSectorUnits, isMinisterialLevel])
 
   // Select top unit of the sector if current selected unit doesn't belong to sector
   useEffect(() => {
@@ -320,12 +384,18 @@ export function FacilitiesPortal({
     if (!exists && currentSectorUnits.length > 0) {
       setSelectedUnitId(currentSectorUnits[0].id)
     }
-  }, [selectedSectorId, currentSectorUnits, selectedUnitId])
+  }, [effectiveSectorId, currentSectorUnits, selectedUnitId])
 
   const handleAddCustomUnit = async (newUnit: MinistryUnit) => {
     // 1. Resolve parent organization in database
-    const parentCentral = parentUnitsForModal.find(u => u.id === newUnit.parent)
-    const parentName = parentCentral?.name || ''
+    const parentOrg = parentUnitsForModal.find(u => u.id === newUnit.parent)
+    const parentName = parentOrg?.name || ''
+
+    const isSection = newUnit.levelIndex === 3
+    const isGeneral = newUnit.levelIndex === 2
+    const targetLevel = isSection ? 5 : isGeneral ? 4 : 3
+    const targetLabel = isSection ? 'unit' : isGeneral ? 'general_admin' : 'central_admin'
+    const codePrefix = isSection ? 'SEC' : isGeneral ? 'GEN' : 'CEN'
 
     // 2. Persist to organizations table via API
     const response = await fetch('/api/admin/organizations', {
@@ -333,12 +403,12 @@ export function FacilitiesPortal({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: newUnit.name.trim(),
-        code: `GEN-${Date.now().toString(36).toUpperCase()}`,
+        code: `${codePrefix}-${Date.now().toString(36).toUpperCase()}`,
         parent_id: newUnit.parent,
         parent_name: parentName,
         sector_id: activeSector.id,
-        level: 4,
-        level_label: 'general_admin',
+        level: targetLevel,
+        level_label: targetLabel,
         can_issue_missions: true,
         can_approve_missions: false,
         can_view_all_governorate: false,
@@ -348,7 +418,7 @@ export function FacilitiesPortal({
 
     const res = await response.json()
     if (!response.ok || res.error) {
-      throw new Error(res.error || 'فشل حفظ الإدارة العامة في قاعدة البيانات')
+      throw new Error(res.error || 'فشل حفظ الإدارة أو الوحدة في قاعدة البيانات')
     }
 
     const savedOrg = res.data
@@ -2398,8 +2468,8 @@ export function FacilitiesPortal({
                       </span>
                     </div>
 
-                    {/* Sector Switcher (Visible for Level 1/Admin or Writable roles) */}
-                    {(userOrgLevel <= 2 || isWritable) && (
+                    {/* Sector Switcher (ONLY for Ministerial Leadership Level 1) */}
+                    {isMinisterialLevel ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '4px' }}>
                         <span style={{ fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>عرض القطاع:</span>
                         <button
@@ -2443,6 +2513,21 @@ export function FacilitiesPortal({
                             </button>
                           )
                         })}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                        <span style={{ fontSize: '11.5px', color: '#546e7a', fontWeight: 'bold' }}>نطاق الصلاحيات التنظيمية:</span>
+                        <span style={{
+                          fontSize: '11.5px',
+                          fontWeight: 'bold',
+                          padding: '3px 12px',
+                          borderRadius: '6px',
+                          background: activeSector.badgeColor + '18',
+                          color: activeSector.badgeColor,
+                          border: `1px solid ${activeSector.badgeColor}40`
+                        }}>
+                          {activeSector.name}
+                        </span>
                       </div>
                     )}
                   </div>
