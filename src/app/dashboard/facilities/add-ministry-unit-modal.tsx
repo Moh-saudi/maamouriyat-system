@@ -17,11 +17,17 @@ import {
 } from 'lucide-react'
 import { MinistrySector, MinistryUnit } from '@/lib/real-facilities'
 
+export type ParentUnitOption = {
+  id: string
+  name: string
+  type?: string
+}
+
 type AddMinistryUnitModalProps = {
   isOpen: boolean
   onClose: () => void
   activeSector: MinistrySector
-  centralUnits: MinistryUnit[]
+  centralUnits: ParentUnitOption[]
   onAddUnit: (newUnit: MinistryUnit) => Promise<void> | void
 }
 
@@ -32,7 +38,7 @@ export function AddMinistryUnitModal({
   centralUnits,
   onAddUnit
 }: AddMinistryUnitModalProps) {
-  const [parentId, setParentId] = useState(centralUnits[0]?.id || '')
+  const [parentId, setParentId] = useState(centralUnits[0]?.id || activeSector?.id || '')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [director, setDirector] = useState('')
@@ -46,11 +52,15 @@ export function AddMinistryUnitModal({
   React.useEffect(() => {
     if (isOpen) {
       setError('')
-      if (centralUnits.length > 0 && (!parentId || !centralUnits.some(u => u.id === parentId))) {
-        setParentId(centralUnits[0].id)
+      if (centralUnits && centralUnits.length > 0) {
+        if (!parentId || !centralUnits.some(u => u.id === parentId)) {
+          setParentId(centralUnits[0].id)
+        }
+      } else if (activeSector) {
+        setParentId(activeSector.id)
       }
     }
-  }, [isOpen, centralUnits, parentId])
+  }, [isOpen, centralUnits, activeSector, parentId])
 
   if (!isOpen) return null
 
@@ -133,7 +143,7 @@ export function AddMinistryUnitModal({
         parent: parentId,
         color: themeColors.color,
         badgeColor: themeColors.badgeColor,
-        description: description.trim() || `إدارة عامة تخصصية تابعة لـ ${centralUnits.find(u => u.id === parentId)?.name || 'القطاع'}.`,
+        description: description.trim() || `إدارة عامة تخصصية تابعة لـ ${centralUnits.find(u => u.id === parentId)?.name || activeSector.name}.`,
         coreTasks: tasks.length > 0 ? tasks : ['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'],
         director: director.trim(),
         staffCount: 0,
@@ -254,7 +264,7 @@ export function AddMinistryUnitModal({
           {/* Parent Central Admin Select */}
           <div>
             <label style={{ fontSize: '12.5px', fontWeight: 'bold', color: '#37474f', display: 'block', marginBottom: '6px' }}>
-              الإدارة المركزية التابعة لها <span style={{ color: '#e53935' }}>*</span>
+              الجهة أو الإدارة المركزية التابع لها <span style={{ color: '#e53935' }}>*</span>
             </label>
             <select
               value={parentId}
@@ -272,11 +282,17 @@ export function AddMinistryUnitModal({
                 color: '#102027'
               }}
             >
-              {centralUnits.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
+              {centralUnits.length === 0 ? (
+                <option value={activeSector.id}>
+                  🏛️ {activeSector.name} مباشرة (ديوان القطاع)
                 </option>
-              ))}
+              ) : (
+                centralUnits.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.type ? `[${u.type}] ` : ''}{u.name}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 

@@ -202,10 +202,15 @@ export function FacilitiesPortal({
 
   const activeSector = useMemo(() => getSectorById(selectedSectorId), [selectedSectorId])
 
+  const [localOrganizations, setLocalOrganizations] = useState(initialOrganizations)
+  useEffect(() => {
+    setLocalOrganizations(initialOrganizations)
+  }, [initialOrganizations])
+
   // Merge database level 4 organizations belonging to sector into customUnits
   const dbUnitsForSector = useMemo(() => {
-    if (!initialOrganizations || initialOrganizations.length === 0) return []
-    const level4Orgs = initialOrganizations.filter(o => 
+    if (!localOrganizations || localOrganizations.length === 0) return []
+    const level4Orgs = localOrganizations.filter(o => 
       o.level === 4 && (
         o.sector_id === selectedSectorId || 
         selectedSectorId === 'all'
@@ -218,7 +223,7 @@ export function FacilitiesPortal({
       if (existsInStatic) return null
 
       // Find parent in central units
-      const parentCentral = initialOrganizations.find(p => p.id === org.parent_id)
+      const parentCentral = localOrganizations.find(p => p.id === org.parent_id)
       const parentUnitName = parentCentral?.name || ''
       const parentStaticUnit = realEgyptianMinistryUnits.find(u => u.name.trim() === parentUnitName.trim() && u.levelIndex === 1)
 
@@ -240,7 +245,7 @@ export function FacilitiesPortal({
         isCustom: true
       } as MinistryUnit
     }).filter(Boolean) as MinistryUnit[]
-  }, [initialOrganizations, selectedSectorId, activeSector])
+  }, [localOrganizations, selectedSectorId, activeSector])
 
   const mergedCustomUnits = useMemo(() => {
     const map = new Map<string, MinistryUnit>()
@@ -252,6 +257,63 @@ export function FacilitiesPortal({
   const currentSectorUnits = useMemo(() => getMinistryUnitsForSector(selectedSectorId, mergedCustomUnits), [selectedSectorId, mergedCustomUnits])
   const centralUnits = useMemo(() => currentSectorUnits.filter(u => u.levelIndex === 1), [currentSectorUnits])
 
+  // List of potential parent entities for creating a new General Administration:
+  // Includes direct Sector Head option + all Central Administrations from database & static config
+  const parentUnitsForModal = useMemo(() => {
+    const list: Array<{ id: string; name: string; type?: string }> = []
+
+    // 1. Direct Sector Head option (always available when sector is specific)
+    if (activeSector && activeSector.id !== 'all') {
+      list.push({
+        id: activeSector.id,
+        name: `رئاسة ${activeSector.name} مباشرة (ديوان القطاع)`,
+        type: 'قطاع مركزي'
+      })
+    }
+
+    // 2. Central administrations from localOrganizations (level 3)
+    if (localOrganizations && localOrganizations.length > 0) {
+      const dbCentral = localOrganizations.filter(o => 
+        o.level === 3 && (
+          selectedSectorId === 'all' || 
+          o.sector_id === selectedSectorId ||
+          !o.sector_id
+        )
+      )
+      for (const org of dbCentral) {
+        if (!list.some(item => item.id === org.id || item.name.trim() === org.name.trim())) {
+          list.push({
+            id: org.id,
+            name: org.name,
+            type: 'إدارة مركزية'
+          })
+        }
+      }
+    }
+
+    // 3. Central units from currentSectorUnits (levelIndex === 1)
+    for (const u of currentSectorUnits) {
+      if (u.levelIndex === 1 && !list.some(item => item.id === u.id || item.name.trim() === u.name.trim())) {
+        list.push({
+          id: u.id,
+          name: u.name,
+          type: 'إدارة مركزية'
+        })
+      }
+    }
+
+    // Fallback if list is empty
+    if (list.length === 0 && activeSector) {
+      list.push({
+        id: activeSector.id,
+        name: activeSector.name,
+        type: 'القطاع'
+      })
+    }
+
+    return list
+  }, [activeSector, selectedSectorId, localOrganizations, currentSectorUnits])
+
   // Select top unit of the sector if current selected unit doesn't belong to sector
   useEffect(() => {
     const exists = currentSectorUnits.some(u => u.id === selectedUnitId)
@@ -262,7 +324,7 @@ export function FacilitiesPortal({
 
   const handleAddCustomUnit = async (newUnit: MinistryUnit) => {
     // 1. Resolve parent organization in database
-    const parentCentral = centralUnits.find(u => u.id === newUnit.parent)
+    const parentCentral = parentUnitsForModal.find(u => u.id === newUnit.parent)
     const parentName = parentCentral?.name || ''
 
     // 2. Persist to organizations table via API
@@ -293,6 +355,10 @@ export function FacilitiesPortal({
     const persistedUnit: MinistryUnit = {
       ...newUnit,
       id: savedOrg?.id || newUnit.id
+    }
+
+    if (savedOrg) {
+      setLocalOrganizations(prev => [...prev.filter(o => o.id !== savedOrg.id), savedOrg])
     }
 
     const updated = [...customUnits.filter(u => u.id !== persistedUnit.id), persistedUnit]
@@ -2680,7 +2746,7 @@ export function FacilitiesPortal({
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         activeSector={activeSector}
-        centralUnits={centralUnits}
+        centralUnits={parentUnitsForModal}
         onAddUnit={handleAddCustomUnit}
       />
 

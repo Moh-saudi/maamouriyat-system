@@ -282,6 +282,28 @@ export function UserPortal({
   const [editFinancialCode, setEditFinancialCode] = useState('')
   const [editIsActive, setEditIsActive] = useState(true)
 
+  // Refresh organizations whenever Add or Edit modal opens to ensure latest added administrations appear
+  useEffect(() => {
+    if ((showAddForm || Boolean(editingUser)) && supabase) {
+      const refreshOrgs = async () => {
+        try {
+          const { data } = await supabase
+            .from('organizations')
+            .select('id, name, level, level_label, governorate, health_admin, sector_id')
+            .eq('is_active', true)
+            .order('level')
+            .order('name')
+          if (data && data.length > 0) {
+            setLocalOrgs(data)
+          }
+        } catch (e) {
+          console.error('Failed to refresh organizations:', e)
+        }
+      }
+      refreshOrgs()
+    }
+  }, [showAddForm, editingUser, supabase])
+
   const startEditingUser = (u: UserRow) => {
     setEditingUser(u)
     setEditFullName(u.full_name)
