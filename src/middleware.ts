@@ -6,6 +6,7 @@ import { type UserRole, type NavigationKey, getRoleNavigation, normalizeNavigati
 const routePrefixes: Record<NavigationKey, string> = {
   dashboard: '/dashboard',
   facilities: '/dashboard/facilities',
+  organizations: '/dashboard/organizations',
   missions: '/dashboard/missions',
   settings: '/dashboard/settings',
   users: '/dashboard/users',

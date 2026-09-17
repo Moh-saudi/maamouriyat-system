@@ -31,11 +31,12 @@ import {
   Users,
   Target,
   BarChart3,
+  Network,
   X,
   type LucideIcon,
 } from 'lucide-react'
 
-type View = 'login' | 'dashboard' | 'missions' | 'violations' | 'facilities' | 'users' | 'settings' | 'checklists' | 'leadership-plan' | 'targets' | 'targets-report'
+type View = 'login' | 'dashboard' | 'missions' | 'violations' | 'facilities' | 'users' | 'settings' | 'checklists' | 'leadership-plan' | 'targets' | 'targets-report' | 'organizations'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabasePublishableKey =
@@ -125,6 +126,7 @@ const notifications = [
 const navigationDefinitions: Record<NavigationKey, { href: string; icon: LucideIcon; label: string }> = {
   dashboard: { href: '/dashboard', icon: Home, label: 'لوحة القيادة' },
   facilities: { href: '/dashboard/facilities', icon: Building2, label: 'المنشآت' },
+  organizations: { href: '/dashboard/organizations', icon: Network, label: 'الهيكل والإدارات' },
   missions: { href: '/dashboard/missions', icon: ClipboardList, label: 'المأموريات' },
   settings: { href: '/dashboard/settings', icon: Settings, label: 'الإعدادات' },
   users: { href: '/dashboard/users', icon: Users, label: 'المستخدمون' },
@@ -1316,6 +1318,11 @@ function Navigation({
       if (r === 'sector') return 'كوادر ومفتشو القطاع'
       return 'إدارة الكوادر والموظفين'
     }
+    if (key === 'organizations') {
+      if (r === 'sector') return 'هيكل وإدارات القطاع'
+      if (r === 'central') return 'هيكل وإدارات الإدارة المركزية'
+      return 'الهيكل التنظيمي والإدارات'
+    }
     if (key === 'targets') {
       if (r === 'inspector') return 'مستهدفاتي الميدانية'
       if (r === 'creator') return 'مستهدفات مفتشي الإدارة'
@@ -1352,7 +1359,7 @@ function Navigation({
     {
       title: 'الحوكمة وإدارة النظام',
       icon: '⚙️',
-      keys: (['users', 'settings'] as NavigationKey[]).filter(k => allowedKeys.has(k))
+      keys: (['organizations', 'users', 'settings'] as NavigationKey[]).filter(k => allowedKeys.has(k))
     }
   ].filter(sec => sec.keys.length > 0)
 

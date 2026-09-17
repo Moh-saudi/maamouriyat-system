@@ -19,8 +19,10 @@ import {
   Edit2,
   X,
   Compass,
-  Check
+  Check,
+  FileSpreadsheet
 } from 'lucide-react'
+import Link from 'next/link'
 import { type FacilityAffiliationOption, type FacilityAffiliationType } from '@/lib/facility-affiliations'
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import {
@@ -2609,6 +2611,28 @@ export function FacilitiesPortal({
                       <Plus size={15} /> إضافة إدارة أو قسم ➕
                     </button>
                   )}
+
+                  {/* Open Standalone Table & Export Page */}
+                  <Link
+                    href="/dashboard/organizations"
+                    style={{
+                      background: '#eff6ff',
+                      color: '#1d4ed8',
+                      border: '1px solid #bfdbfe',
+                      borderRadius: '8px',
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      textDecoration: 'none',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <FileSpreadsheet size={15} /> جدول الإدارات والتصدير والطباعة 📊
+                  </Link>
 
                   {/* Search Bar */}
                   <div style={{ position: 'relative', width: 'min(100%, 260px)' }}>
