@@ -65,11 +65,32 @@ export async function loadV2OrganizationFacts(
 
   if (pending.size > 0) {
     throw new Error(
-      '[V2 Scope] Organization hierarchy exceeded expected depth or contains a cycle.'
+      '[V2 Scope] Organization hierarchy exceeded expected depth.'
     )
   }
 
+  assertOrganizationFactsAcyclic(facts)
   return facts
+}
+
+function assertOrganizationFactsAcyclic(
+  facts: ReadonlyMap<string, V2OrganizationFact>
+): void {
+  for (const startId of facts.keys()) {
+    let currentId: string | null = startId
+    const visited = new Set<string>()
+
+    while (currentId) {
+      if (visited.has(currentId)) {
+        throw new Error(
+          `[V2 Scope] Organization hierarchy cycle detected at organization ${currentId}.`
+        )
+      }
+
+      visited.add(currentId)
+      currentId = facts.get(currentId)?.parentId ?? null
+    }
+  }
 }
 
 export function isOrganizationWithinTree(input: {
