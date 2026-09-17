@@ -201,6 +201,10 @@ export function UserPortal({
   const [localOrgs, setLocalOrgs] = useState<any[]>(organizations)
   const [facilitySearch, setFacilitySearch] = useState('')
   const [editFacilitySearch, setEditFacilitySearch] = useState('')
+  const [orgSearchAdd, setOrgSearchAdd] = useState('')
+  const [orgSearchEdit, setOrgSearchEdit] = useState('')
+  const [showAllOrgsForAdd, setShowAllOrgsForAdd] = useState(false)
+  const [showAllOrgsForEdit, setShowAllOrgsForEdit] = useState(false)
 
   useEffect(() => {
     if (organizations && organizations.length > 0) {
@@ -321,6 +325,8 @@ export function UserPortal({
     setEditPhone(u.phone || '')
     setEditFinancialCode(u.financial_code || '')
     setEditIsActive(u.is_active !== false)
+    setOrgSearchEdit('')
+    setShowAllOrgsForEdit(false)
   }
 
   async function handleUpdateUser(event: React.FormEvent<HTMLFormElement>) {
@@ -406,6 +412,8 @@ export function UserPortal({
     setEditPhone('')
     setEditFinancialCode('')
     setEditIsActive(true)
+    setOrgSearchEdit('')
+    setShowAllOrgsForEdit(false)
     setLoading(false)
     router.refresh()
   }
@@ -463,6 +471,71 @@ export function UserPortal({
       return true; // 'all'
     }).sort((a, b) => a.level - b.level || a.full_name.localeCompare(b.full_name, 'ar'))
   }, [users, searchQuery, filterTab, currentUserLevel])
+
+  // Dynamic Organization Filtering based on chosen level and search
+  const filteredOrgsForAdd = useMemo(() => {
+    let list = localOrgs
+    if (!showAllOrgsForAdd) {
+      if (level === 1) {
+        list = list.filter(o => o.level === 1)
+        if (list.length === 0) list = localOrgs
+      } else if (level === 2) {
+        list = list.filter(o => o.level === 2)
+      } else if (level === 3) {
+        list = list.filter(o => o.level === 3)
+      } else if (level === 4) {
+        list = list.filter(o => o.level === 4)
+      } else if (level === 5) {
+        list = list.filter(o => o.level === 5)
+      } else if (level === 6) {
+        list = list.filter(o => o.level === 6)
+      } else if (level === 7) {
+        list = list.filter(o => o.level >= 4)
+      }
+    }
+    if (orgSearchAdd.trim()) {
+      const q = orgSearchAdd.trim().toLowerCase()
+      list = list.filter(o =>
+        (o.name || '').toLowerCase().includes(q) ||
+        (o.governorate || '').toLowerCase().includes(q) ||
+        (o.health_admin || '').toLowerCase().includes(q) ||
+        (o.level_label || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [localOrgs, level, showAllOrgsForAdd, orgSearchAdd])
+
+  const filteredOrgsForEdit = useMemo(() => {
+    let list = localOrgs
+    if (!showAllOrgsForEdit) {
+      if (editLevel === 1) {
+        list = list.filter(o => o.level === 1)
+        if (list.length === 0) list = localOrgs
+      } else if (editLevel === 2) {
+        list = list.filter(o => o.level === 2)
+      } else if (editLevel === 3) {
+        list = list.filter(o => o.level === 3)
+      } else if (editLevel === 4) {
+        list = list.filter(o => o.level === 4)
+      } else if (editLevel === 5) {
+        list = list.filter(o => o.level === 5)
+      } else if (editLevel === 6) {
+        list = list.filter(o => o.level === 6)
+      } else if (editLevel === 7) {
+        list = list.filter(o => o.level >= 4)
+      }
+    }
+    if (orgSearchEdit.trim()) {
+      const q = orgSearchEdit.trim().toLowerCase()
+      list = list.filter(o =>
+        (o.name || '').toLowerCase().includes(q) ||
+        (o.governorate || '').toLowerCase().includes(q) ||
+        (o.health_admin || '').toLowerCase().includes(q) ||
+        (o.level_label || '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [localOrgs, editLevel, showAllOrgsForEdit, orgSearchEdit])
 
   // Dynamic Facility Filtering based on chosen Organization and Facility Search
   const filteredFacilitiesForAdd = useMemo(() => {
@@ -678,6 +751,8 @@ export function UserPortal({
     setEmail('')
     setPhone('')
     setFinancialCode('')
+    setOrgSearchAdd('')
+    setShowAllOrgsForAdd(false)
     setShowAddForm(false)
     setLoading(false)
     router.refresh()
@@ -1752,6 +1827,18 @@ export function UserPortal({
                     if (!jobTitle.trim() || jobTitle === defaultJobTitleForLevel(oldLevel)) {
                       setJobTitle(defaultJobTitleForLevel(newLevel))
                     }
+                    const matchingOrgs = localOrgs.filter(o => {
+                      if (newLevel === 1) return o.level === 1
+                      if (newLevel <= 6) return o.level === newLevel
+                      return o.level >= 4
+                    })
+                    if (matchingOrgs.length === 1) {
+                      setOrgUnitId(matchingOrgs[0].id)
+                      setDepartment(matchingOrgs[0].name)
+                    } else if (!matchingOrgs.some(o => o.id === orgUnitId)) {
+                      setOrgUnitId('')
+                      setDepartment('')
+                    }
                   }}
                   style={{
                     background: '#f8fbfb',
@@ -1879,11 +1966,50 @@ export function UserPortal({
               </label>
             </div>
 
-            {/* 1. الإدارة التنظيمية التابع لها الموظف */}
-            <div style={{ display: 'grid', gap: '6px' }}>
-              <label style={{ fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-                الإدارة أو الجهة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
-              </label>
+            {/* 1. الإدارة التنظيمية التابع لها الموظف (مفلترة تلقائياً حسب المستوى المختار) */}
+            <div style={{ display: 'grid', gap: '8px', background: '#f8fbfb', padding: '14px', borderRadius: '10px', border: '1px solid #dce7e8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                <label style={{ fontSize: '13.5px', color: '#102027', fontWeight: 'bold' }}>
+                  الإدارة أو الجهة التنظيمية التابع لها الموظف *
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', color: '#0d47a1', fontWeight: 'bold', background: '#e3f2fd', padding: '3px 9px', borderRadius: '12px' }}>
+                    {filteredOrgsForAdd.length} جهة متوافقة تلقائياً
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllOrgsForAdd(!showAllOrgsForAdd)}
+                    style={{
+                      fontSize: '11px',
+                      color: showAllOrgsForAdd ? '#d32f2f' : '#1976d2',
+                      background: 'none',
+                      border: 'none',
+                      textDecoration: 'underline',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {showAllOrgsForAdd ? 'تفعيل التصفية التلقائية للمستوى' : 'عرض كافة الجهات'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Org Search */}
+              <input
+                onChange={(e) => setOrgSearchAdd(e.target.value)}
+                placeholder="🔍 تصفية الجهات التنظيمية بالاسم أو المحافظة..."
+                style={{
+                  background: 'white',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '6px',
+                  minHeight: '36px',
+                  padding: '0 10px',
+                  fontSize: '12.5px',
+                  outline: 'none'
+                }}
+                type="text"
+                value={orgSearchAdd}
+              />
+
               <select
                 onChange={(event) => {
                   const unitId = event.target.value
@@ -1900,7 +2026,7 @@ export function UserPortal({
                 }}
                 required
                 style={{
-                  background: '#f8fbfb',
+                  background: 'white',
                   border: '1px solid #cfdcde',
                   borderRadius: '8px',
                   minHeight: '42px',
@@ -1910,8 +2036,12 @@ export function UserPortal({
                 }}
                 value={orgUnitId}
               >
-                <option value="">-- اختر الإدارة أو الجهة التنظيمية ({localOrgs.length} جهة مسجلة) --</option>
-                {localOrgs.map((org) => {
+                <option value="">
+                  {filteredOrgsForAdd.length === 0 
+                    ? '-- لا توجد جهات مسجلة مطابقة لهذا المستوى --' 
+                    : `-- اختر الجهة التنظيمية (${filteredOrgsForAdd.length} جهة متطابقة مع المستوى ${level}) --`}
+                </option>
+                {filteredOrgsForAdd.map((org) => {
                   let badge = '🏢'
                   if (org.level === 1) badge = '🏛️'
                   else if (org.level === 2) badge = '🏢'
@@ -2489,6 +2619,18 @@ export function UserPortal({
                     if (!editJobTitle.trim() || editJobTitle === defaultJobTitleForLevel(oldLevel)) {
                       setEditJobTitle(defaultJobTitleForLevel(newLevel))
                     }
+                    const matchingOrgs = localOrgs.filter(o => {
+                      if (newLevel === 1) return o.level === 1
+                      if (newLevel <= 6) return o.level === newLevel
+                      return o.level >= 4
+                    })
+                    if (matchingOrgs.length === 1) {
+                      setEditOrgUnitId(matchingOrgs[0].id)
+                      setEditDepartment(matchingOrgs[0].name)
+                    } else if (!matchingOrgs.some(o => o.id === editOrgUnitId)) {
+                      setEditOrgUnitId('')
+                      setEditDepartment('')
+                    }
                   }}
                   style={{
                     background: '#f8fbfb',
@@ -2616,11 +2758,50 @@ export function UserPortal({
               </label>
             </div>
 
-            {/* 1. الإدارة التنظيمية التابع لها الموظف */}
-            <div style={{ display: 'grid', gap: '6px' }}>
-              <label style={{ fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-                الإدارة أو الجهة التنظيمية التابع لها الموظف (لربط وتصفية الاستمارات) *
-              </label>
+            {/* 1. الإدارة التنظيمية التابع لها الموظف (مفلترة تلقائياً حسب المستوى المختار) */}
+            <div style={{ display: 'grid', gap: '8px', background: '#f8fbfb', padding: '14px', borderRadius: '10px', border: '1px solid #dce7e8' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                <label style={{ fontSize: '13.5px', color: '#102027', fontWeight: 'bold' }}>
+                  الإدارة أو الجهة التنظيمية التابع لها الموظف *
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', color: '#0d47a1', fontWeight: 'bold', background: '#e3f2fd', padding: '3px 9px', borderRadius: '12px' }}>
+                    {filteredOrgsForEdit.length} جهة متوافقة تلقائياً
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllOrgsForEdit(!showAllOrgsForEdit)}
+                    style={{
+                      fontSize: '11px',
+                      color: showAllOrgsForEdit ? '#d32f2f' : '#1976d2',
+                      background: 'none',
+                      border: 'none',
+                      textDecoration: 'underline',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {showAllOrgsForEdit ? 'تفعيل التصفية التلقائية للمستوى' : 'عرض كافة الجهات'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Org Search */}
+              <input
+                onChange={(e) => setOrgSearchEdit(e.target.value)}
+                placeholder="🔍 تصفية الجهات التنظيمية بالاسم أو المحافظة..."
+                style={{
+                  background: 'white',
+                  border: '1px solid #cfdcde',
+                  borderRadius: '6px',
+                  minHeight: '36px',
+                  padding: '0 10px',
+                  fontSize: '12.5px',
+                  outline: 'none'
+                }}
+                type="text"
+                value={orgSearchEdit}
+              />
+
               <select
                 onChange={(event) => {
                   const unitId = event.target.value
@@ -2637,7 +2818,7 @@ export function UserPortal({
                 }}
                 required
                 style={{
-                  background: '#f8fbfb',
+                  background: 'white',
                   border: '1px solid #cfdcde',
                   borderRadius: '8px',
                   minHeight: '42px',
@@ -2647,8 +2828,12 @@ export function UserPortal({
                 }}
                 value={editOrgUnitId}
               >
-                <option value="">-- اختر الإدارة أو الجهة التنظيمية ({localOrgs.length} جهة مسجلة) --</option>
-                {localOrgs.map((org) => {
+                <option value="">
+                  {filteredOrgsForEdit.length === 0 
+                    ? '-- لا توجد جهات مسجلة مطابقة لهذا المستوى --' 
+                    : `-- اختر الجهة التنظيمية (${filteredOrgsForEdit.length} جهة متطابقة مع المستوى ${editLevel}) --`}
+                </option>
+                {filteredOrgsForEdit.map((org) => {
                   let badge = '🏢'
                   if (org.level === 1) badge = '🏛️'
                   else if (org.level === 2) badge = '🏢'
