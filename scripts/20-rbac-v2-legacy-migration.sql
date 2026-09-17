@@ -64,7 +64,7 @@ BEGIN
   IF null_allowed_pages_rows > 0 THEN
     RAISE EXCEPTION 'Pre-migration check failed: % legacy user_permissions row(s) have NULL allowed_pages. Resolve these rows explicitly before RBAC migration; NULL is never treated as unrestricted access.', null_allowed_pages_rows;
   END IF;
-END $;
+END $$$$;
 
 
 -- ==============================================================================
