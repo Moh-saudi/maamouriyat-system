@@ -60,20 +60,27 @@ export function OrganizationsTablePortal({
   userOrgLevel = 7,
   userSectorId = null,
   userEmail = '',
+  userGovernorate = null,
+  userHealthAdmin = null,
   initialOrganizations = [],
   initialUsers = [],
+  initialFacilities = [],
   missionsCount = 0
 }: {
   role?: string | null
   userOrgLevel?: number
   userSectorId?: string | null
   userEmail?: string | null
+  userGovernorate?: string | null
+  userHealthAdmin?: string | null
   initialOrganizations: OrgItem[]
   initialUsers: UserRow[]
+  initialFacilities?: any[]
   missionsCount?: number
 }) {
   const isWritable = role === 'superadmin' || role === 'techadmin'
   const isMinisterialLevel = userOrgLevel === 1 || (isWritable && userSectorId === 'all')
+  const isFieldLevel = userOrgLevel === 5 || userOrgLevel === 6
 
   // الحظر الأمني: رئيس القطاع محصور في قطاعه فقط
   const defaultSectorId = isMinisterialLevel
@@ -203,9 +210,94 @@ export function OrganizationsTablePortal({
     return Math.max(byId, byName, unit.staffCount || 0)
   }
 
+  // بناء قائمة الوحدات والمنشآت للمستويات الميدانية (مديرية 5 / إدارة صحية 6)
+  const fieldUnits = useMemo(() => {
+    if (!isFieldLevel) return []
+    const list: MinistryUnit[] = []
+
+    // 1. الإدارات والمكاتب التابعة من localOrganizations
+    const relevantOrgs = localOrganizations.filter(o => {
+      if (userOrgLevel === 5) {
+        const matchesGov = userGovernorate && (o.governorate || '').trim().toLowerCase() === userGovernorate.trim().toLowerCase()
+        return matchesGov || o.level === 5 || o.level === 6
+      }
+      if (userOrgLevel === 6) {
+        const matchesAdmin = userHealthAdmin && (o.health_admin || '').trim().toLowerCase() === userHealthAdmin.trim().toLowerCase()
+        return matchesAdmin || o.level === 6
+      }
+      return false
+    })
+
+    for (const org of relevantOrgs) {
+      const levelLabel = org.level_label || (org.level === 5 ? 'مديرية شئون صحية' : org.level === 6 ? 'إدارة صحية' : 'إدارة / قسم')
+      const levelIdx = org.level === 5 ? 1 : org.level === 6 ? 1 : 3
+      const typeLabel = org.level === 5 ? 'مديرية المحافظة' : org.level === 6 ? 'إدارة صحية رئيسية' : 'قسم إشرافي'
+
+      list.push({
+        id: org.id,
+        sectorId: org.sector_id || '',
+        name: org.name,
+        level: levelLabel,
+        type: typeLabel,
+        icon: org.level === 5 ? 'Building' : 'Building2',
+        parent: org.parent_id || (userGovernorate ? `مديرية الشئون الصحية بـ ${userGovernorate}` : 'المديرية'),
+        color: '#0d9488',
+        badgeColor: '#0d9488',
+        description: `${org.health_admin ? `إدارة ${org.health_admin} • ` : ''}${org.governorate ? `محافظة ${org.governorate}` : ''}`,
+        coreTasks: ['الإشراف والتنسيق والمتابعة الميدانية للرعاية الصحية'],
+        director: '',
+        staffCount: staffCountMap[org.id] || 0,
+        levelIndex: levelIdx,
+        isCustom: false
+      })
+    }
+
+    // 2. المنشآت الصحية التابعة (مستشفيات، مراكز، وحدات)
+    for (const fac of initialFacilities) {
+      const isHospital = (fac.facility_type || '').includes('مستشفى')
+      const isPhcCenter = (fac.facility_type || '').includes('مركز') || (fac.facility_type || '').includes('طب أسرة')
+      const levelIdx = isHospital ? 2 : 3
+
+      list.push({
+        id: fac.id,
+        sectorId: fac.sector_id || '',
+        name: fac.name,
+        level: fac.facility_type || 'منشأة صحية',
+        type: isHospital ? 'مستشفى علاجي' : isPhcCenter ? 'مركز طب أسرة' : 'وحدة صحية تابعة',
+        icon: isHospital ? 'Building2' : 'Activity',
+        parent: fac.health_admin ? `الإدارة الصحية بـ ${fac.health_admin}` : (userGovernorate ? `مديرية ${userGovernorate}` : 'المديرية'),
+        color: isHospital ? '#0284c7' : '#10b981',
+        badgeColor: isHospital ? '#0284c7' : '#10b981',
+        description: `${fac.village_city ? `${fac.village_city} • ` : ''}${fac.health_admin ? `إدارة ${fac.health_admin} • ` : ''}محافظة ${fac.governorate || userGovernorate || ''}`,
+        coreTasks: ['تقديم الخدمات الطبية والصحية المباشرة للمواطنين'],
+        director: '',
+        staffCount: staffCountMap[fac.id] || 0,
+        levelIndex: levelIdx,
+        isCustom: false
+      })
+    }
+
+    return list
+  }, [isFieldLevel, userOrgLevel, userGovernorate, userHealthAdmin, localOrganizations, initialFacilities, staffCountMap])
+
+  // جميع الوحدات الفعالة المعروضة
+  const effectiveUnits = useMemo(() => {
+    if (isFieldLevel) return fieldUnits
+    return sectorUnits
+  }, [isFieldLevel, fieldUnits, sectorUnits])
+
   // قائمة الجهات الأم للاختيار
   const parentUnitsForModal = useMemo(() => {
     const list: ParentUnitOption[] = []
+
+    if (isFieldLevel) {
+      for (const u of fieldUnits) {
+        if (u.levelIndex === 1 || u.type.includes('إدارة') || u.type.includes('مديرية')) {
+          list.push({ id: u.id, name: u.name, type: u.type })
+        }
+      }
+      return list
+    }
 
     if (activeSector && activeSector.id !== 'all') {
       list.push({
@@ -230,12 +322,11 @@ export function OrganizationsTablePortal({
     }
 
     return list
-  }, [activeSector, sectorUnits])
+  }, [isFieldLevel, fieldUnits, activeSector, sectorUnits])
 
   // التصفية والبحث
   const filteredUnits = useMemo(() => {
-    return sectorUnits.filter(unit => {
-      // استبعاد قمة القطاع من الجدول إذا أردنا عرض الإدارات والأقسام فقط، أو إبقاؤها
+    return effectiveUnits.filter(unit => {
       const matchesLevel = 
         levelFilter === 'all' ? true :
         unit.levelIndex.toString() === levelFilter
@@ -249,17 +340,17 @@ export function OrganizationsTablePortal({
 
       return matchesLevel && matchesSearch
     })
-  }, [sectorUnits, levelFilter, searchQuery])
+  }, [effectiveUnits, levelFilter, searchQuery])
 
   // استخراج اسم الجهة الأم
   const getParentName = (unit: MinistryUnit): string => {
     if (!unit.parent || unit.parent === activeSector.id || unit.levelIndex === 0) {
-      return activeSector.name
+      return isFieldLevel ? (userGovernorate ? `مديرية ${userGovernorate}` : 'المديرية') : activeSector.name
     }
-    const parentUnit = sectorUnits.find(u => u.id === unit.parent)
+    const parentUnit = effectiveUnits.find(u => u.id === unit.parent)
     if (parentUnit) return parentUnit.name
     const parentOrg = localOrganizations.find(o => o.id === unit.parent)
-    return parentOrg?.name || activeSector.name
+    return parentOrg?.name || (isFieldLevel ? (userGovernorate ? `مديرية ${userGovernorate}` : 'المديرية') : activeSector.name)
   }
 
   // كود الوحدة
@@ -269,16 +360,56 @@ export function OrganizationsTablePortal({
     return unit.id.startsWith('custom-') ? `GEN-${unit.id.slice(-6).toUpperCase()}` : `MOHP-${unit.levelIndex}0${unit.name.length}`
   }
 
-  // إحصائيات القطاع
+  // إحصائيات
   const stats = useMemo(() => {
+    if (userOrgLevel === 5) {
+      const adminCount = effectiveUnits.filter(u => u.type?.includes('إدارة') || u.levelIndex === 1).length
+      const hospitalCount = effectiveUnits.filter(u => u.type?.includes('مستشفى') || u.name?.includes('مستشفى') || u.levelIndex === 2).length
+      let totalStaff = 0
+      effectiveUnits.forEach(u => { totalStaff += getStaffCount(u) })
+
+      return {
+        card1Value: adminCount,
+        card1Label: 'الإدارات الصحية بالمحافظة',
+        card2Value: hospitalCount,
+        card2Label: 'المستشفيات التابعة',
+        card3Value: effectiveUnits.length,
+        card3Label: 'إجمالي المنشآت والوحدات',
+        totalStaff
+      }
+    }
+    if (userOrgLevel === 6) {
+      const phcCount = effectiveUnits.filter(u => u.type?.includes('مركز') || u.type?.includes('طب أسرة') || u.levelIndex === 2).length
+      const unitsCount = effectiveUnits.filter(u => u.type?.includes('وحدة') || u.levelIndex === 3).length
+      let totalStaff = 0
+      effectiveUnits.forEach(u => { totalStaff += getStaffCount(u) })
+
+      return {
+        card1Value: phcCount,
+        card1Label: 'مراكز طب الأسرة',
+        card2Value: unitsCount,
+        card2Label: 'الوحدات الصحية والمكاتب',
+        card3Value: effectiveUnits.length,
+        card3Label: 'إجمالي المنشآت والوحدات',
+        totalStaff
+      }
+    }
+
     const centralCount = sectorUnits.filter(u => u.levelIndex === 1).length
     const generalCount = sectorUnits.filter(u => u.levelIndex === 2).length
-    const sectionCount = sectorUnits.filter(u => u.levelIndex === 3).length
     let totalStaff = 0
     sectorUnits.forEach(u => { totalStaff += getStaffCount(u) })
 
-    return { centralCount, generalCount, sectionCount, totalStaff }
-  }, [sectorUnits, staffCountMap])
+    return {
+      card1Value: centralCount,
+      card1Label: 'الإدارات المركزية',
+      card2Value: generalCount,
+      card2Label: 'الإدارات العامة',
+      card3Value: sectorUnits.length,
+      card3Label: 'إجمالي الوحدات والإدارات',
+      totalStaff
+    }
+  }, [userOrgLevel, effectiveUnits, sectorUnits, staffCountMap])
 
   // عمليات الحفظ والتعديل
   const handleSaveUnit = async (newUnit: MinistryUnit) => {
@@ -387,23 +518,37 @@ export function OrganizationsTablePortal({
       'الحالة'
     ]
 
-    const rows = filteredUnits.map((unit, index) => [
-      index + 1,
-      `"${unit.name.replace(/"/g, '""')}"`,
-      `"${unit.levelIndex === 0 ? 'قمة القطاع' : unit.levelIndex === 1 ? 'إدارة مركزية' : unit.levelIndex === 2 ? 'إدارة عامة' : 'قسم إشرافي'}"`,
-      `"${getParentName(unit).replace(/"/g, '""')}"`,
-      `"${getUnitCode(unit)}"`,
-      `"${(unit.director || 'غير محدد').replace(/"/g, '""')}"`,
-      getStaffCount(unit),
-      'معتمد ونشط'
-    ])
+    const rows = filteredUnits.map((unit, index) => {
+      let levelText = unit.levelIndex === 0 ? 'قمة القطاع' : unit.levelIndex === 1 ? 'إدارة مركزية' : unit.levelIndex === 2 ? 'إدارة عامة' : 'قسم إشرافي'
+      if (userOrgLevel === 5) {
+        levelText = unit.levelIndex === 1 ? 'إدارة صحية' : unit.levelIndex === 2 ? 'مستشفى' : 'مركز / وحدة طب أسرة'
+      } else if (userOrgLevel === 6) {
+        levelText = unit.levelIndex === 1 ? 'إدارة صحية' : unit.levelIndex === 2 ? 'مركز طب أسرة' : 'وحدة صحية / مكتب'
+      }
+
+      return [
+        index + 1,
+        `"${unit.name.replace(/"/g, '""')}"`,
+        `"${levelText}"`,
+        `"${getParentName(unit).replace(/"/g, '""')}"`,
+        `"${getUnitCode(unit)}"`,
+        `"${(unit.director || 'غير محدد').replace(/"/g, '""')}"`,
+        getStaffCount(unit),
+        'معتمد ونشط'
+      ]
+    })
 
     const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `الهيكل_التنظيمي_${activeSector.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`
+    const downloadFileName = userOrgLevel === 5
+      ? `منشآت_وإدارات_مديرية_${(userGovernorate || 'المحافظة').replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`
+      : userOrgLevel === 6
+      ? `منشآت_ووحدات_إدارة_${(userHealthAdmin || 'الإدارة').replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`
+      : `الهيكل_التنظيمي_${activeSector.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = downloadFileName
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -437,27 +582,39 @@ export function OrganizationsTablePortal({
               width: '44px',
               height: '44px',
               borderRadius: '12px',
-              background: activeSector.badgeColor + '15',
-              color: activeSector.badgeColor,
+              background: (isFieldLevel ? '#0284c7' : activeSector.badgeColor) + '15',
+              color: isFieldLevel ? '#0284c7' : activeSector.badgeColor,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              border: `1.5px solid ${activeSector.badgeColor}30`
+              border: `1.5px solid ${isFieldLevel ? '#0284c7' : activeSector.badgeColor}30`
             }}>
               <Building2 size={24} />
             </div>
             <div>
               <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold', color: '#102027' }}>
-                جدول الهيكل التنظيمي والإدارات
+                {isFieldLevel
+                  ? (userOrgLevel === 5 
+                      ? `جدول منشآت وإدارات مديرية ${userGovernorate || 'المحافظة'}`
+                      : `جدول منشآت ووحدات الإدارة الصحية بـ ${userHealthAdmin || 'الإدارة'}`)
+                  : 'جدول الهيكل التنظيمي والإدارات'}
               </h1>
               <span style={{ fontSize: '13px', color: '#546e7a' }}>
-                {activeSector.name} — ديوان عام وزارة الصحة والسكان
+                {isFieldLevel
+                  ? (userOrgLevel === 5
+                      ? `مديرية الشئون الصحية بمحافظة ${userGovernorate || ''} — وزارة الصحة والسكان`
+                      : `الإدارة الصحية بـ ${userHealthAdmin || ''} — وزارة الصحة والسكان`)
+                  : `${activeSector.name} — ديوان عام وزارة الصحة والسكان`}
               </span>
             </div>
           </div>
 
           <p style={{ margin: 0, fontSize: '12.5px', color: '#78909c', maxWidth: '720px', lineHeight: '1.6' }}>
-            قائمة رسمية معتمدة ومسجلة مركزياً بقاعدة البيانات لكافة الإدارات المركزية والعامة والأقسام التابعة للقطاع، مع إمكانية التعديل والتكليف والتصدير الرسمي.
+            {isFieldLevel
+              ? (userOrgLevel === 5
+                  ? `قائمة رسمية معتمدة للإدارات الصحية والمستشفيات والوحدات التابعة لمديرية الشئون الصحية بـ ${userGovernorate || 'المحافظة'}، مع إمكانية التعديل والتصدير لإكسيل والطباعة الرسمية.`
+                  : `قائمة رسمية معتمدة للمراكز والوحدات الصحية والأقسام التابعة للإدارة الصحية بـ ${userHealthAdmin || 'الإدارة'}، مع إمكانية التعديل والتصدير لإكسيل والطباعة المعتمدة.`)
+              : 'قائمة رسمية معتمدة ومسجلة مركزياً بقاعدة البيانات لكافة الإدارات المركزية والعامة والأقسام التابعة للقطاع، مع إمكانية التعديل والتكليف والتصدير الرسمي.'}
           </p>
 
           {/* Sector Switcher for Level 1 only */}
@@ -513,11 +670,13 @@ export function OrganizationsTablePortal({
                 fontWeight: 'bold',
                 padding: '3px 12px',
                 borderRadius: '6px',
-                background: activeSector.badgeColor + '18',
-                color: activeSector.badgeColor,
-                border: `1px solid ${activeSector.badgeColor}40`
+                background: (isFieldLevel ? '#0284c7' : activeSector.badgeColor) + '18',
+                color: isFieldLevel ? '#0284c7' : activeSector.badgeColor,
+                border: `1px solid ${isFieldLevel ? '#0284c7' : activeSector.badgeColor}40`
               }}>
-                {activeSector.name}
+                {isFieldLevel
+                  ? (userOrgLevel === 5 ? `🏢 مديرية الشئون الصحية بـ ${userGovernorate || 'المحافظة'}` : `🏥 الإدارة الصحية بـ ${userHealthAdmin || 'الإدارة'}`)
+                  : activeSector.name}
               </span>
             </div>
           )}
@@ -571,7 +730,7 @@ export function OrganizationsTablePortal({
             طباعة / PDF
           </button>
 
-          {(userOrgLevel <= 3 || isWritable) && (
+          {(userOrgLevel <= 5 || isWritable) && (
             <button
               type="button"
               onClick={() => {
@@ -594,7 +753,7 @@ export function OrganizationsTablePortal({
               }}
             >
               <Plus size={16} />
-              إضافة إدارة أو قسم ➕
+              {isFieldLevel ? 'إضافة إدارة أو قسم تابع ➕' : 'إضافة إدارة أو قسم ➕'}
             </button>
           )}
 
@@ -615,7 +774,7 @@ export function OrganizationsTablePortal({
             }}
           >
             <Compass size={16} />
-            عرض الشجرة
+            {isFieldLevel ? 'عرض خريطة المنشآت' : 'عرض الشجرة'}
           </Link>
         </div>
       </div>
@@ -650,10 +809,10 @@ export function OrganizationsTablePortal({
           </div>
           <div>
             <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold', display: 'block' }}>
-              الإدارات المركزية
+              {stats.card1Label}
             </span>
             <strong style={{ fontSize: '20px', color: '#102027' }}>
-              {stats.centralCount}
+              {stats.card1Value}
             </strong>
           </div>
         </div>
@@ -682,10 +841,10 @@ export function OrganizationsTablePortal({
           </div>
           <div>
             <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold', display: 'block' }}>
-              الإدارات العامة
+              {stats.card2Label}
             </span>
             <strong style={{ fontSize: '20px', color: '#102027' }}>
-              {stats.generalCount}
+              {stats.card2Value}
             </strong>
           </div>
         </div>
@@ -714,10 +873,10 @@ export function OrganizationsTablePortal({
           </div>
           <div>
             <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold', display: 'block' }}>
-              الأقسام والوحدات الإشرافية
+              {stats.card3Label}
             </span>
             <strong style={{ fontSize: '20px', color: '#102027' }}>
-              {stats.sectionCount}
+              {stats.card3Value}
             </strong>
           </div>
         </div>
@@ -746,7 +905,7 @@ export function OrganizationsTablePortal({
           </div>
           <div>
             <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold', display: 'block' }}>
-              إجمالي القوى البشرية بالمنظومة
+              إجمالي الكوادر والقوى البشرية
             </span>
             <strong style={{ fontSize: '20px', color: '#102027' }}>
               {stats.totalStaff} موظف ومفتش
@@ -807,7 +966,7 @@ export function OrganizationsTablePortal({
               color: levelFilter === 'all' ? 'white' : '#37474f'
             }}
           >
-            الكل ({sectorUnits.length})
+            الكل ({effectiveUnits.length})
           </button>
 
           <button
@@ -824,7 +983,7 @@ export function OrganizationsTablePortal({
               color: levelFilter === '1' ? 'white' : '#37474f'
             }}
           >
-            إدارات مركزية ({stats.centralCount})
+            {userOrgLevel === 5 ? 'الإدارات الصحية' : userOrgLevel === 6 ? 'الإدارة الصحية' : 'إدارات مركزية'}
           </button>
 
           <button
@@ -841,7 +1000,7 @@ export function OrganizationsTablePortal({
               color: levelFilter === '2' ? 'white' : '#37474f'
             }}
           >
-            إدارات عامة ({stats.generalCount})
+            {userOrgLevel === 5 ? 'المستشفيات' : userOrgLevel === 6 ? 'مراكز طب الأسرة' : 'إدارات عامة'}
           </button>
 
           <button
@@ -858,7 +1017,7 @@ export function OrganizationsTablePortal({
               color: levelFilter === '3' ? 'white' : '#37474f'
             }}
           >
-            أقسام ووحدات ({stats.sectionCount})
+            {userOrgLevel === 5 ? 'الوحدات والمراكز' : userOrgLevel === 6 ? 'الوحدات والمكاتب' : 'أقسام ووحدات'}
           </button>
         </div>
       </div>
@@ -877,10 +1036,18 @@ export function OrganizationsTablePortal({
             <div style={{ textAlign: 'right' }}>
               <strong style={{ fontSize: '14px', display: 'block' }}>جمهورية مصر العربية</strong>
               <strong style={{ fontSize: '13px', display: 'block' }}>وزارة الصحة والسكان</strong>
-              <span style={{ fontSize: '12px' }}>{activeSector.name}</span>
+              <span style={{ fontSize: '12px' }}>
+                {isFieldLevel
+                  ? (userOrgLevel === 5 ? `مديرية الشئون الصحية بـ ${userGovernorate || 'المحافظة'}` : `الإدارة الصحية بـ ${userHealthAdmin || 'الإدارة'}`)
+                  : activeSector.name}
+              </span>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: 'bold' }}>بيان الهيكل التنظيمي والإدارات المعتمدة</h2>
+              <h2 style={{ margin: '0 0 4px 0', fontSize: '18px', fontWeight: 'bold' }}>
+                {isFieldLevel
+                  ? (userOrgLevel === 5 ? `بيان حصر المنشآت والإدارات الصحية التابعة لمحافظة ${userGovernorate || ''}` : `بيان حصر المنشآت والوحدات التابعة للإدارة الصحية بـ ${userHealthAdmin || ''}`)
+                  : 'بيان الهيكل التنظيمي والإدارات المعتمدة'}
+              </h2>
               <small style={{ fontSize: '12px', color: '#555' }}>تاريخ الاستخراج: {new Date().toLocaleDateString('ar-EG')}</small>
             </div>
             <div style={{ textAlign: 'left' }}>
@@ -966,6 +1133,8 @@ export function OrganizationsTablePortal({
                         border: `1px solid ${unit.levelIndex === 0 ? '#ffe082' : unit.levelIndex === 1 ? '#b2dfdb' : unit.levelIndex === 2 ? '#c5cae9' : '#b2ebf2'}`
                       }}>
                         {unit.levelIndex === 0 ? 'قمة القطاع (ممتاز)' :
+                         userOrgLevel === 5 ? (unit.levelIndex === 1 ? 'إدارة صحية تابعة' : unit.levelIndex === 2 ? 'مستشفى' : 'مركز / وحدة طب أسرة') :
+                         userOrgLevel === 6 ? (unit.levelIndex === 1 ? 'إدارة صحية' : unit.levelIndex === 2 ? 'مركز طب أسرة' : 'وحدة صحية / مكتب') :
                          unit.levelIndex === 1 ? 'إدارة مركزية (عالي)' :
                          unit.levelIndex === 2 ? 'إدارة عامة (مدير عام)' :
                          'قسم إشرافي وتنفيذي'}

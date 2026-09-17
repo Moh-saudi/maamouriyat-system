@@ -17,12 +17,40 @@ export default async function OrganizationsPage() {
   // جلب بيانات المستخدم الحالي مع org_level والقطاع
   const { data: profile } = await supabase
     .from('users')
-    .select('org_level, organization_id, sector_id, department, email')
+    .select('id, full_name, org_level, organization_id, sector_id, department, email')
     .eq('auth_id', user.id)
     .maybeSingle()
 
   const orgLevel = profile?.org_level ?? 7
   const role = orgLevelToRole(orgLevel)
+
+  // جلب بيانات جهة المستخدم المسكن عليها
+  const { data: userOrg } = profile?.organization_id
+    ? await supabase
+        .from('organizations')
+        .select('id, name, level, level_label, governorate, health_admin, sector_id')
+        .eq('id', profile.organization_id)
+        .maybeSingle()
+    : { data: null }
+
+  // استنتاج المحافظة والإدارة الصحية للمستويين 5 و 6
+  let userGov = userOrg?.governorate || null
+  let userHealthAdmin = userOrg?.health_admin || null
+
+  if (!userGov && profile?.department) {
+    for (const g of [
+      'القاهرة', 'الجيزة', 'الإسكندرية', 'القليوبية', 'البحيرة', 'بورسعيد',
+      'الإسماعيلية', 'السويس', 'الغربية', 'المنوفية', 'الدقهلية', 'الشرقية',
+      'كفر الشيخ', 'دمياط', 'الفيوم', 'بني سويف', 'المنيا', 'أسيوط',
+      'سوهاج', 'قنا', 'الأقصر', 'أسوان', 'البحر الأحمر', 'الوادي الجديد',
+      'مطروح', 'شمال سيناء', 'جنوب سيناء'
+    ]) {
+      if (profile.department.includes(g) || (profile.full_name && profile.full_name.includes(g))) {
+        userGov = g
+        break
+      }
+    }
+  }
 
   // حظر أمني وحصر نطاق القطاع:
   // المستوى 1 فقط (قيادة الوزارة) يرى كافة القطاعات
@@ -56,7 +84,7 @@ export default async function OrganizationsPage() {
   }
 
   // استعلام المنشآت والجهات والمستخدمين بالتوازي
-  const [orgsResult, usersResult, missionsResult] = await Promise.all([
+  const [orgsResult, usersResult, missionsResult, facilitiesResult] = await Promise.all([
     supabase
       .from('organizations')
       .select('id, name, level, level_label, governorate, health_admin, sector_id, code, parent_id, is_active, created_at')
@@ -70,8 +98,28 @@ export default async function OrganizationsPage() {
       .limit(500),
     supabase
       .from('missions')
-      .select('id, target_facility_id, facility_id, status')
+      .select('id, target_facility_id, facility_id, status'),
+    (orgLevel === 5 || orgLevel === 6)
+      ? supabase
+          .from('facilities')
+          .select('id, name, facility_type, governorate, health_admin, village_city, is_active, organization_id, sector_id')
+          .eq('is_active', true)
+          .order('name')
+          .limit(2000)
+      : Promise.resolve({ data: [] })
   ])
+
+  // فلترة المنشآت المحلية للمستويات الميدانية بدقة
+  let scopedFacilities = facilitiesResult.data ?? []
+  if (orgLevel === 5 && userGov) {
+    scopedFacilities = scopedFacilities.filter(f => (f.governorate || '').trim() === userGov.trim())
+  } else if (orgLevel === 6) {
+    if (userHealthAdmin) {
+      scopedFacilities = scopedFacilities.filter(f => (f.health_admin || '').trim() === userHealthAdmin.trim())
+    } else if (userGov) {
+      scopedFacilities = scopedFacilities.filter(f => (f.governorate || '').trim() === userGov.trim())
+    }
+  }
 
   return (
     <DashboardShell role={role}>
@@ -80,8 +128,11 @@ export default async function OrganizationsPage() {
         userOrgLevel={orgLevel}
         userSectorId={userSectorId}
         userEmail={userEmail}
+        userGovernorate={userGov}
+        userHealthAdmin={userHealthAdmin}
         initialOrganizations={orgsResult.data ?? []}
         initialUsers={usersResult.data ?? []}
+        initialFacilities={scopedFacilities}
         missionsCount={missionsResult.data?.length ?? 0}
       />
     </DashboardShell>

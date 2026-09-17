@@ -1321,6 +1321,8 @@ function Navigation({
     if (key === 'organizations') {
       if (r === 'sector') return 'هيكل وإدارات القطاع'
       if (r === 'central') return 'هيكل وإدارات الإدارة المركزية'
+      if (r === 'directorate') return 'منشآت وإدارات المديرية'
+      if (r === 'creator') return 'منشآت ووحدات الإدارة الصحية'
       return 'الهيكل التنظيمي والإدارات'
     }
     if (key === 'targets') {
@@ -1354,12 +1356,12 @@ function Navigation({
     {
       title: 'الرقابة والمنشآت الصحية',
       icon: '🏥',
-      keys: (['violations', 'facilities', 'checklists'] as NavigationKey[]).filter(k => allowedKeys.has(k))
+      keys: (['violations', 'facilities', 'organizations', 'checklists'] as NavigationKey[]).filter(k => allowedKeys.has(k))
     },
     {
       title: 'الحوكمة وإدارة النظام',
       icon: '⚙️',
-      keys: (['organizations', 'users', 'settings'] as NavigationKey[]).filter(k => allowedKeys.has(k))
+      keys: (['users', 'settings'] as NavigationKey[]).filter(k => allowedKeys.has(k))
     }
   ].filter(sec => sec.keys.length > 0)
 
