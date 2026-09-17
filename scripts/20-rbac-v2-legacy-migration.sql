@@ -140,64 +140,63 @@ DO UPDATE SET
 -- ==============================================================================
 -- STEP 2: Migrate Legacy allowed_pages Restrictions to V2 DENY Overrides
 -- ==============================================================================
--- Context:
--- In V1 `public.user_permissions`, custom user restrictions were stored as an array
--- `allowed_pages TEXT[]`.
+-- Legacy allowed_pages controlled page/module access. Migrating only a *.view
+-- denial would be unsafe because a base role could still retain create/edit/delete
+-- operations for a hidden module and reach them through a direct request.
 --
--- In V2, roles grant base permissions. If a user was restricted in V1 by omitting
--- pages from `allowed_pages`, we translate each omitted page module into an
--- explicit user-level DENY override.
---
--- Monitored Page-to-Permission Mapping:
--- 'facilities'        -> 'facilities.view'
--- 'organizations'     -> 'organizations.view'
--- 'missions'          -> 'missions.view'
--- 'settings'          -> 'settings.view'
--- 'users'             -> 'users.view'
--- 'violations'        -> 'violations.view'
--- 'checklists'        -> 'checklists.view'
--- 'leadership-plan'   -> 'leadership_targets.view'
--- 'targets'           -> 'targets.view'
--- 'targets-report'    -> 'targets.report'
---
--- Empty Array Bug Fix:
--- If allowed_pages = '{}', all 10 modules above are omitted and become DENY overrides.
---
--- Dashboard Special Case:
--- 'dashboard' was universally accessible in V1. To prevent inadvertent account lockouts,
--- 'dashboard.view' is excluded from automated DENY overrides during legacy migration.
+-- Migration rule:
+-- - If a legacy page is omitted, DENY every V2 permission represented by that page.
+-- - 'missions' covers both missions.* and mission_results.* because results are a
+--   subordinate mission workflow in V1.
+-- - 'targets' covers targets.* except targets.report; the legacy report page had its
+--   own independent 'targets-report' navigation key.
+-- - 'targets-report' maps only to targets.report.
+-- - Dashboard remains exempt because V1 middleware always allowed /dashboard.
 -- ==============================================================================
-
-WITH legacy_pages AS (
+WITH legacy_page_rules AS (
   SELECT * FROM (VALUES
-    ('facilities',      'facilities.view'),
-    ('organizations',   'organizations.view'),
-    ('missions',        'missions.view'),
-    ('settings',        'settings.view'),
-    ('users',           'users.view'),
-    ('violations',      'violations.view'),
-    ('checklists',      'checklists.view'),
-    ('leadership-plan', 'leadership_targets.view'),
-    ('targets',         'targets.view'),
-    ('targets-report',  'targets.report')
-  ) AS t(page_code, permission_key)
+    ('facilities',      'facilities',         NULL::text),
+    ('organizations',   'organizations',      NULL::text),
+    ('missions',        'missions',           NULL::text),
+    ('missions',        'mission_results',    NULL::text),
+    ('settings',        'settings',           NULL::text),
+    ('users',           'users',              NULL::text),
+    ('violations',      'violations',         NULL::text),
+    ('checklists',      'checklists',         NULL::text),
+    ('leadership-plan', 'leadership_targets', NULL::text),
+    ('targets',         'targets',             'report'),
+    ('targets-report',  'targets',             '__ONLY_REPORT__')
+  ) AS t(page_code, module, action_rule)
 ),
-active_legacy_user_restrictions AS (
-  -- Evaluate all users with an explicit record in user_permissions
+legacy_user_restrictions AS (
   SELECT
     up.user_id,
     up.allowed_pages
   FROM public.user_permissions up
   JOIN public.users u ON u.id = up.user_id
 ),
-omitted_modules AS (
+omitted_page_rules AS (
   SELECT
-    alur.user_id,
-    lp.permission_key
-  FROM active_legacy_user_restrictions alur
-  CROSS JOIN legacy_pages lp
-  -- The page was NOT in allowed_pages; an empty array correctly omits all modules
-  WHERE NOT (lp.page_code = ANY(alur.allowed_pages))
+    lur.user_id,
+    lpr.page_code,
+    lpr.module,
+    lpr.action_rule
+  FROM legacy_user_restrictions lur
+  CROSS JOIN legacy_page_rules lpr
+  WHERE NOT (lpr.page_code = ANY(lur.allowed_pages))
+),
+permissions_to_deny AS (
+  SELECT DISTINCT
+    opr.user_id,
+    p.key AS permission_key
+  FROM omitted_page_rules opr
+  JOIN public.permissions p
+    ON p.module = opr.module
+   AND (
+     opr.action_rule IS NULL
+     OR (opr.action_rule = 'report' AND p.action <> 'report')
+     OR (opr.action_rule = '__ONLY_REPORT__' AND p.action = 'report')
+   )
 )
 INSERT INTO public.user_permission_overrides (
   user_id,
@@ -209,15 +208,14 @@ INSERT INTO public.user_permission_overrides (
   granted_by
 )
 SELECT
-  om.user_id,
-  om.permission_key,
+  ptd.user_id,
+  ptd.permission_key,
   'deny' AS effect,
-  NULL AS scope_type, -- Strict CHECK requirement: DENY overrides must have NULL scope_type
+  NULL AS scope_type,
   'Migrated from legacy allowed_pages restriction' AS reason,
   TRUE AS is_active,
   NULL AS granted_by
-FROM omitted_modules om
-JOIN public.permissions p ON p.key = om.permission_key
+FROM permissions_to_deny ptd
 ON CONFLICT (user_id, permission_key) DO UPDATE SET
   effect = 'deny',
   scope_type = NULL,
