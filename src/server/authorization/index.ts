@@ -1,5 +1,16 @@
-/**
- * V2 Server Authorization Layer (Phase 3 Placeholder)
- * Dynamic RBAC, Permissions Matrix & Data Scope evaluation engine.
- */
-export const AUTHORIZATION_MODULE = 'pending-phase-3'
+export { getV2AccessState } from './context'
+export {
+  evaluateV2Authorization,
+  getV2PermissionScopes,
+  hasV2Permission,
+} from './evaluator'
+export type {
+  V2AccessState,
+  V2AuthorizationSnapshot,
+  V2EffectivePermission,
+  V2PermissionEffect,
+  V2RoleAssignment,
+  V2RolePermissionGrant,
+  V2ScopeType,
+  V2UserPermissionOverride,
+} from './types'
