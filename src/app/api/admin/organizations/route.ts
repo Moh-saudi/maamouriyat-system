@@ -58,16 +58,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'جلسة المستخدم منتهية' }, { status: 401 })
     }
 
-    // التحقق من صلاحيات المستخدم (مستوى 1 أو 2)
+    // التحقق من صلاحيات المستخدم (مستوى 0 دعم فني، 1 وزارة، 2 قطاع، 3 إدارة مركزية)
     const { data: profile } = await supabaseServer
       .from('users')
-      .select('id, level, org_level, sector_id')
+      .select('id, level, org_level, sector_id, email')
       .eq('auth_id', user.id)
       .maybeSingle()
 
     const userLevel = profile?.org_level ?? profile?.level ?? 7
-    if (userLevel > 2) {
-      return NextResponse.json({ error: 'هذه العملية تتطلب صلاحيات إدارة النظام أو رئاسة القطاع' }, { status: 403 })
+    const userEmail = (user.email || profile?.email || '').toLowerCase()
+    const isSuperOrTech = userLevel === 0 || userLevel === 1 || userEmail.includes('admin@')
+
+    if (userLevel > 3 && !isSuperOrTech) {
+      return NextResponse.json({ error: 'هذه العملية تتطلب صلاحيات إدارة النظام أو رئاسة القطاع أو الإدارة المركزية' }, { status: 403 })
     }
 
     const body = await request.json()
@@ -75,6 +78,7 @@ export async function POST(request: NextRequest) {
       name,
       code,
       parent_id,
+      parent_name,
       level,
       level_label,
       governorate,
@@ -89,19 +93,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'اسم الوحدة أو الإدارة الفرعية مطلوب' }, { status: 400 })
     }
 
-    if (!parent_id) {
-      return NextResponse.json({ error: 'يجب تحديد الجهة أو القطاع الرئيسي التابع له' }, { status: 400 })
+    if (!parent_id && !parent_name && !body.sector_id) {
+      return NextResponse.json({ error: 'يجب تحديد الجهة أو الإدارة التابع لها' }, { status: 400 })
     }
 
     // استرجاع بيانات الجهة الأم لتحديد القطاع والمحافظة تلقائياً
-    const { data: parentOrg } = await supabaseServer
-      .from('organizations')
-      .select('id, name, level, sector_id, governorate, health_admin')
-      .eq('id', parent_id)
-      .maybeSingle()
+    let parentOrg: any = null
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(parent_id || ''))
+
+    if (isUuid) {
+      const { data } = await supabaseServer
+        .from('organizations')
+        .select('id, name, level, sector_id, governorate, health_admin')
+        .eq('id', parent_id)
+        .maybeSingle()
+      parentOrg = data
+    }
+
+    if (!parentOrg && (parent_name || parent_id)) {
+      const searchName = String(parent_name || parent_id).trim()
+      const { data: exactMatch } = await supabaseServer
+        .from('organizations')
+        .select('id, name, level, sector_id, governorate, health_admin')
+        .eq('name', searchName)
+        .maybeSingle()
+      parentOrg = exactMatch
+
+      if (!parentOrg) {
+        const { data: list } = await supabaseServer
+          .from('organizations')
+          .select('id, name, level, sector_id, governorate, health_admin')
+          .ilike('name', `%${searchName}%`)
+          .limit(1)
+        parentOrg = list?.[0] || null
+      }
+    }
+
+    if (!parentOrg && body.sector_id) {
+      const { data: sectorOrg } = await supabaseServer
+        .from('organizations')
+        .select('id, name, level, sector_id, governorate, health_admin')
+        .eq('id', body.sector_id)
+        .maybeSingle()
+      parentOrg = sectorOrg
+    }
 
     if (!parentOrg) {
-      return NextResponse.json({ error: 'الجهة الرئيسية المحددة غير موجودة' }, { status: 400 })
+      return NextResponse.json({ error: 'الجهة الرئيسية المحددة غير موجودة في قاعدة البيانات' }, { status: 400 })
     }
 
     // تحديد sector_id تلقائياً
@@ -110,12 +148,19 @@ export async function POST(request: NextRequest) {
     const resolvedHealthAdmin = health_admin || parentOrg.health_admin || null
     const resolvedLevel = Number(level || (parentOrg.level >= 5 ? 6 : parentOrg.level + 1))
     
-    let defaultLabel = 'إدارة فرعية'
-    if (resolvedLevel === 3) defaultLabel = 'إدارة مركزية'
-    else if (resolvedLevel === 4) defaultLabel = 'إدارة عامة'
-    else if (resolvedLevel === 5) defaultLabel = 'مديرية شئون صحية'
-    else if (resolvedLevel === 6) defaultLabel = 'إدارة نوعية / صحية'
-    else if (resolvedLevel === 7) defaultLabel = 'قسم / وحدة تفتيش'
+    // التوافق التام مع قيد قاعدة البيانات organizations_level_label_check
+    const validLevelLabels: Record<number, string> = {
+      1: 'ministry',
+      2: 'sector',
+      3: 'central_admin',
+      4: 'general_admin',
+      5: 'directorate',
+      6: 'health_admin',
+      7: 'unit',
+    }
+    const defaultLabel = validLevelLabels[resolvedLevel] || 'unit'
+    const allowedLabels = ['ministry', 'sector', 'central_admin', 'general_admin', 'directorate', 'health_admin', 'unit']
+    const finalLevelLabel = (level_label && allowedLabels.includes(level_label)) ? level_label : defaultLabel
 
     const generatedCode = (code && code.trim()) ? code.trim().toUpperCase() : `SUB-${Date.now().toString(36).toUpperCase()}`
 
@@ -124,10 +169,10 @@ export async function POST(request: NextRequest) {
     const payload = {
       name: name.trim(),
       code: generatedCode,
-      parent_id,
+      parent_id: parentOrg.id,
       sector_id: resolvedSectorId,
       level: resolvedLevel,
-      level_label: level_label || defaultLabel,
+      level_label: finalLevelLabel,
       governorate: resolvedGovernorate,
       health_admin: resolvedHealthAdmin,
       can_issue_missions: Boolean(can_issue_missions),

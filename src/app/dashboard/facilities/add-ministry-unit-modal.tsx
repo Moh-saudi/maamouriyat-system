@@ -43,6 +43,15 @@ export function AddMinistryUnitModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  React.useEffect(() => {
+    if (isOpen) {
+      setError('')
+      if (centralUnits.length > 0 && (!parentId || !centralUnits.some(u => u.id === parentId))) {
+        setParentId(centralUnits[0].id)
+      }
+    }
+  }, [isOpen, centralUnits, parentId])
+
   if (!isOpen) return null
 
   const handleAddTask = () => {

@@ -164,7 +164,8 @@ export function FacilitiesPortal({
   initialOrganizations?: Array<{
     id: string; name: string; level: number; level_label: string;
     governorate: string | null; health_admin: string | null;
-    sector_id: string | null; code: string | null
+    sector_id: string | null; code: string | null;
+    parent_id?: string | null
   }>
   facilityStoreReady?: boolean
   role?: string | null
@@ -200,7 +201,55 @@ export function FacilitiesPortal({
   }, [])
 
   const activeSector = useMemo(() => getSectorById(selectedSectorId), [selectedSectorId])
-  const currentSectorUnits = useMemo(() => getMinistryUnitsForSector(selectedSectorId, customUnits), [selectedSectorId, customUnits])
+
+  // Merge database level 4 organizations belonging to sector into customUnits
+  const dbUnitsForSector = useMemo(() => {
+    if (!initialOrganizations || initialOrganizations.length === 0) return []
+    const level4Orgs = initialOrganizations.filter(o => 
+      o.level === 4 && (
+        o.sector_id === selectedSectorId || 
+        selectedSectorId === 'all'
+      )
+    )
+
+    return level4Orgs.map(org => {
+      // Check if already in realEgyptianMinistryUnits by name
+      const existsInStatic = realEgyptianMinistryUnits.some(u => u.name.trim() === org.name.trim())
+      if (existsInStatic) return null
+
+      // Find parent in central units
+      const parentCentral = initialOrganizations.find(p => p.id === org.parent_id)
+      const parentUnitName = parentCentral?.name || ''
+      const parentStaticUnit = realEgyptianMinistryUnits.find(u => u.name.trim() === parentUnitName.trim() && u.levelIndex === 1)
+
+      return {
+        id: org.id,
+        sectorId: org.sector_id || selectedSectorId,
+        name: org.name,
+        level: 'المستوى الثاني: الإدارات العامة (بدرجة مدير عام)',
+        type: 'إدارة عامة تخصصية',
+        icon: 'Building2',
+        parent: parentStaticUnit ? parentStaticUnit.id : (org.parent_id || 'phc-sector'),
+        color: activeSector.color,
+        badgeColor: activeSector.badgeColor,
+        description: `إدارة عامة تخصصية مسجلة بالهيكل التنظيمي المعتمد.`,
+        coreTasks: ['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'],
+        director: '',
+        staffCount: 0,
+        levelIndex: 2,
+        isCustom: true
+      } as MinistryUnit
+    }).filter(Boolean) as MinistryUnit[]
+  }, [initialOrganizations, selectedSectorId, activeSector])
+
+  const mergedCustomUnits = useMemo(() => {
+    const map = new Map<string, MinistryUnit>()
+    customUnits.forEach(u => map.set(u.id, u))
+    dbUnitsForSector.forEach(u => map.set(u.id, u))
+    return Array.from(map.values())
+  }, [customUnits, dbUnitsForSector])
+
+  const currentSectorUnits = useMemo(() => getMinistryUnitsForSector(selectedSectorId, mergedCustomUnits), [selectedSectorId, mergedCustomUnits])
   const centralUnits = useMemo(() => currentSectorUnits.filter(u => u.levelIndex === 1), [currentSectorUnits])
 
   // Select top unit of the sector if current selected unit doesn't belong to sector
@@ -212,28 +261,47 @@ export function FacilitiesPortal({
   }, [selectedSectorId, currentSectorUnits, selectedUnitId])
 
   const handleAddCustomUnit = async (newUnit: MinistryUnit) => {
-    const updated = [...customUnits, newUnit]
+    // 1. Resolve parent organization in database
+    const parentCentral = centralUnits.find(u => u.id === newUnit.parent)
+    const parentName = parentCentral?.name || ''
+
+    // 2. Persist to organizations table via API
+    const response = await fetch('/api/admin/organizations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newUnit.name.trim(),
+        code: `GEN-${Date.now().toString(36).toUpperCase()}`,
+        parent_id: newUnit.parent,
+        parent_name: parentName,
+        sector_id: activeSector.id,
+        level: 4,
+        level_label: 'general_admin',
+        can_issue_missions: true,
+        can_approve_missions: false,
+        can_view_all_governorate: false,
+        can_view_sector_facilities: true,
+      })
+    })
+
+    const res = await response.json()
+    if (!response.ok || res.error) {
+      throw new Error(res.error || 'فشل حفظ الإدارة العامة في قاعدة البيانات')
+    }
+
+    const savedOrg = res.data
+    const persistedUnit: MinistryUnit = {
+      ...newUnit,
+      id: savedOrg?.id || newUnit.id
+    }
+
+    const updated = [...customUnits.filter(u => u.id !== persistedUnit.id), persistedUnit]
     setCustomUnits(updated)
     try {
       localStorage.setItem('maamouriyat_custom_ministry_units', JSON.stringify(updated))
     } catch (e) {}
 
-    try {
-      if (supabase) {
-        await supabase.from('organizational_units').insert({
-          code: `GEN-${Date.now().toString(36).toUpperCase()}`,
-          name: newUnit.name,
-          unit_type: 'general_administration',
-          parent_id: newUnit.parent && newUnit.parent.startsWith('00000000') ? newUnit.parent : null,
-          level: 2,
-          is_active: true
-        })
-      }
-    } catch (err) {
-      console.warn('Could not persist unit to database:', err)
-    }
-
-    setSelectedUnitId(newUnit.id)
+    setSelectedUnitId(persistedUnit.id)
   }
 
   // Helper to find child units recursively
@@ -2606,6 +2674,15 @@ export function FacilitiesPortal({
           )
         })()}
       </section>
+
+      {/* MODAL: ADD MINISTRY UNIT */}
+      <AddMinistryUnitModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        activeSector={activeSector}
+        centralUnits={centralUnits}
+        onAddUnit={handleAddCustomUnit}
+      />
 
     </div>
   )

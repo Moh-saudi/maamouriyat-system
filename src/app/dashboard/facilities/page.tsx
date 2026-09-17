@@ -78,9 +78,8 @@ export default async function FacilitiesPage() {
     fetchAllFacilities(supabase),
     supabase
       .from('organizations')
-      .select('id, name, level, level_label, governorate, health_admin, sector_id, code')
+      .select('id, name, level, level_label, governorate, health_admin, sector_id, code, parent_id')
       .eq('is_active', true)
-      .in('level', [5, 6])
       .order('level')
       .order('name'),
     supabase

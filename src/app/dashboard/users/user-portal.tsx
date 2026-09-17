@@ -1853,17 +1853,29 @@ export function UserPortal({
                 }}
                 value={orgUnitId}
               >
-                <option value="">-- اختر الإدارة أو الجهة التنظيمية (495 جهة مسجلة) --</option>
+                <option value="">-- اختر الإدارة أو الجهة التنظيمية ({localOrgs.length} جهة مسجلة) --</option>
                 {localOrgs.map((org) => {
                   let badge = '🏢'
                   if (org.level === 1) badge = '🏛️'
                   else if (org.level === 2) badge = '🏢'
+                  else if (org.level === 3) badge = '📑'
+                  else if (org.level === 4) badge = '📁'
                   else if (org.level === 5) badge = '📍'
                   else if (org.level === 6) badge = '🏥'
+
+                  const levelLabel =
+                    org.level === 1 ? 'الوزارة' :
+                    org.level === 2 ? 'قطاع مركزي' :
+                    org.level === 3 ? 'إدارة مركزية' :
+                    org.level === 4 ? 'إدارة عامة' :
+                    org.level === 5 ? 'مديرية شئون صحية' :
+                    org.level === 6 ? 'إدارة صحية' :
+                    org.level === 7 ? 'وحدة / ميداني' :
+                    org.level_label || `مستوى ${org.level}`
                   
                   return (
                     <option key={org.id} value={org.id}>
-                      {badge} {org.name} {org.governorate ? `(${org.governorate})` : ''} — [{org.level_label || `مستوى ${org.level}`}]
+                      {badge} {org.name} {org.governorate ? `(${org.governorate})` : ''} — [{levelLabel}]
                     </option>
                   )
                 })}
@@ -2547,17 +2559,29 @@ export function UserPortal({
                 }}
                 value={editOrgUnitId}
               >
-                <option value="">-- اختر الإدارة أو الجهة التنظيمية (495 جهة مسجلة) --</option>
+                <option value="">-- اختر الإدارة أو الجهة التنظيمية ({localOrgs.length} جهة مسجلة) --</option>
                 {localOrgs.map((org) => {
                   let badge = '🏢'
                   if (org.level === 1) badge = '🏛️'
                   else if (org.level === 2) badge = '🏢'
+                  else if (org.level === 3) badge = '📑'
+                  else if (org.level === 4) badge = '📁'
                   else if (org.level === 5) badge = '📍'
                   else if (org.level === 6) badge = '🏥'
+
+                  const levelLabel =
+                    org.level === 1 ? 'الوزارة' :
+                    org.level === 2 ? 'قطاع مركزي' :
+                    org.level === 3 ? 'إدارة مركزية' :
+                    org.level === 4 ? 'إدارة عامة' :
+                    org.level === 5 ? 'مديرية شئون صحية' :
+                    org.level === 6 ? 'إدارة صحية' :
+                    org.level === 7 ? 'وحدة / ميداني' :
+                    org.level_label || `مستوى ${org.level}`
                   
                   return (
                     <option key={org.id} value={org.id}>
-                      {badge} {org.name} {org.governorate ? `(${org.governorate})` : ''} — [{org.level_label || `مستوى ${org.level}`}]
+                      {badge} {org.name} {org.governorate ? `(${org.governorate})` : ''} — [{levelLabel}]
                     </option>
                   )
                 })}
