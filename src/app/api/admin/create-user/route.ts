@@ -145,6 +145,9 @@ export async function POST(request: Request) {
       email: normalizedEmail,
       password: tempPassword,
       email_confirm: true,
+      app_metadata: {
+        must_change_password: true,
+      },
       user_metadata: {
         full_name,
         job_title: job_title || null,
@@ -167,7 +170,8 @@ export async function POST(request: Request) {
         await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
           password: tempPassword,
           email_confirm: true,
-          user_metadata: { ...authUser.user_metadata, full_name, must_change_password: true },
+          app_metadata: { ...(authUser.app_metadata || {}), must_change_password: true },
+          user_metadata: { ...(authUser.user_metadata || {}), full_name, must_change_password: true },
         })
       } else {
         return NextResponse.json(

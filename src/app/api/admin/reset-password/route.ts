@@ -65,10 +65,14 @@ export async function POST(request: Request) {
       targetAuthUser.id,
       {
         password: tempPassword,
+        app_metadata: {
+          ...(targetAuthUser.app_metadata || {}),
+          must_change_password: true,
+        },
         user_metadata: {
-          ...targetAuthUser.user_metadata,
-          must_change_password: true
-        }
+          ...(targetAuthUser.user_metadata || {}),
+          must_change_password: true,
+        },
       }
     )
 

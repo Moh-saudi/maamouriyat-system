@@ -59,10 +59,14 @@ export async function POST(request: Request) {
     // 4. Update password and clear the must_change_password flag
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
       password: newPassword,
+      app_metadata: {
+        ...(user.app_metadata || {}),
+        must_change_password: false,
+      },
       user_metadata: {
-        ...user.user_metadata,
-        must_change_password: false
-      }
+        ...(user.user_metadata || {}),
+        must_change_password: false,
+      },
     })
 
     if (updateError) {
