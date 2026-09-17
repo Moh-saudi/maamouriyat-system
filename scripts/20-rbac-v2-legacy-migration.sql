@@ -41,6 +41,7 @@ BEGIN;
 DO $$
 DECLARE
   missing_org_users INTEGER;
+  null_allowed_pages_rows INTEGER;
 BEGIN
   SELECT COUNT(*)
   INTO missing_org_users
@@ -52,7 +53,18 @@ BEGIN
   IF missing_org_users > 0 THEN
     RAISE EXCEPTION 'Pre-migration check failed: % active scoped user(s) (level >= 2) have NULL organization_id. Data cleanup is required before migrating to V2: all scoped users must have a trusted organization anchor.', missing_org_users;
   END IF;
-END $$;
+
+  -- Legacy schema declares allowed_pages NOT NULL, but historical/schema-drift data
+  -- must never be interpreted as unrestricted access. Abort and clean it explicitly.
+  SELECT COUNT(*)
+  INTO null_allowed_pages_rows
+  FROM public.user_permissions up
+  WHERE up.allowed_pages IS NULL;
+
+  IF null_allowed_pages_rows > 0 THEN
+    RAISE EXCEPTION 'Pre-migration check failed: % legacy user_permissions row(s) have NULL allowed_pages. Resolve these rows explicitly before RBAC migration; NULL is never treated as unrestricted access.', null_allowed_pages_rows;
+  END IF;
+END $;
 
 
 -- ==============================================================================
@@ -174,10 +186,9 @@ active_legacy_user_restrictions AS (
   -- Evaluate all users with an explicit record in user_permissions
   SELECT
     up.user_id,
-    COALESCE(up.allowed_pages, '{}'::text[]) AS allowed_pages
+    up.allowed_pages
   FROM public.user_permissions up
   JOIN public.users u ON u.id = up.user_id
-  WHERE up.allowed_pages IS NOT NULL
 ),
 omitted_modules AS (
   SELECT
