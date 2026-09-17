@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { User, Settings, LogOut, ChevronDown } from 'lucide-react'
+import { logoutAction } from '@/server/auth/actions'
 
 export interface UserMenuProps {
   /** Placeholder or future authenticated name */
@@ -124,15 +125,16 @@ export function UserMenu({
           </div>
 
           <div className="border-t border-slate-100 pt-1">
-            <button
-              type="button"
-              role="menuitem"
-              disabled
-              className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-slate-400 cursor-not-allowed text-right"
-            >
-              <LogOut className="w-4 h-4" aria-hidden="true" />
-              <span>تسجيل الخروج (مرحلة 3)</span>
-            </button>
+            <form action={logoutAction}>
+              <button
+                type="submit"
+                role="menuitem"
+                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-colors text-right cursor-pointer"
+              >
+                <LogOut className="w-4 h-4 text-rose-500" aria-hidden="true" />
+                <span>تسجيل الخروج</span>
+              </button>
+            </form>
           </div>
         </div>
       )}
