@@ -124,19 +124,68 @@ export const allNavigationKeys: readonly NavigationKey[] = [
 /**
  * تحويل مستوى الجهة التنظيمية إلى دور في النظام
  * يعمل مع هيكل organizations الجديد (7 مستويات)
+ * المستوى التنظيمي هو المحدد الأساسي للدور والصلاحيات
  */
 export function orgLevelToRole(orgLevel: number, jobTitle?: string | null): UserRole {
-  if (jobTitle && (jobTitle.includes('مفتش') || jobTitle.includes('قائم بالمرور'))) {
-    return 'inspector'
-  }
   if (orgLevel <= 0) return 'techadmin'
   if (orgLevel === 1) return 'superadmin'
   if (orgLevel === 2) return 'sector'
   if (orgLevel === 3) return 'central'
   if (orgLevel === 4) return 'generalmanager'
   if (orgLevel === 5) return 'directorate'
-  if (orgLevel === 6) return 'creator'
-  return 'inspector' // المستوى 7
+  if (orgLevel === 6) {
+    if (jobTitle && (jobTitle.includes('مفتش') || jobTitle.includes('قائم بالمرور'))) {
+      return 'inspector'
+    }
+    return 'creator'
+  }
+  return 'inspector' // المستوى 7 وما دونه
+}
+
+/**
+ * المسمى الوظيفي الافتراضي القياسي لكل مستوى إداري
+ */
+export function defaultJobTitleForLevel(level: number): string {
+  switch (level) {
+    case 1:
+      return 'مشرف عام المنظومة (ديوان الوزارة)'
+    case 2:
+      return 'رئيس قطاع مركزي'
+    case 3:
+      return 'رئيس إدارة مركزية'
+    case 4:
+      return 'مدير عام إدارة عامة'
+    case 5:
+      return 'مدير مديرية الشئون الصحية'
+    case 6:
+      return 'مدير إدارة صحية'
+    case 7:
+    default:
+      return 'عضو تفتيش ومرور ميداني'
+  }
+}
+
+/**
+ * مسميات وظيفية مقترحة شائعة لكل مستوى تنظيمي لتسهيل الاختيار
+ */
+export function getJobTitleSuggestions(level: number): string[] {
+  switch (level) {
+    case 1:
+      return ['مشرف عام المنظومة', 'مسؤول ديوان عام الوزارة', 'مدير وحدة التحول الرقمي', 'مستشار وزير']
+    case 2:
+      return ['رئيس قطاع', 'مساعد رئيس قطاع', 'مشرف عام القطاع المركزي']
+    case 3:
+      return ['رئيس إدارة مركزية', 'نائب رئيس إدارة مركزية', 'مدير إدارة مركزية']
+    case 4:
+      return ['مدير عام إدارة عامة', 'مدير عام', 'مدير إدارة تخصصية', 'مشرف إدارة عامة']
+    case 5:
+      return ['مدير مديرية الشئون الصحية', 'وكيل وزارة / مدير مديرية', 'مدير عام بالمديرية', 'مدير إدارة بالمديرية']
+    case 6:
+      return ['مدير إدارة صحية', 'مساعد مدير إدارة صحية', 'رئيس قسم بالإدارة الصحية']
+    case 7:
+    default:
+      return ['عضو تفتيش ومرور ميداني', 'مفتش صحي ميداني', 'مفتش صيدلي', 'مفتش علاج حر', 'مفتش مالي وإداري', 'عضو فريق المتابعة']
+  }
 }
 
 /**

@@ -7,17 +7,22 @@ import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import { formatFacilityType } from '@/lib/facility-types'
 
 
+import { defaultJobTitleForLevel, getJobTitleSuggestions } from '@/lib/roles'
+
 type UserRow = {
   id: string
   full_name: string
   job_title: string | null
   level: number
+  org_level?: number
   department: string | null
   is_active: boolean | null
   email?: string | null
   phone?: string | null
   facility_id?: string | null
   financial_code?: string | null
+  organization_id?: string | null
+  sector_id?: string | null
   org_unit_id?: string | null
   created_at?: string | null
   real_assigned_count?: number
@@ -231,7 +236,7 @@ export function UserPortal({
     // Map each filtered user to a row
     const rows = filteredUsers.map(u => [
       u.full_name,
-      u.job_title || 'مفتش تفتيش ميداني',
+      u.job_title || defaultJobTitleForLevel(u.level),
       levelLabel(u.level),
       u.department || 'ديوان عام الوزارة',
       u.email || '',
@@ -308,10 +313,10 @@ export function UserPortal({
     setEditingUser(u)
     setEditFullName(u.full_name)
     setEditJobTitle(u.job_title || '')
-    setEditLevel(u.level)
+    setEditLevel(u.level ?? u.org_level ?? 7)
     setEditDepartment(u.department || '')
     setEditFacilityId(u.facility_id || '')
-    setEditOrgUnitId(u.org_unit_id || '')
+    setEditOrgUnitId(u.organization_id || u.org_unit_id || '')
     setEditEmail(u.email || '')
     setEditPhone(u.phone || '')
     setEditFinancialCode(u.financial_code || '')
@@ -342,45 +347,44 @@ export function UserPortal({
 
     setLoading(true)
 
+    const selectedOrg = localOrgs.find(o => o.id === editOrgUnitId)
     const selectedFac = facilities.find(f => f.id === editFacilityId)
-    const finalDepartment = selectedFac ? selectedFac.name : editDepartment || 'ديوان عام الوزارة'
-
-    if (!supabase) {
-      setError('إعداد قاعدة بيانات Supabase غير متوفر حالياً.')
-      setLoading(false)
-      return
-    }
+    const finalDepartment = selectedFac ? selectedFac.name : selectedOrg?.name || editDepartment || 'ديوان عام الوزارة'
 
     try {
-      const payload = {
-        full_name: name,
-        job_title: job || null,
-        level: editLevel,
-        department: finalDepartment,
-        facility_id: editFacilityId || null,
-        org_unit_id: editOrgUnitId || null,
-        email: userEmail,
-        phone: userPhone || null,
-        financial_code: finCode || null,
-        is_active: editIsActive,
-      }
+      const response = await fetch('/api/admin/update-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: editingUser.id,
+          full_name: name,
+          job_title: job || defaultJobTitleForLevel(editLevel),
+          level: editLevel,
+          org_level: editLevel,
+          department: finalDepartment,
+          organization_id: editOrgUnitId || null,
+          org_unit_id: editOrgUnitId || null,
+          facility_id: editFacilityId || null,
+          email: userEmail,
+          phone: userPhone || null,
+          financial_code: finCode || null,
+          is_active: editIsActive,
+        })
+      })
 
-      const { data, error: updateError } = await supabase
-        .from('users')
-        .update(payload)
-        .eq('id', editingUser.id)
-        .select('id, full_name, job_title, level, department, is_active, email, phone, facility_id, financial_code, org_unit_id')
-        .single()
+      const result = await response.json()
 
-      if (updateError) {
-        setError(updateError.message)
+      if (!response.ok || result.error) {
+        setError(result.error || 'فشل تحديث بيانات الموظف.')
         setLoading(false)
         return
       }
 
-      if (data) {
-        setUsers((current) => current.map(u => u.id === editingUser.id ? (data as UserRow) : u))
-        setSuccess('تم تحديث صلاحيات وبيانات الموظف على قاعدة البيانات الحية بنجاح.')
+      if (result.data) {
+        setUsers((current) => current.map(u => u.id === editingUser.id ? { ...u, ...(result.data as UserRow) } : u))
+        setSuccess('تم تحديث صلاحيات وبيانات ومستوى الموظف المعتمد بنجاح.')
         resetEditForm()
       }
     } catch (err: any) {
@@ -563,7 +567,7 @@ export function UserPortal({
         body: JSON.stringify({
           email: userEmail,
           full_name: name,
-          job_title: job || null,
+          job_title: job || defaultJobTitleForLevel(level),
           level,
           org_level: level,
           department: finalDepartment,
@@ -1078,7 +1082,7 @@ export function UserPortal({
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', minWidth: 0, width: '100%' }}>
                     <Shield size={13} style={{ color: '#546e7a', marginTop: '2px', flexShrink: 0 }} />
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <strong style={{ color: '#263238', fontSize: '12px', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block' }}>{u.job_title ?? 'مفتش تفتيش ميداني'}</strong>
+                      <strong style={{ color: '#263238', fontSize: '12px', wordBreak: 'break-word', whiteSpace: 'normal', display: 'block' }}>{u.job_title || defaultJobTitleForLevel(u.level)}</strong>
                     </div>
                   </div>
 
@@ -1362,7 +1366,7 @@ export function UserPortal({
 
                       {/* Job Title */}
                       <td style={{ padding: '12px 20px', color: '#263238', fontWeight: '500' }}>
-                        {u.job_title ?? 'مفتش تفتيش ميداني'}
+                        {u.job_title || defaultJobTitleForLevel(u.level)}
                       </td>
 
                       {/* Level Label Badge */}
@@ -1737,31 +1741,18 @@ export function UserPortal({
               />
             </label>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-                المسمى الوظيفي *
-                <input
-                  onChange={(event) => setJobTitle(event.target.value)}
-                  placeholder="مثال: مفتش مكافحة العدوى"
-                  required
-                  style={{
-                    background: '#f8fbfb',
-                    border: '1px solid #cfdcde',
-                    borderRadius: '8px',
-                    minHeight: '40px',
-                    padding: '0 12px',
-                    fontSize: '13px',
-                    outline: 'none'
-                  }}
-                  type="text"
-                  value={jobTitle}
-                />
-              </label>
-
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
               <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
                 المستوى التنظيمي والصلاحية بالمنظومة *
                 <select
-                  onChange={(event) => setLevel(parseInt(event.target.value))}
+                  onChange={(event) => {
+                    const newLevel = parseInt(event.target.value)
+                    const oldLevel = level
+                    setLevel(newLevel)
+                    if (!jobTitle.trim() || jobTitle === defaultJobTitleForLevel(oldLevel)) {
+                      setJobTitle(defaultJobTitleForLevel(newLevel))
+                    }
+                  }}
                   style={{
                     background: '#f8fbfb',
                     border: '1px solid #cfdcde',
@@ -1779,8 +1770,52 @@ export function UserPortal({
                   <option value={4}>المستوى 4 — مدير عام إدارة عامة مركزية</option>
                   <option value={3}>المستوى 3 — رئيس إدارة مركزية</option>
                   <option value={2}>المستوى 2 — رئيس قطاع مركزي (الرعاية الأساسية / الطب العلاجي)</option>
-                  <option value={1}>المستوى 1 — ديوان عام الوزارة (مدير النظام العام - Super Admin)</option>
+                  {currentUserLevel === 1 && (
+                    <option value={1}>المستوى 1 — ديوان عام الوزارة (مدير النظام العام - Super Admin)</option>
+                  )}
                 </select>
+              </label>
+
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                المسمى الوظيفي *
+                <input
+                  onChange={(event) => setJobTitle(event.target.value)}
+                  placeholder="مثال: مفتش مكافحة العدوى / مدير إدارة"
+                  required
+                  style={{
+                    background: '#f8fbfb',
+                    border: '1px solid #cfdcde',
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    outline: 'none'
+                  }}
+                  type="text"
+                  value={jobTitle}
+                />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                  <span style={{ fontSize: '10.5px', color: '#78909c', alignSelf: 'center', marginLeft: '4px' }}>اقتراحات:</span>
+                  {getJobTitleSuggestions(level).map((sug) => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setJobTitle(sug)}
+                      style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        border: jobTitle === sug ? '1px solid #1976d2' : '1px solid #cfd8dc',
+                        background: jobTitle === sug ? '#e3f2fd' : 'white',
+                        color: jobTitle === sug ? '#0d47a1' : '#37474f',
+                        cursor: 'pointer',
+                        fontWeight: jobTitle === sug ? 'bold' : 'normal'
+                      }}
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
               </label>
             </div>
 
@@ -2104,7 +2139,7 @@ export function UserPortal({
                   <span style={{ fontSize: '11.5px', color: '#78909c', fontWeight: 'bold' }}>المسمى الوظيفي الفعلي:</span>
                   <span style={{ fontSize: '13.5px', color: '#263238', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Shield size={16} style={{ color: 'var(--brand)' }} />
-                    {selectedDetailUser.job_title ?? 'مفتش ميداني'}
+                    {selectedDetailUser.job_title || defaultJobTitleForLevel(selectedDetailUser.level)}
                   </span>
                 </div>
                 
@@ -2443,31 +2478,18 @@ export function UserPortal({
               />
             </label>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
-                المسمى الوظيفي *
-                <input
-                  onChange={(event) => setEditJobTitle(event.target.value)}
-                  placeholder="مثال: مفتش مكافحة العدوى"
-                  required
-                  style={{
-                    background: '#f8fbfb',
-                    border: '1px solid #cfdcde',
-                    borderRadius: '8px',
-                    minHeight: '40px',
-                    padding: '0 12px',
-                    fontSize: '13px',
-                    outline: 'none'
-                  }}
-                  type="text"
-                  value={editJobTitle}
-                />
-              </label>
-
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
               <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
                 المستوى التنظيمي والصلاحية بالمنظومة *
                 <select
-                  onChange={(event) => setEditLevel(parseInt(event.target.value))}
+                  onChange={(event) => {
+                    const newLevel = parseInt(event.target.value)
+                    const oldLevel = editLevel
+                    setEditLevel(newLevel)
+                    if (!editJobTitle.trim() || editJobTitle === defaultJobTitleForLevel(oldLevel)) {
+                      setEditJobTitle(defaultJobTitleForLevel(newLevel))
+                    }
+                  }}
                   style={{
                     background: '#f8fbfb',
                     border: '1px solid #cfdcde',
@@ -2485,8 +2507,52 @@ export function UserPortal({
                   <option value={4}>المستوى 4 — مدير عام إدارة عامة مركزية</option>
                   <option value={3}>المستوى 3 — رئيس إدارة مركزية</option>
                   <option value={2}>المستوى 2 — رئيس قطاع مركزي (الرعاية الأساسية / الطب العلاجي)</option>
-                  <option value={1}>المستوى 1 — ديوان عام الوزارة (مدير النظام العام - Super Admin)</option>
+                  {currentUserLevel === 1 && (
+                    <option value={1}>المستوى 1 — ديوان عام الوزارة (مدير النظام العام - Super Admin)</option>
+                  )}
                 </select>
+              </label>
+
+              <label style={{ display: 'grid', gap: '6px', fontSize: '13.5px', color: '#37474f', fontWeight: 'bold' }}>
+                المسمى الوظيفي *
+                <input
+                  onChange={(event) => setEditJobTitle(event.target.value)}
+                  placeholder="مثال: مفتش مكافحة العدوى / مدير إدارة"
+                  required
+                  style={{
+                    background: '#f8fbfb',
+                    border: '1px solid #cfdcde',
+                    borderRadius: '8px',
+                    minHeight: '40px',
+                    padding: '0 12px',
+                    fontSize: '13px',
+                    outline: 'none'
+                  }}
+                  type="text"
+                  value={editJobTitle}
+                />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                  <span style={{ fontSize: '10.5px', color: '#78909c', alignSelf: 'center', marginLeft: '4px' }}>اقتراحات:</span>
+                  {getJobTitleSuggestions(editLevel).map((sug) => (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => setEditJobTitle(sug)}
+                      style={{
+                        fontSize: '11px',
+                        padding: '2px 8px',
+                        borderRadius: '6px',
+                        border: editJobTitle === sug ? '1px solid #1976d2' : '1px solid #cfd8dc',
+                        background: editJobTitle === sug ? '#e3f2fd' : 'white',
+                        color: editJobTitle === sug ? '#0d47a1' : '#37474f',
+                        cursor: 'pointer',
+                        fontWeight: editJobTitle === sug ? 'bold' : 'normal'
+                      }}
+                    >
+                      {sug}
+                    </button>
+                  ))}
+                </div>
               </label>
             </div>
 

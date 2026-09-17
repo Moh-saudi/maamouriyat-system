@@ -9,12 +9,16 @@ type UserRow = {
   full_name: string
   job_title: string | null
   level: number
+  org_level?: number
   department: string | null
   is_active: boolean | null
   email?: string | null
   phone?: string | null
   facility_id?: string | null
   financial_code?: string | null
+  organization_id?: string | null
+  sector_id?: string | null
+  org_unit_id?: string | null
   created_at?: string | null
   real_assigned_count?: number
   real_completed_count?: number

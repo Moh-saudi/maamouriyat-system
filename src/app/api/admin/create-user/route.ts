@@ -28,10 +28,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'غير مصرح بالوصول — يرجى تسجيل الدخول' }, { status: 401 })
     }
 
-    // ── التحقق من صلاحية الإنشاء (مستوى 1 أو 2 فقط)
+    // ── التحقق من صلاحية الإنشاء (المستويات القيادية 1 إلى 4)
     const { data: callerProfile, error: profileError } = await supabaseServer
       .from('users')
-      .select('org_level, sector_id, organization_id')
+      .select('id, level, org_level, sector_id, organization_id')
       .eq('auth_id', caller.id)
       .maybeSingle()
 
@@ -39,9 +39,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'تعذر التحقق من صلاحياتك' }, { status: 403 })
     }
 
-    if (callerProfile.org_level > 2) {
+    const callerLevel = Number(callerProfile.level ?? callerProfile.org_level ?? 7)
+    if (callerLevel > 4) {
       return NextResponse.json(
-        { error: 'غير مصرح — إنشاء المستخدمين للمستوى الوزاري والقطاعي فقط' },
+        { error: 'غير مصرح — إنشاء المستخدمين مقتصر على الإدارات القيادية (مستوى 1 إلى 4)' },
         { status: 403 }
       )
     }
@@ -84,14 +85,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'الجهة التنظيمية المحددة غير موجودة' }, { status: 400 })
     }
 
-    // مستوى 2 (قطاع) لا يستطيع إنشاء مستخدمين في قطاع آخر
+    const callerSectorId = callerProfile.sector_id || callerProfile.organization_id
+
+    // المستويات القيادية (2..4) لا تستطيع إنشاء مستخدمين في قطاع آخر
     if (
-      callerProfile.org_level === 2 &&
-      targetOrg.sector_id !== callerProfile.sector_id &&
-      targetOrg.id !== callerProfile.sector_id
+      callerLevel > 1 &&
+      callerSectorId &&
+      targetOrg.sector_id !== callerSectorId &&
+      targetOrg.id !== callerSectorId
     ) {
       return NextResponse.json(
         { error: 'لا يمكنك إنشاء مستخدمين خارج نطاق قطاعك' },
+        { status: 403 }
+      )
+    }
+
+    const userLevel = Number(level || org_level || targetOrg.level || 7)
+
+    // لا يجوز للمشرف إنشاء مستخدم بمستوى أعلى من مستواه
+    if (callerLevel > 1 && userLevel < callerLevel) {
+      return NextResponse.json(
+        { error: 'لا يمكنك إنشاء مستخدم بمستوى إداري أعلى من مستواك الوظيفي' },
         { status: 403 }
       )
     }
@@ -170,7 +184,6 @@ export async function POST(request: Request) {
     }
 
     // ── إنشاء ملف المستخدم في جدول users
-    const userLevel = Number(level || org_level || targetOrg.level || 7)
     const profilePayload: any = {
       auth_id:            authUser.id,
       full_name,
@@ -196,7 +209,7 @@ export async function POST(request: Request) {
       : supabaseAdmin.from('users').insert(profilePayload)
 
     const { data: insertedProfile, error: insertError } = await profileQuery
-      .select('id, full_name, job_title, org_level, sector_id, organization_id, email, is_active')
+      .select('id, full_name, job_title, level, org_level, department, is_active, email, phone, facility_id, financial_code, organization_id, org_unit_id, sector_id, created_at')
       .single()
 
     if (insertError) {
