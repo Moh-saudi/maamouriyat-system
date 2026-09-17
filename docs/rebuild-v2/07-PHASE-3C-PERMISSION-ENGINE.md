@@ -46,6 +46,12 @@ It loads only:
 
 It does not scan every user's assignments.
 
+## 3.1. Active permission registry enforcement
+
+Grants and user overrides are evaluated only when their permission key still exists in `public.permissions` with `is_active = true`.
+
+Inactive permission registry entries are ignored fail-closed, even if historical role grants or overrides still reference them.
+
 ## 4. Evaluation semantics
 
 Multiple roles are combined as a union.
