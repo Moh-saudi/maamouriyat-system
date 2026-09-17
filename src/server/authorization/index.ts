@@ -15,3 +15,12 @@ export type {
   V2ScopeType,
   V2UserPermissionOverride,
 } from './types'
+export { checkV2ResourceAccess } from './resource-access'
+export { evaluateV2ResourceScope } from './scope-evaluator'
+export { loadV2ScopeOrganizationFacts } from './scope-context'
+export type {
+  V2OrganizationFact,
+  V2ResourceScopeContext,
+  V2ScopeDecision,
+  V2ScopeMatch,
+} from './scope-types'
