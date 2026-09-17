@@ -186,6 +186,7 @@
 - تصحيح تعريف `user_permission_overrides.updated_at` إلى `TIMESTAMPTZ NOT NULL DEFAULT NOW()` بعد اكتشاف typo كان سيمنع Script 17 من التنفيذ.
 - إزالة الفهرس المنفصل `idx_user_roles_user` لأنه مغطى بالفعل بالفهرس الفريد التعبيري الذي يبدأ بـ `user_id`.
 - إضافة preflight صريح في Script 20 يرفض أي صف legacy يحتوي `allowed_pages IS NULL` بدل التعامل معه كتسامح أو وصول غير مقيد.
+- إضافة preflight ترتيب/اكتمال يرفض تشغيل Script 20 ما لم تكن **52 Permission القياسية** و**8 System Roles** قد زُرعت بالفعل من Scripts 18 و19، لمنع ترحيل جزئي إذا نُفذت الملفات بترتيب خاطئ.
 - توسيع ترحيل قيود `allowed_pages` ليحظر كل عمليات الموديول المرتبطة بالصفحة المحجوبة، وليس Permission العرض فقط. هذا يمنع وجود صلاحية API غير مرئية خلف صفحة محجوبة.
 - لم يتم تنفيذ أي من Scripts 17–20 على Supabase حتى الآن؛ جميع هذه التغييرات ما زالت Design/Migration Review فقط.
 
