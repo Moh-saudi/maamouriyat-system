@@ -24,6 +24,7 @@ export function AppShell({
   // Sidebar collapsed state (defaults to expanded on desktop, loaded from localStorage if available)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
+  const homeHref = items[0]?.href ?? '/v2/access-denied'
 
   // Hydrate sidebar preference from localStorage on client
   useEffect(() => {
@@ -56,12 +57,13 @@ export function AppShell({
         collapsed={sidebarCollapsed}
         onToggleCollapse={handleToggleSidebar}
         items={items}
+        homeHref={homeHref}
       />
 
       {/* ── Main Content Area ─────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
         {/* Topbar with user profile wiring */}
-        <Topbar user={user} />
+        <Topbar user={user} items={items} homeHref={homeHref} />
 
         {/* Primary Page Content Container */}
         <main
