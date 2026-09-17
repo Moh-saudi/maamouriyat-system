@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Script 19: Dynamic RBAC V2 System Roles and Explicit Grants Seed
--- Phase: Phase 3B — Dynamic RBAC Database Schema DESIGN ONLY
+-- Phase: Phase 3B.0.5 — RBAC SQL Safety & Migration Corrections
 -- Target Engine: PostgreSQL 15+ / Supabase
 --
 -- IMPORTANT SAFETY NOTICE:
@@ -13,9 +13,17 @@
 --    has explicitly enumerated rows in public.role_permission_grants.
 -- 2. Scope Ceilings: Every grant specifies an explicit maximum scope_type:
 --    ('self', 'assigned', 'organization', 'organization_tree', 'governorate', 'sector', 'national').
--- 3. High Fidelity to V1 Behavior: Accurately replicates src/lib/roles.ts logic.
+-- 3. Intentional Least-Privilege Tightening:
+--    - Levels 2-4 had wide national visibility in V1; V2 intentionally tightens them
+--      to sector and organization_tree scopes.
+--    - Level 2 retains user management for its sector, but cannot reset passwords.
+--    - Levels 3-7 have NO user management grants (aligning with canManageUsers <= 2).
+--    - Techadmin gains targets and leadership-targets view to match V1 navigation.
+--    - Field inspector gains targets.view and targets.report; missions.review and
+--      violations.correct are removed (least privilege; separation of duties).
+--    - Settings permission dictionary management is reserved for system_techadmin only.
 -- 4. No Hierarchy/Level in Role Rows: Levels (0-7) do NOT exist on public.roles.
--- 5. Idempotent: Uses ON CONFLICT DO UPDATE / DO NOTHING.
+-- 5. Idempotent: Uses ON CONFLICT DO UPDATE.
 -- ==============================================================================
 
 BEGIN;
@@ -108,6 +116,7 @@ VALUES
 ON CONFLICT (code) DO UPDATE SET
   name_ar = EXCLUDED.name_ar,
   description_ar = EXCLUDED.description_ar,
+  owner_organization_id = NULL,
   is_system = EXCLUDED.is_system,
   is_active = EXCLUDED.is_active,
   priority = EXCLUDED.priority,
@@ -126,7 +135,7 @@ INSERT INTO public.role_permission_grants (role_id, permission_key, scope_type)
 VALUES
   -- ============================================================================
   -- 1. system_techadmin (Technical Administrator)
-  -- Scope: national for configuration/admin modules; no field operations
+  -- Scope: national for administrative/technical modules; no field operations
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'dashboard.view', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'users.view', 'national'),
@@ -147,6 +156,9 @@ VALUES
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'checklists.view', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'checklists.design', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'checklists.publish', 'national'),
+  ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'targets.view', 'national'),
+  ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'targets.report', 'national'),
+  ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'leadership_targets.view', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'settings.view', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'settings.manage_roles', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_techadmin'), 'settings.manage_permissions', 'national'),
@@ -154,7 +166,8 @@ VALUES
 
   -- ============================================================================
   -- 2. system_superadmin (Ministry General Administrator)
-  -- Scope: national across all operational and administrative domains
+  -- Scope: national across operational and administrative domains
+  -- Note: settings.manage_permissions is reserved for system_techadmin
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'system_superadmin'), 'dashboard.view', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_superadmin'), 'missions.view', 'national'),
@@ -200,11 +213,12 @@ VALUES
   ((SELECT id FROM role_ids WHERE code = 'system_superadmin'), 'leadership_targets.edit', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_superadmin'), 'leadership_targets.delete', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_superadmin'), 'settings.view', 'national'),
+  ((SELECT id FROM role_ids WHERE code = 'system_superadmin'), 'settings.manage_roles', 'national'),
   ((SELECT id FROM role_ids WHERE code = 'system_superadmin'), 'audit.view', 'national'),
 
   -- ============================================================================
   -- 3. sector_manager (Sector Head / Undersecretary)
-  -- Scope: sector for all operational oversight
+  -- Scope: sector (tightened from legacy V1 national visibility)
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'dashboard.view', 'sector'),
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'missions.view', 'sector'),
@@ -226,7 +240,6 @@ VALUES
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'users.create', 'sector'),
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'users.edit', 'sector'),
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'users.deactivate', 'sector'),
-  ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'checklists.view', 'sector'),
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'targets.view', 'sector'),
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'targets.create', 'sector'),
   ((SELECT id FROM role_ids WHERE code = 'sector_manager'), 'targets.edit', 'sector'),
@@ -238,7 +251,9 @@ VALUES
 
   -- ============================================================================
   -- 4. central_admin_manager (Central Administration Head)
-  -- Scope: organization_tree
+  -- Scope: organization_tree (tightened from legacy V1 national visibility)
+  -- User management removed (canManageUsers <= 2)
+  -- Leadership target mutations removed (view only)
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'dashboard.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'missions.view', 'organization_tree'),
@@ -256,22 +271,18 @@ VALUES
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'violations.close', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'facilities.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'organizations.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'users.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'users.create', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'users.edit', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'checklists.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'targets.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'targets.create', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'targets.edit', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'targets.approve', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'targets.report', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'leadership_targets.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'leadership_targets.create', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'central_admin_manager'), 'leadership_targets.edit', 'organization_tree'),
 
   -- ============================================================================
   -- 5. general_admin_manager (General Administration Manager)
-  -- Scope: organization_tree
+  -- Scope: organization_tree (tightened from legacy V1 national visibility)
+  -- User management removed (canManageUsers <= 2)
+  -- Leadership target mutations removed (view only)
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'dashboard.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'missions.view', 'organization_tree'),
@@ -289,21 +300,17 @@ VALUES
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'violations.close', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'facilities.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'organizations.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'users.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'users.create', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'users.edit', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'checklists.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'targets.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'targets.create', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'targets.edit', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'targets.report', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'leadership_targets.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'leadership_targets.create', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'general_admin_manager'), 'leadership_targets.edit', 'organization_tree'),
 
   -- ============================================================================
   -- 6. directorate_manager (Health Directorate Manager)
   -- Scope: governorate
+  -- User management removed (canManageUsers <= 2)
+  -- Leadership target mutations removed (view only)
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'dashboard.view', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'missions.view', 'governorate'),
@@ -321,23 +328,17 @@ VALUES
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'violations.close', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'facilities.view', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'organizations.view', 'governorate'),
-  ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'users.view', 'governorate'),
-  ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'users.create', 'governorate'),
-  ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'users.edit', 'governorate'),
-  ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'users.deactivate', 'governorate'),
-  ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'checklists.view', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'targets.view', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'targets.create', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'targets.edit', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'targets.approve', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'targets.report', 'governorate'),
   ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'leadership_targets.view', 'governorate'),
-  ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'leadership_targets.create', 'governorate'),
-  ((SELECT id FROM role_ids WHERE code = 'directorate_manager'), 'leadership_targets.edit', 'governorate'),
 
   -- ============================================================================
   -- 7. health_admin_manager (Health Administration Manager)
   -- Scope: organization_tree
+  -- User management removed (canManageUsers <= 2)
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'dashboard.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'missions.view', 'organization_tree'),
@@ -349,34 +350,35 @@ VALUES
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'mission_results.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'violations.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'violations.create', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'violations.correct', 'organization_tree'),
+  ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'violations.assign', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'violations.verify', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'facilities.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'organizations.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'users.view', 'organization_tree'),
-  ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'checklists.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'targets.view', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'targets.create', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'targets.edit', 'organization_tree'),
   ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'targets.report', 'organization_tree'),
+  ((SELECT id FROM role_ids WHERE code = 'health_admin_manager'), 'leadership_targets.view', 'organization_tree'),
 
   -- ============================================================================
   -- 8. field_inspector (Field Inspector / Team Member)
   -- Scope: assigned / self
+  -- missions.review and violations.correct removed (least privilege; separation of duties)
+  -- targets.view and targets.report added (matching legacy inspector navigation)
   -- ============================================================================
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'dashboard.view', 'self'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'missions.view', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'missions.execute', 'assigned'),
-  ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'missions.review', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'mission_results.view', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'mission_results.record', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'mission_results.edit', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'violations.view', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'violations.create', 'assigned'),
-  ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'violations.correct', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'facilities.view', 'assigned'),
   ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'checklists.view', 'assigned'),
-  ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'checklists.execute', 'assigned')
+  ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'checklists.execute', 'assigned'),
+  ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'targets.view', 'assigned'),
+  ((SELECT id FROM role_ids WHERE code = 'field_inspector'), 'targets.report', 'assigned')
 
 ON CONFLICT (role_id, permission_key) DO UPDATE SET
   scope_type = EXCLUDED.scope_type;

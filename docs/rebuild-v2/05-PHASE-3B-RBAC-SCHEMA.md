@@ -1,4 +1,5 @@
 # المرحلة 3B — التصميم المعماري لقاعدة بيانات الصلاحيات الديناميكية (Dynamic RBAC Schema Design)
+## وتحديثات الأمان والتدقيق (Phase 3B.0.5 Corrections)
 
 > **حالة الوثيقة:** معتمدة للتصميم المعماري والمراجعة الخارجية (Design Only)  
 > **الفرع:** `rebuild/v2-rbac-schema`  
@@ -10,13 +11,15 @@
 
 تهدف هذه المرحلة إلى الانتقال بمنظومة إدارة المأموريات من نموذج الصلاحيات الثابت المرتبط بالمستويات الإدارية (`org_level` / `level` من 0 إلى 7) ونظام `allowed_pages` القديم، إلى **نموذج متكامل للصلاحيات الديناميكية الدقيقة (Normalized Dynamic RBAC)**، قائم على أفضل الممارسات الأمنية للمنظومات الحكومية واسعة النطاق.
 
-### المبادئ الحاكمة للتصميم:
+### المبادئ الحاكمة للتصميم (بعد تدقيقات الأمان 3B.0.5):
 1. **الفصل التام بين الهيكل التنظيمي والأدوار الوظيفية (Decoupled Hierarchy vs. RBAC):** المستوى الإداري للموظف (`level` أو `org_level`) يعبر عن موقعه في الشجرة الإدارية، وليس رخصة صلاحيات مطلقة.
 2. **صلاحيات صريحة بدون استثناءات خفية (Explicit Grants, No Magic Superuser Bypass):** حتى الأدوار السيادية والفنية تخضع لسجلات صريحة ومحددة في جداول الصلاحيات.
 3. **أسبقية الرفض الصريح للمستخدم (Explicit DENY Wins):** إذا امتلك المستخدم دوراً يمنحه صلاحية، ولكن تم وضع استثناء صريح بالرفض (`DENY`) على حسابه، فإن الرفض يلغي المنح تلقائياً.
 4. **التحكم بنطاق البيانات (Data Scope Ceilings):** كل صلاحية تُمنح مقترنة بسقف لنطاق البيانات (`scope_type`) يحدد أفق الرؤية والعمليات (ذاتي، مسند، جهة، شجرة إدارية، محافظة، قطاع، قومي).
-5. **استقلالية قدرات الجهات (Organization Capabilities):** صلاحيات الجهة (مثل إصدار أو اعتماد المأموريات) تظل خصائص للجهة في الهيكل الإداري، وتشكل شرطاً متقاطعاً مع صلاحيات المستخدم.
-6. **عدم المساس بالبنية القديمة (Zero Breaking Legacy):** استمرار عمل V1 بالتوازي، وعدم حذف أو تعديل الجداول أو الحقول القديمة (`user_permissions`, `role_permissions`, `organizational_units`).
+5. **تضييق النطاق المتعمّد لمبدأ الحد الأدنى من الصلاحيات (Intentional Least-Privilege Tightening):** في V1 كانت المستويات 2 إلى 4 تملك رؤية قومية واسعة؛ في V2 تم تضييق نطاقاتها عمداً لتقتصر على القطاع والشجرة التنظيمية.
+6. **سلامة المراجع والانغلاق عند الخطأ (Fail-Closed & Referential Integrity):** استخدام `ON DELETE RESTRICT` على مراجع الجهات وسجلات التدقيق لمنع التوسيع التلقائي للصلاحيات أو محو الأدلة.
+7. **إلزامية التحقق المسبق (Fail-Fast Preflight):** تفشل الهجرة فوراً إذا وجدت أي جداول سابقة مجهولة الهيكل أو مستخدمين مسندين بلا جهة مرجعية.
+8. **عدم المساس بالبنية القديمة (Zero Breaking Legacy):** استمرار عمل V1 بالتوازي، وعدم حذف أو تعديل الجداول أو الحقول القديمة (`user_permissions`, `role_permissions`, `organizational_units`).
 
 ---
 
@@ -45,186 +48,147 @@
 
 ### 2.1. جدول قاموس الصلاحيات المركزي (`public.permissions`)
 - **الهدف:** سجل مركزي ثابت لجميع القدرات والوظائف الإجرائية بالمنظومة.
-- **الحقول الأساسية:**
-  - `key` (نصي، مفتاح أساسي): يتبع نمطاً موحداً `module.action` بأحرف إنجليزية صغيرة ومفصولة بنقطة (مثل `missions.approve`, `users.create`). يخضع لقيد فحص دقيق: `CHECK (key ~ '^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$')`.
-  - `module` و `action`: تم فرض قيد عدم تكرار `UNIQUE (module, action)` لمنع أي تضارب.
+- **الحقول والقيود الأساسية:**
+  - `key` (نصي، مفتاح أساسي): يتبع نمطاً موحداً `module.action` بأحرف إنجليزية صغيرة ومفصولة بنقطة (مثل `missions.approve`, `users.create`).
+  - **قيد التطابق الصارم (Key-Module-Action Integrity):**
+    ```sql
+    CONSTRAINT chk_permissions_key_module_action
+      CHECK (key = (module || '.' || action))
+    ```
+    يمنع إدراج مفتاح لا يتطابق حرفياً مع تركيب الموديول والإجراء.
+  - `module` و `action`: مقيد بقيد عدم تكرار `UNIQUE (module, action)` (وهو ما يُلغي الحاجة لأي فهرس إضافي مكرر عليهما).
   - `display_name_ar` و `description_ar`: توصيف باللغة العربية الواضحة لمسؤولي النظام.
   - `is_sensitive`: علامة للعمليات الحساسة (الحذف، إدارة الحسابات والأدوار، التدقيق، وتعديل صلاحيات الجهات).
-  - `is_active` و `sort_order`: للتحكم في ظهور الصلاحيات بالواجهات الإدارية لاحقاً.
+  - `is_active` و `sort_order`: مفهرس بـ `idx_permissions_active_sort` للتحكم في ظهور الصلاحيات بالواجهات الإدارية.
 
 ### 2.2. جدول الأدوار (`public.roles`)
 - **الهدف:** تجميع منطقي لمجموعة من الصلاحيات ونطاقاتها لتمثيل وظيفة أو مسمى محدد.
-- **الحقول الأساسية:**
+- **الحقول والقيود الأساسية:**
   - `id`: مُعرّف فريد من نوع `UUID`.
   - `code`: رمز إنجليزي موحد وفريد بصيغة snake_case (مثل `field_inspector`, `sector_manager`).
-  - `name_ar` و `description_ar`: المسمى والوصف الرسمي باللغة العربية.
-  - `owner_organization_id`: يشير حصراً إلى `public.organizations(id)` لتمكين الجهات لاحقاً من إنشاء أدوار محلية خاصة بها. القيمة `NULL` تعني دوراً عاماً على مستوى المنظومة (`Global/System Role`).
-  - `is_system`: علامة للأدوار الافتراضية الثابتة الصادرة مع النظام، لمنع حذفها بالخطأ.
+  - `owner_organization_id`: يشير حصراً إلى `public.organizations(id)` مع **`ON DELETE RESTRICT`**. يمنع حذف الجهة إذا كانت تملك أدواراً محلية حتى لا يتحول الدور المحلي إلى دور عام بالخطأ (Fail-Closed).
+  - `is_system`: علامة للأدوار الافتراضية الثابتة الصادرة مع النظام.
+  - **قيد ملكية الأدوار السيادية (System Role Ownership Constraint):**
+    ```sql
+    CONSTRAINT chk_roles_system_owner
+      CHECK (is_system IS FALSE OR owner_organization_id IS NULL)
+    ```
+    يضمن أن الأدوار الأساسية للنظام تكون عامة التعريف دوماً ولا تنسب لجهة فرعية.
   - `priority`: ترتيب أولوية لمعالجة شاشات العرض والتسلسل الإداري.
 
 ### 2.3. جدول منح الصلاحيات للأدوار (`public.role_permission_grants`)
 - **الهدف:** جدول وسيط (Junction Table) يربط كل دور بالصلاحيات الممنوحة له مع سقف نطاق البيانات.
-- **المفتاح الأساسي المركب:** `(role_id, permission_key)`. يضمن هذا القيد أن كل دور يحصل على تصريح واحد فقط لكل صلاحية مع نطاق محدد، مانعاً تضارب السجلات لنفس الدور.
-- **سقف النطاق (`scope_type`):** يُلزم التصميم كل منح بتحديد سقف النطاق الجغرافي والإداري للصلاحية من ضمن القيم المعتمدة:
+- **المفتاح الأساسي المركب:** `PRIMARY KEY (role_id, permission_key)`، وهو يغطي استعلامات `role_id` تلقائياً، وتم إضافة فهرس عكسي على `(permission_key)` لمعرفة الأدوار التي تملك صلاحية معينة.
+- **سقف النطاق (`scope_type`):** يُلزم كل منح بتحديد سقف النطاق الجغرافي والإداري للصلاحية من ضمن القيم السبع المعتمدة:
   - `self` | `assigned` | `organization` | `organization_tree` | `governorate` | `sector` | `national`.
 
 ### 2.4. جدول إسناد الأدوار للمستخدمين (`public.user_roles`)
 - **الهدف:** ربط المستخدمين بدور أو أكثر، مع دعم التقييد بجهة تنظيمية، وفترات سريان زمنية محددة.
-- **الميزات الأساسية:**
-  - **تعدد الأدوار للمستخدم (Multi-role):** لا يوجد قيد `UNIQUE(user_id)`، مما يمكن المستخدم من حمل أكثر من دور في نفس الوقت (مثل: "مفتش ميداني" + "عضو لجنة مراجعة وتصحيح").
-  - **منع التكرار الآمن مع القيم الفارغة (`COALESCE` Unique Expression Index):**
+- **الميزات والضوابط الأساسية:**
+  - **تعدد الأدوار للمستخدم (Multi-role):** لا يوجد قيد `UNIQUE(user_id)`، مما يمكن المستخدم من حمل أكثر من دور في نفس الوقت.
+  - **منع التكرار الشامل (`COALESCE` Unique Expression Index):**
     ```sql
-    CREATE UNIQUE INDEX idx_uq_user_roles ON public.user_roles (
+    CREATE UNIQUE INDEX idx_uq_user_roles_user_role_org ON public.user_roles (
       user_id,
       role_id,
-      COALESCE(assignment_org_id, '00000000-0000-0000-0000-000000000000'::uuid)
+      (COALESCE(assignment_org_id, '00000000-0000-0000-0000-000000000000'::uuid))
     );
     ```
-    يمنع هذا الفهرس إسناد نفس الدور للمستخدم على نفس الجهة أكثر من مرة، ويعالج بأمان حالات الإسناد العام (`assignment_org_id IS NULL`).
+    يمنع تكرار أي سجل إسناد لنفس المستخدم والدور والجهة عبر المنظومة. التغييرات التاريخية تسجل في جدول التدقيق الأمني وتحدث تواريخ السريان في السجل القائم.
+  - **حماية مرجع الجهة (Fail-Closed FK):** `assignment_org_id REFERENCES public.organizations(id) ON DELETE RESTRICT`. حذف جهة تنظيمية يتطلب معالجة إسنادات الموظفين أولاً، ولا يحول الإسنادات المقيدة إلى عامة مطلقاً.
+  - **دلالة `assignment_org_id = NULL`:** لا تعني وصولاً قومياً أو عاماً (Not Global/National). تعني فقط "عدم وجود جهة إسناد استثنائية"، وتعتمد الصلاحية على جهة الموظف الأصلية. فإذا تعذر تحديد جهة الموظف لصلاحية تتطلب جهة: تُرفض العملية فوراً (DENY).
   - **الصلاحية الزمنية:** فحص صارم للتواريخ `CHECK (valid_until IS NULL OR valid_until > valid_from)`.
 
 ### 2.5. جدول استثناءات صلاحيات المستخدمين (`public.user_permission_overrides`)
 - **الهدف:** إتاحة استثناءات استثنائية لمستخدم بعينه دون الحاجة لإنشاء دور مخصص له.
 - **الأثر (`effect`):** إما `allow` (منح استثنائي) أو `deny` (حظر استثنائي صريح).
 - **قواعد النطاق الدلالية (Scope Semantics Check):**
-  ```sql
-  CONSTRAINT chk_overrides_semantics
-    CHECK (
-      (effect = 'allow' AND scope_type IS NOT NULL AND scope_type IN ('self', 'assigned', 'organization', 'organization_tree', 'governorate', 'sector', 'national'))
-      OR
-      (effect = 'deny' AND scope_type IS NULL)
-    )
-  ```
   - الاستثناء بالمنح (`allow`) **يجب** أن يحدد نطاق البيانات المسموح للمستخدم.
   - الاستثناء بالحظر (`deny`) يعني منعاً كلياً لهذه الصلاحية، وبالتالي **يجب** أن يكون النطاق `NULL`.
+- **الفهرسة المحسنة:** القيد الفريد `UNIQUE (user_id, permission_key)` يغطي تلقائياً `user_id`، وتم الاكتفاء بفهرس عكسي على `(permission_key)`.
 
 ### 2.6. جدول سجل التدقيق الأمني للوصول (`public.access_admin_audit`)
 - **الهدف:** توثيق غير قابل للتعديل (Immutable & Append-Only) لكافة العمليات الإدارية المتعلقة بالصلاحيات والأدوار.
-- **الخصائص:**
-  - لا يحتوي على حقل `updated_at`.
-  - يوثق: الفاعل (`actor_user_id`)، الإجراء (`action`)، والمستهدفين (`target_user_id`, `target_role_id`, `target_permission_key`)، مع تفاصيل إضافية في حقل `details JSONB`.
+- **الحماية الصارمة لعدم التعديل (Trigger-Enforced Immutability):**
+  تم إنشاء دالة ومُشغّل قاعدة بيانات يمنع كلياً أي عمليات `UPDATE` أو `DELETE` على الجدول:
+  ```sql
+  CREATE OR REPLACE FUNCTION public.rbac_prevent_audit_mutation()
+  RETURNS TRIGGER AS $$
+  BEGIN
+    RAISE EXCEPTION 'access_admin_audit is append-only: % operations are strictly prohibited', TG_OP;
+  END;
+  $$ LANGUAGE plpgsql;
+  ```
+- **حماية أدلة المراجع (Fail-Closed FKs):** جميع المفاتيح الأجنبية (`actor_user_id`, `target_user_id`, `target_role_id`, `target_permission_key`) تستخدم **`ON DELETE RESTRICT`** لمنع محو الأدلة التاريخية تلقائياً. الكيانات تخضع للتعطيل (`is_active = FALSE`) بدلاً من الحذف الفيزيائي (Soft Deactivation).
 
 ---
 
-## 3. العلاقات وسلامة المراجع (Referential Integrity)
+## 3. الفهارس المُزالة لتفادي التكرار (Index Optimization)
 
-| الجدول المصدر | الحقل | الجدول المرجعي | الحقل المرجعي | سلوك الحذف (ON DELETE) |
-|---|---|---|---|---|
-| `roles` | `owner_organization_id` | `public.organizations` | `id` | `SET NULL` |
-| `roles` | `created_by` | `public.users` | `id` | `SET NULL` |
-| `role_permission_grants` | `role_id` | `public.roles` | `id` | `CASCADE` |
-| `role_permission_grants` | `permission_key` | `public.permissions` | `key` | `CASCADE` |
-| `user_roles` | `user_id` | `public.users` | `id` | `CASCADE` |
-| `user_roles` | `role_id` | `public.roles` | `id` | `CASCADE` |
-| `user_roles` | `assignment_org_id` | `public.organizations` | `id` | `SET NULL` |
-| `user_permission_overrides` | `user_id` | `public.users` | `id` | `CASCADE` |
-| `user_permission_overrides` | `permission_key` | `public.permissions` | `key` | `CASCADE` |
-| `access_admin_audit` | `actor_user_id` | `public.users` | `id` | `SET NULL` |
-| `access_admin_audit` | `target_user_id` | `public.users` | `id` | `SET NULL` |
-| `access_admin_audit` | `target_role_id` | `public.roles` | `id` | `SET NULL` |
-| `access_admin_audit` | `target_permission_key` | `public.permissions` | `key` | `SET NULL` |
-
-> [!IMPORTANT]
-> **قاعدة صارمة:** جميع المفاتيح الأجنبية التي تشير إلى جهات ترتبط حصراً بجدول `public.organizations(id)`. لا يوجد أي ربط جديد بجدول `organizational_units` أو حقل `org_unit_id` المتروكين لدعم التوافق مع V1 القديمة.
+تم فحص الفهارس في `scripts/17-dynamic-rbac-v2-schema.sql` وإزالة الفهارس المكررة التي تغطيها القيود الأساسية والفريدة بالفعل:
+1. **أُزيل `idx_permissions_module_action`:** لوجود `uq_permissions_module_action UNIQUE (module, action)` الذي ينشئ فهرساً مطابقاً تلقائياً.
+2. **أُزيل `idx_role_perm_grants_role`:** لأن المفتاح الأساسي المركب `PRIMARY KEY (role_id, permission_key)` يبدأ بحقل `role_id` ويغطي استعلاماته بالكامل.
+3. **أُزيل `idx_user_perm_overrides_user`:** لأن القيد الفريد `UNIQUE (user_id, permission_key)` يبدأ بحقل `user_id` ويغطي استعلاماته بالكامل.
 
 ---
 
-## 4. نموذج نطاقات البيانات (Data Scope Hierarchy)
+## 4. مصفوفة الصلاحيات المحدثة وتضييق النطاقات (Intentional Least Privilege)
 
-يعتمد التصميم سبعة مستويات لنطاق البيانات تبدأ من الأضيق إلى الأوسع:
+مقارنة بين سلوك V1 القديم وسلوك V2 المعتمد:
 
-1. **`self` (ذاتي):** الوصول فقط إلى السجلات التي أنشأها المستخدم بنفسه أو ترتبط بمعرفه المباشر.
-2. **`assigned` (مسند):** الوصول إلى السجلات والمأموريات التي كُلّف بها المستخدم رسمياً كعضو أو رئيس فريق مرور.
-3. **`organization` (الجهة المباشرة):** الوصول إلى السجلات التابعة لنفس الإدارة أو الوحدة التنظيمية التي ينتمي إليها المستخدم مباشرة دون فروعها.
-4. **`organization_tree` (الشجرة التنظيمية):** الوصول إلى سجلات جهة المستخدم وكافة الإدارات والوحدات الفرعية التابعة لها هبوطاً في الشجرة الإدارية.
-5. **`governorate` (المحافظة):** الوصول إلى كافة المنشآت والعمليات الواقعة داخل النطاق الجغرافي للمحافظة (مثل مديري مديريات الشؤون الصحية).
-6. **`sector` (القطاع):** الوصول إلى كافة الإدارات والجهات والمستشفيات التابعة لقطاع وزاري كامل (مثل قطاع الرعاية العلاجية أو الوقائية).
-7. **`national` (قومي / على مستوى الجمهورية):** وصول كامل ومطلق على مستوى كافة قطاعات ومنشآت الجمهورية (مخصص لقيادات الوزارة والدعم الفني العام).
-
----
-
-## 5. قواعد تقييم الصلاحيات المستقبلية (Resolution Algorithm Blueprint)
-
-عند بناء محرك الصلاحيات في المرحلة 3C (`src/server/authorization/`)، سيتم اعتماد المعادلة التالية:
-
-```
-الصلاحية الفعالة للمستخدم (Effective Permission) =
-    (
-      (امتلاك الصلاحية عبر أي دور فعال للمستخدم)
-      OR
-      (استثناء صريح بالمنح: User Override = ALLOW)
-    )
-    AND NOT
-    (استثناء صريح بالحظر: User Override = DENY)
-    AND
-    (تحقق نطاق البيانات: Data Scope Criteria)
-    AND
-    (تحقق قدرة الجهة التنظيمية: Organization Capability - إذا كانت العملية مشروطة بها)
-```
-
-### الأسبقية الحاسمة:
-- **`Explicit User DENY` يسود دائماً:** حتى لو كان المستخدم يحمل دور `system_superadmin`، فإن وجود قيد `deny` في `user_permission_overrides` يمنعه قطعياً من هذا الإجراء.
-- **تراكم الأدوار مع أوسع نطاق (Union of Grants with Max Scope):** إذا كان لدى المستخدم دوران يمنحان نفس الصلاحية ولكن بنطاقات مختلفة (مثل `organization` و `governorate`)، يُمنح المستخدم النطاق الأوسع (`governorate`).
-
----
-
-## 6. استراتيجية أمن قواعد البيانات (Row Level Security - RLS)
-
-تم تفعيل الـ RLS على الجداول الستة بنهج **Default-Deny الصارم**:
-- تم تشغيل: `ALTER TABLE ... ENABLE ROW LEVEL SECURITY;` على جميع الجداول.
-- **لم يتم إنشاء أي سياسة عامة تسمح بالقراءة لجميع المستخدمين المسجلين (`authenticated`)**.
-- تم تجنب الثغرة التاريخية في جدول `user_permissions` القديم، والتي كانت تتيح لأي مستخدم مسجل استعراض صلاحيات جميع الموظفين الآخرين.
-- في بيئة Next.js V2، يتم استعلام وفحص هذه الجداول عبر طبقة الخادم الموثوقة (`Service Role Client` أو الدوال الآمنة المعزولة `Security Definer`) التي سيتم بناؤها في المرحلة 3C.
-
----
-
-## 7. الأدوار الافتراضية (System Roles) ومطابقتها لـ V1
-
-تم تعريف ثمانية أدوار قياسية في ملف `scripts/19-rbac-v2-system-roles.sql` مع منح صريحة تحاكي بدقة السلوك الفعلي في `src/lib/roles.ts`:
-
-| كود الدور (`code`) | الاسم العربي | النطاق الأساسي | ملخص الصلاحيات الممنوحة |
+| الدور القياسي | نطاق V1 القديم | نطاق V2 المعتمد | التغييرات المعمارية وتضييق الصلاحيات في V2 |
 |---|---|---|---|
-| `system_techadmin` | مسؤول الدعم الفني والتقني | `national` | إدارة المستخدمين، الإعدادات، التدقيق، قاموس الصلاحيات، نماذج التقييم، والهيكل التنظيمي والمنشآت. (لا ينفذ أو يعتمد مأموريات ميدانية). |
-| `system_superadmin` | المدير العام للمنظومة بالوزارة | `national` | صلاحيات سيادية كاملة على المأموريات، النتائج، المخالفات، المستهدفات، المستخدمين، والمنشآت والجهات. |
-| `sector_manager` | رئيس قطاع / وكيل وزارة | `sector` | إدارة واعتماد المأموريات والمستهدفات ومتابعة المخالفات والمستخدمين ضمن القطاع. |
-| `central_admin_manager` | رئيس إدارة مركزية | `organization_tree` | إدارة وتكليف المأموريات ومتابعة مستهدفات الإدارات العامة التابعة. |
-| `general_admin_manager` | مدير عام إدارة عامة | `organization_tree` | إدارة تشغيلية للمأموريات وتكليف الفرق ومتابعة تقارير الإدارة العامة. |
-| `directorate_manager` | مدير مديرية الشؤون الصحية | `governorate` | اعتماد وتكليف المأموريات ومتابعة المستهدفات والمخالفات على مستوى المحافظة. |
-| `health_admin_manager` | مدير إدارة صحية | `organization_tree` | إدارة وتنسيق المرور ومتابعة تلافي السلبيات بالمنشآت التابعة للإدارة الصحية. |
-| `field_inspector` | مفتش / عضو فريق مرور | `assigned` / `self` | تنفيذ المأموريات المكلف بها، تسجيل نتائج بطاقات التقييم، ورصد المخالفات الميدانية. |
+| `system_techadmin` | قومي | `national` | تقني وإداري فقط؛ أُضيفت له صلاحيات رؤية المستهدفات (`targets.view`, `targets.report`, `leadership_targets.view`) لمطابقة قائمة تنقله في V1. محجوب تماماً عن تنفيذ المأموريات الميدانية. |
+| `system_superadmin` | قومي | `national` | إشراف قيادي وسيادي كامل على كافة الموديولات؛ **حُجبت عنه صلاحية إدارة قاموس الصلاحيات `settings.manage_permissions`** لتظل حكراً على الدعم التقني فقط. |
+| `sector_manager` | قومي (شبه مطلق) | `sector` | **تضييق معتمد إلى نطاق القطاع**. يحتفظ بإدارة المستخدمين ضمن قطاعه فقط (`canManageUsers <= 2`)، **ولا يملك إعادة تعيين كلمات المرور `users.reset_password`** المحصورة بالمستويين 0 و 1. |
+| `central_admin_manager` | قومي | `organization_tree` | **تضييق معتمد إلى نطاق الشجرة التابعة**. **أُزيلت عنه كافة صلاحيات المستخدمين** (`users.*`). أُزيلت عنه صلاحيات تعديل خطط القيادات (`leadership_targets.create/edit`) واقتصر على الرؤية فقط. |
+| `general_admin_manager` | قومي | `organization_tree` | **تضييق معتمد إلى الشجرة التابعة**. أُزيلت عنه صلاحيات المستخدمين وتعديل خطط القيادات. |
+| `directorate_manager` | محافظة | `governorate` | أُزيلت عنه صلاحيات إدارة المستخدمين (`canManageUsers(5) = false`). أُزيلت عنه صلاحيات تعديل خطط القيادات. |
+| `health_admin_manager` | إدارة صحية | `organization_tree` | إدارة وتكليف المأموريات في نطاق الإدارة. أُزيلت عنه صلاحيات إدارة المستخدمين. |
+| `field_inspector` | ذاتي / مسند | `assigned` / `self` | تنفيذ المأموريات الميدانية وتسجيل النتائج؛ **أُضيفت له رؤية المستهدفات (`targets.view`, `targets.report`)** لمطابقة شاشته القديمة. **أُزيلت عنه مراجعة المأموريات (`missions.review`) وتصحيح المخالفات (`violations.correct`)** كفصل صريح للمهام ولمنع تضارب المصالح. |
 
 ---
 
-## 8. خطة الترحيل الانتقالي للبيانات التاريخية (Legacy Migration Strategy)
+## 5. تعداد قاموس الصلاحيات الرسمي (Permission Registry Count)
 
-تمت صياغة مسودة التحويل في ملف `scripts/20-rbac-v2-legacy-migration.sql` دون تنفيذ:
-
-1. **تحويل المستوى إلى دور مبدئي (One-time Level Mapping):**
-   - يُحدد لكل مستخدم حالي دوره الافتراضي عبر فحص `COALESCE(u.org_level, u.level, 7)`.
-   - يتم الربط بجهة المستخدم عبر `users.organization_id`.
-   - **تأكيد معماري:** هذه العملية تُنفذ **مرة واحدة فقط** لتهيئة V2. بعد ذلك، لا يؤدي تغيير `org_level` للموظف إلى تعديل دوره.
-2. **تحويل قيود الصفحات القديمة (`allowed_pages`) إلى قيود V2 (`DENY Overrides`):**
-   - المستخدمون الذين يمتلكون مصفوفة `allowed_pages` مقيدة في `public.user_permissions`: أي موديول أساسي غير موجود في مصفوفة السماح الخاصة بهم، يتم إدراج قيد استثناء صريح له في `user_permission_overrides` بالأثر `effect = 'deny'` وبنطاق فارغ `scope_type = NULL`.
-   - **استثناء لوحة المؤشرات (`dashboard`):** كانت لوحة المؤشرات متاحة لجميع المستخدمين في V1، لذلك تم استثناؤها من القيود التلقائية لضمان عدم إغلاق حسابات المستخدمين.
+- **العدد الإجمالي الدقيق والمطابق:** **52 صلاحية** موزعة على 12 موديولاً في [`scripts/18-rbac-v2-permission-registry.sql`](file:///d:/Work%203lagy/maamouriyat-system/scripts/18-rbac-v2-permission-registry.sql).
+- كل سجل يخضع لقيد التطابق `key = module || '.' || action`.
+- الصلاحيات الحساسة (`is_sensitive = TRUE`) محددة بدقة لعمليات الحذف، الإدارة الأمنية، التدقيق، وإدارة القدرات.
 
 ---
 
-## 9. قائمة ملفات الـ SQL الناتجة وترتيب تطبيقها المستقبلي
+## 6. خطة الترحيل ومعالجة الحالات الحرجة (Migration Draft Hardening)
 
-| الترتيب | اسم الملف | الوظيفة | حالة التنفيذ |
-|---|---|---|---|
-| **1** | `scripts/17-dynamic-rbac-v2-schema.sql` | إنشاء الجداول الستة، القيود، الفهارس، ودوال التحديث، وتفعيل RLS | **لم يُنفّذ (DESIGN ONLY)** |
-| **2** | `scripts/18-rbac-v2-permission-registry.sql` | إدراج قاموس الصلاحيات القياسي وتصنيفاتها الحساسة | **لم يُنفّذ (DESIGN ONLY)** |
-| **3** | `scripts/19-rbac-v2-system-roles.sql` | إدراج الأدوار القياسية والمنح الصريحة وسقوف النطاقات | **لم يُنفّذ (DESIGN ONLY)** |
-| **4** | `scripts/20-rbac-v2-legacy-migration.sql` | مسودة ترحيل المستخدمين القدامى وتوزيع الأدوار والقيود | **مسودة فقط - لم تُنفّذ** |
+تم تحديث مسودة [`scripts/20-rbac-v2-legacy-migration.sql`](file:///d:/Work%203lagy/maamouriyat-system/scripts/20-rbac-v2-legacy-migration.sql) لتشمل الضوابط التالية:
+
+1. **فحص التحقق المسبق للجهات (Preflight Org Anchor Check):**
+   تتوقف الهجرة بفشل فوري (`RAISE EXCEPTION`) إذا وُجد أي مستخدم نشط من ذوي الصلاحيات المقيدة (`level >= 2`) لا يملك `organization_id`، وذلك لفرض تنظيف البيانات أولاً.
+2. **معالجة مفتشي المستوى 6 (Level 6 Inspector Migration):**
+   تحويل مستخدمي المستوى 6 الذين يحملون في المسمى الوظيفي "مفتش" أو "قائم بالمرور" إلى دور `field_inspector`، وباقي مستخدمي المستوى 6 إلى `health_admin_manager`، بما يطابق دوال V1 تماماً.
+3. **الانغلاق عند فحص التنشيط (Fail-Closed is_active):**
+   تعيين `user_roles.is_active = (ulm.user_is_active IS TRUE)`، مما يمنع تنشيط أي إسناد لمستخدم غير مفعل أو يملك قيمة `NULL`.
+4. **معالجة المصفوفات الفارغة لقيود الصفحات (Empty allowed_pages Bug Fix):**
+   إلغاء شرط `array_length > 0`. المستخدم المقيد الذي يملك مصفوفة فارغة `allowed_pages = '{}'` يحصل على استثناء حظر صريح (`DENY Override`) على كافة الموديولات العشرة المحمية.
+5. **استثناء لوحة المؤشرات (`dashboard`):**
+   تم استثناء `dashboard.view` من قيود الحظر التلقائي لضمان عدم إغلاق حسابات المستخدمين، حيث كانت لوحة المؤشرات متاحة لجميع المسجلين في V1.
 
 ---
 
-## 10. ما لم يتم تنفيذه في هذه المرحلة (المراحل القادمة)
+## 7. استراتيجية أمن قواعد البيانات (Row Level Security - RLS)
 
-لضمان سلامة واستقرار المشروع، التزمت المرحلة 3B بحدود التصميم فقط، ولم يتم تنفيذ أي مما يلي:
+- تم تفعيل RLS على كافة الجداول الستة بنهج **Default-Deny الصارم**.
+- **القرار الأمني المعتمد لـ Phase 3C:**
+  - لا توجد سياسات وصول مباشر للمتصفح (`Direct Client SELECT Policies`).
+  - مسار الوصول محصور بالخادم:
+    `Browser -> Next.js Server (Auth Context) -> Central Authorization Service -> Service Role Client`.
+  - الجداول تبقى مغلقة كلياً أمام دور `authenticated` من جهة العميل.
+
+---
+
+## 8. ما لم يتم تنفيذه في هذه المرحلة (المراحل القادمة)
+
 - ❌ **لم يتم تطبيق أي أمر SQL على Supabase أو أي قاعدة بيانات حقيقية.**
 - ❌ **لم يتم تعديل أي ملف في الكود المصدري للمشروع (`src/**`).**
-- ❌ **لم يتم بناء محرك تقييم الصلاحيات (`src/server/authorization/`)** — سيتم بناؤه في المرحلة 3C.
+- ❌ **لم يتم بناء محرك الصلاحيات (`src/server/authorization/`)** — سيتم بناؤه في المرحلة 3C.
 - ❌ **لم يتم تعديل واجهات المستخدم أو عناصر التنقل الجانبي (Sidebar)**.
 - ❌ **لم يتم تعديل أي مسارات API أو إجراءات الخادم (Server Actions)**.
