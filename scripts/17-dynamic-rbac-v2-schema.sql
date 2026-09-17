@@ -198,8 +198,8 @@ CREATE TABLE public.user_roles (
 CREATE UNIQUE INDEX idx_uq_user_roles_user_role_org
   ON public.user_roles (user_id, role_id, (COALESCE(assignment_org_id, '00000000-0000-0000-0000-000000000000'::uuid)));
 
-CREATE INDEX idx_user_roles_user
-  ON public.user_roles (user_id);
+-- idx_uq_user_roles_user_role_org already has user_id as its leading column and
+-- supports the primary "roles for one user" lookup path.
 
 CREATE INDEX idx_user_roles_role
   ON public.user_roles (role_id);
@@ -231,7 +231,7 @@ CREATE TABLE public.user_permission_overrides (
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   granted_by UUID NULL REFERENCES public.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- At most one override record per user per permission key
   CONSTRAINT uq_user_perm_overrides_user_perm
