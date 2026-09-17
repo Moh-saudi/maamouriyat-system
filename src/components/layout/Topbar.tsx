@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Bell } from 'lucide-react'
 import { UserMenu, type UserMenuProps } from './UserMenu'
 import { BRANDING } from '@/config/branding'
-import { V2_NAVIGATION_ITEMS, type NavItem } from '@/config/navigation'
+import { V2_NAVIGATION_ITEMS, isRouteActive, type NavItem } from '@/config/navigation'
 
 interface TopbarProps {
   user?: UserMenuProps
@@ -22,9 +22,9 @@ export function Topbar({
   const pathname = usePathname()
   
   // Resolve current active item from route
-  const currentNav = items.find((item) =>
-    pathname === item.href || (item.href !== '/v2/dashboard' && pathname.startsWith(item.href))
-  ) || { label: 'المنظومة', href: homeHref }
+  const currentNav =
+    items.find((item) => isRouteActive(pathname, item.href)) ||
+    { label: 'المنظومة', href: homeHref }
 
   return (
     <header className="sticky top-0 z-30 w-full h-16 bg-white/95 backdrop-blur-xs border-b border-slate-200/90 px-4 sm:px-6 flex items-center justify-between transition-colors">
