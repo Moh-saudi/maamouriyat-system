@@ -29,6 +29,8 @@ type AddMinistryUnitModalProps = {
   activeSector: MinistrySector
   centralUnits: ParentUnitOption[]
   onAddUnit: (newUnit: MinistryUnit) => Promise<void> | void
+  initialData?: MinistryUnit | null
+  onDeleteUnit?: (unitId: string) => Promise<void> | void
 }
 
 export function AddMinistryUnitModal({
@@ -36,8 +38,11 @@ export function AddMinistryUnitModal({
   onClose,
   activeSector,
   centralUnits,
-  onAddUnit
+  onAddUnit,
+  initialData,
+  onDeleteUnit
 }: AddMinistryUnitModalProps) {
+  const isEditMode = Boolean(initialData)
   const [targetLevel, setTargetLevel] = useState<'general_admin' | 'section'>('general_admin')
   const [parentId, setParentId] = useState(centralUnits[0]?.id || activeSector?.id || '')
   const [name, setName] = useState('')
@@ -48,20 +53,38 @@ export function AddMinistryUnitModal({
   const [tasks, setTasks] = useState<string[]>(['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'])
   const [newTaskInput, setNewTaskInput] = useState('')
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
 
   React.useEffect(() => {
     if (isOpen) {
       setError('')
-      if (centralUnits && centralUnits.length > 0) {
-        if (!parentId || !centralUnits.some(u => u.id === parentId)) {
-          setParentId(centralUnits[0].id)
+      if (initialData) {
+        setName(initialData.name || '')
+        setDescription(initialData.description || '')
+        setDirector(initialData.director || '')
+        setIconName(initialData.icon || 'Building2')
+        setParentId(initialData.parent || activeSector?.id || '')
+        setTasks(initialData.coreTasks && initialData.coreTasks.length > 0 ? initialData.coreTasks : ['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'])
+        setTargetLevel(initialData.levelIndex === 3 ? 'section' : 'general_admin')
+      } else {
+        setName('')
+        setDescription('')
+        setDirector('')
+        setIconName('Building2')
+        setColorTheme('teal')
+        setTasks(['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'])
+        setTargetLevel('general_admin')
+        if (centralUnits && centralUnits.length > 0) {
+          if (!parentId || !centralUnits.some(u => u.id === parentId)) {
+            setParentId(centralUnits[0].id)
+          }
+        } else if (activeSector) {
+          setParentId(activeSector.id)
         }
-      } else if (activeSector) {
-        setParentId(activeSector.id)
       }
     }
-  }, [isOpen, centralUnits, activeSector, parentId])
+  }, [isOpen, initialData, centralUnits, activeSector])
 
   if (!isOpen) return null
 
@@ -134,7 +157,7 @@ export function AddMinistryUnitModal({
     setSaving(true)
     try {
       const themeColors = getGradientAndColor(colorTheme)
-      const unitId = `custom-${isGeneral ? 'gen' : 'sec'}-${Date.now()}`
+      const unitId = initialData?.id || `custom-${isGeneral ? 'gen' : 'sec'}-${Date.now()}`
       const parentName = centralUnits.find(u => u.id === parentId)?.name || activeSector.name
 
       const newUnit: MinistryUnit = {
@@ -145,14 +168,14 @@ export function AddMinistryUnitModal({
         type: isGeneral ? 'إدارة عامة تخصصية' : 'قسم / وحدة تنظيمية',
         icon: iconName,
         parent: parentId,
-        color: themeColors.color,
-        badgeColor: themeColors.badgeColor,
+        color: initialData?.color || themeColors.color,
+        badgeColor: initialData?.badgeColor || themeColors.badgeColor,
         description: description.trim() || `${isGeneral ? 'إدارة عامة تخصصية' : 'قسم / وحدة تنظيمية'} تابعة لـ ${parentName}.`,
         coreTasks: tasks.length > 0 ? tasks : ['متابعة الخطط التشغيلية وتطبيق معايير الجودة الفنية'],
         director: director.trim(),
-        staffCount: 0,
+        staffCount: initialData?.staffCount || 0,
         levelIndex: isGeneral ? 2 : 3,
-        isCustom: true
+        isCustom: initialData ? initialData.isCustom : true
       }
 
       await onAddUnit(newUnit)
@@ -222,7 +245,7 @@ export function AddMinistryUnitModal({
             </div>
             <div>
               <strong style={{ fontSize: '15px', color: '#102027', display: 'block' }}>
-                إضافة إدارة عامة أو قسم تنظيمي ➕
+                {isEditMode ? `تعديل بيانات: ${initialData?.name}` : 'إضافة إدارة عامة أو قسم تنظيمي ➕'}
               </strong>
               <small style={{ color: '#00796b', fontSize: '11.5px', fontWeight: 'bold' }}>
                 {activeSector.name}
@@ -604,50 +627,91 @@ export function AddMinistryUnitModal({
           <div
             style={{
               display: 'flex',
-              justifyContent: 'flex-end',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               gap: '10px',
               borderTop: '1px solid #eef2f3',
               paddingTop: '16px',
               marginTop: '8px'
             }}
           >
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                background: '#eef2f3',
-                color: '#546e7a',
-                border: 0,
-                borderRadius: '8px',
-                padding: '9px 18px',
-                fontSize: '13px',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              إلغاء
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              style={{
-                background: 'var(--brand)',
-                color: 'white',
-                border: 0,
-                borderRadius: '8px',
-                padding: '9px 24px',
-                fontSize: '13px',
-                fontWeight: 'bold',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                opacity: saving ? 0.7 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              <ShieldCheck size={16} />
-              {saving ? 'جارٍ الحفظ...' : 'حفظ الإدارة العامة'}
-            </button>
+            {/* Delete button (only in edit mode for custom units) */}
+            {isEditMode && initialData?.isCustom && onDeleteUnit ? (
+              <button
+                type="button"
+                disabled={deleting || saving}
+                onClick={async () => {
+                  if (confirm(`هل أنت متأكد من حذف وإلغاء هذه الإدارة/الوحدة (${initialData.name})؟`)) {
+                    setDeleting(true)
+                    try {
+                      await onDeleteUnit(initialData.id)
+                      onClose()
+                    } catch (err: any) {
+                      setError(err.message || 'فشل حذف الوحدة')
+                    } finally {
+                      setDeleting(false)
+                    }
+                  }
+                }}
+                style={{
+                  background: '#ffebee',
+                  color: '#c62828',
+                  border: '1px solid #ffcdd2',
+                  borderRadius: '8px',
+                  padding: '9px 16px',
+                  fontSize: '12.5px',
+                  fontWeight: 'bold',
+                  cursor: (deleting || saving) ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Trash2 size={15} />
+                {deleting ? 'جارٍ الحذف...' : 'حذف الوحدة'}
+              </button>
+            ) : <div />}
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  background: '#eef2f3',
+                  color: '#546e7a',
+                  border: 0,
+                  borderRadius: '8px',
+                  padding: '9px 18px',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                إلغاء
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                style={{
+                  background: isEditMode ? '#00796b' : 'var(--brand)',
+                  color: 'white',
+                  border: 0,
+                  borderRadius: '8px',
+                  padding: '9px 24px',
+                  fontSize: '13px',
+                  fontWeight: 'bold',
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                  opacity: saving ? 0.7 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
+                }}
+              >
+                <ShieldCheck size={16} />
+                {saving ? 'جارٍ الحفظ...' : isEditMode ? 'حفظ التعديلات 💾' : 'حفظ واعتماد الإدارة ➕'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

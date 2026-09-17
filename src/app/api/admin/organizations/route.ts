@@ -262,3 +262,42 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: err.message || 'خطأ غير متوقع' }, { status: 500 })
   }
 }
+
+// 4. DELETE: تعطيل أو حذف وحدة تنظيمية
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabaseServer = await createServerSupabaseClient()
+    if (!supabaseServer) {
+      return NextResponse.json({ error: 'غير مصرح بالدخول' }, { status: 401 })
+    }
+
+    const { data: { user } } = await supabaseServer.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'جلسة المستخدم منتهية' }, { status: 401 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    if (!id) {
+      return NextResponse.json({ error: 'معرف الوحدة مطلوب' }, { status: 400 })
+    }
+
+    const supabaseAdmin = getSupabaseAdmin() || supabaseServer
+
+    const { error: deleteError } = await supabaseAdmin
+      .from('organizations')
+      .update({ is_active: false })
+      .eq('id', id)
+
+    if (deleteError) {
+      return NextResponse.json({ error: 'فشل تعطيل الوحدة: ' + deleteError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'تم تعطيل الوحدة التنظيمية بنجاح.'
+    })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'خطأ غير متوقع' }, { status: 500 })
+  }
+}

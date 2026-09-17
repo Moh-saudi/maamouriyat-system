@@ -192,6 +192,7 @@ export function FacilitiesPortal({
   const [selectedSectorId, setSelectedSectorId] = useState<string>(defaultSectorId)
   const [customUnits, setCustomUnits] = useState<MinistryUnit[]>([])
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [editingUnit, setEditingUnit] = useState<MinistryUnit | null>(null)
   const [selectedUnitId, setSelectedUnitId] = useState<string>('')
   const [unitSearchQuery, setUnitSearchQuery] = useState('')
 
@@ -397,47 +398,92 @@ export function FacilitiesPortal({
     const targetLabel = isSection ? 'unit' : isGeneral ? 'general_admin' : 'central_admin'
     const codePrefix = isSection ? 'SEC' : isGeneral ? 'GEN' : 'CEN'
 
-    // 2. Persist to organizations table via API
-    const response = await fetch('/api/admin/organizations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newUnit.name.trim(),
-        code: `${codePrefix}-${Date.now().toString(36).toUpperCase()}`,
-        parent_id: newUnit.parent,
-        parent_name: parentName,
-        sector_id: activeSector.id,
-        level: targetLevel,
-        level_label: targetLabel,
-        can_issue_missions: true,
-        can_approve_missions: false,
-        can_view_all_governorate: false,
-        can_view_sector_facilities: true,
+    const isExistingInDb = localOrganizations.some(o => o.id === newUnit.id)
+
+    if (isExistingInDb) {
+      // 2a. Update existing organization in database
+      const response = await fetch('/api/admin/organizations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newUnit.id,
+          name: newUnit.name.trim(),
+        })
       })
-    })
 
-    const res = await response.json()
-    if (!response.ok || res.error) {
-      throw new Error(res.error || 'فشل حفظ الإدارة أو الوحدة في قاعدة البيانات')
+      const res = await response.json()
+      if (!response.ok || res.error) {
+        throw new Error(res.error || 'فشل تحديث بيانات الإدارة في قاعدة البيانات')
+      }
+
+      const updatedOrg = res.data
+      if (updatedOrg) {
+        setLocalOrganizations(prev => prev.map(o => o.id === updatedOrg.id ? { ...o, ...updatedOrg } : o))
+      }
+    } else {
+      // 2b. Persist new organization to database
+      const response = await fetch('/api/admin/organizations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newUnit.name.trim(),
+          code: `${codePrefix}-${Date.now().toString(36).toUpperCase()}`,
+          parent_id: newUnit.parent,
+          parent_name: parentName,
+          sector_id: activeSector.id,
+          level: targetLevel,
+          level_label: targetLabel,
+          can_issue_missions: true,
+          can_approve_missions: false,
+          can_view_all_governorate: false,
+          can_view_sector_facilities: true,
+        })
+      })
+
+      const res = await response.json()
+      if (!response.ok || res.error) {
+        throw new Error(res.error || 'فشل حفظ الإدارة أو الوحدة في قاعدة البيانات')
+      }
+
+      const savedOrg = res.data
+      if (savedOrg) {
+        newUnit.id = savedOrg.id
+        setLocalOrganizations(prev => [...prev.filter(o => o.id !== savedOrg.id), savedOrg])
+      }
     }
 
-    const savedOrg = res.data
-    const persistedUnit: MinistryUnit = {
-      ...newUnit,
-      id: savedOrg?.id || newUnit.id
-    }
-
-    if (savedOrg) {
-      setLocalOrganizations(prev => [...prev.filter(o => o.id !== savedOrg.id), savedOrg])
-    }
-
-    const updated = [...customUnits.filter(u => u.id !== persistedUnit.id), persistedUnit]
+    const updated = [...customUnits.filter(u => u.id !== newUnit.id), newUnit]
     setCustomUnits(updated)
     try {
       localStorage.setItem('maamouriyat_custom_ministry_units', JSON.stringify(updated))
     } catch (e) {}
 
-    setSelectedUnitId(persistedUnit.id)
+    setSelectedUnitId(newUnit.id)
+    setEditingUnit(null)
+  }
+
+  const handleDeleteUnit = async (unitId: string) => {
+    const existsInDb = localOrganizations.some(o => o.id === unitId)
+    if (existsInDb) {
+      const response = await fetch(`/api/admin/organizations?id=${unitId}`, {
+        method: 'DELETE'
+      })
+      const res = await response.json()
+      if (!response.ok || res.error) {
+        throw new Error(res.error || 'فشل حذف الوحدة من قاعدة البيانات')
+      }
+      setLocalOrganizations(prev => prev.filter(o => o.id !== unitId))
+    }
+
+    const updated = customUnits.filter(u => u.id !== unitId)
+    setCustomUnits(updated)
+    try {
+      localStorage.setItem('maamouriyat_custom_ministry_units', JSON.stringify(updated))
+    } catch (e) {}
+
+    if (selectedUnitId === unitId) {
+      setSelectedUnitId(currentSectorUnits[0]?.id || '')
+    }
   }
 
   // Helper to find child units recursively
@@ -2541,7 +2587,10 @@ export function FacilitiesPortal({
                   {(userOrgLevel <= 3 || isWritable) && (
                     <button
                       type="button"
-                      onClick={() => setIsAddModalOpen(true)}
+                      onClick={() => {
+                        setEditingUnit(null)
+                        setIsAddModalOpen(true)
+                      }}
                       style={{
                         background: 'var(--brand)',
                         color: 'white',
@@ -2557,7 +2606,7 @@ export function FacilitiesPortal({
                         boxShadow: '0 2px 6px rgba(0,0,0,0.08)'
                       }}
                     >
-                      <Plus size={15} /> إضافة إدارة عامة ➕
+                      <Plus size={15} /> إضافة إدارة أو قسم ➕
                     </button>
                   )}
 
@@ -2784,18 +2833,50 @@ export function FacilitiesPortal({
                     </div>
                   </div>
 
-                  {/* Quick Action assignments */}
-                  {canCreateMissionAssignment && (
-                    <div style={{
-                      borderTop: '1px solid var(--line)',
-                      paddingTop: '16px',
-                      display: 'flex',
-                      gap: '10px'
-                    }}>
+                  {/* Action buttons */}
+                  <div style={{
+                    borderTop: '1px solid var(--line)',
+                    paddingTop: '16px',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '10px'
+                  }}>
+                    {(userOrgLevel <= 3 || isWritable) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingUnit(activeUnit)
+                          setIsAddModalOpen(true)
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: '130px',
+                          background: '#f0fdfa',
+                          color: '#00796b',
+                          border: '1.5px solid #b2dfdb',
+                          borderRadius: '8px',
+                          minHeight: '40px',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          fontSize: '12.5px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <Edit2 size={15} />
+                        تعديل بيانات الإدارة ✏️
+                      </button>
+                    )}
+
+                    {canCreateMissionAssignment && (
                       <a
                         href={`/dashboard/missions/new?orgUnit=${encodeURIComponent(activeUnit.name)}`}
                         style={{
                           flex: 1,
+                          minWidth: '160px',
                           background: '#006d77',
                           color: 'white',
                           border: 0,
@@ -2803,7 +2884,7 @@ export function FacilitiesPortal({
                           minHeight: '40px',
                           fontWeight: 'bold',
                           cursor: 'pointer',
-                          fontSize: '13px',
+                          fontSize: '12.5px',
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -2813,11 +2894,11 @@ export function FacilitiesPortal({
                           boxShadow: '0 2px 6px rgba(0,109,119,0.15)'
                         }}
                       >
-                        <Plus size={16} />
-                        تكليف مأمورية تفتيشية للإدارة
+                        <Plus size={15} />
+                        تكليف مأمورية تفتيشية
                       </a>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
               </div>
@@ -2826,13 +2907,18 @@ export function FacilitiesPortal({
         })()}
       </section>
 
-      {/* MODAL: ADD MINISTRY UNIT */}
+      {/* MODAL: ADD / EDIT MINISTRY UNIT */}
       <AddMinistryUnitModal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => {
+          setIsAddModalOpen(false)
+          setEditingUnit(null)
+        }}
         activeSector={activeSector}
         centralUnits={parentUnitsForModal}
         onAddUnit={handleAddCustomUnit}
+        initialData={editingUnit}
+        onDeleteUnit={handleDeleteUnit}
       />
 
     </div>
