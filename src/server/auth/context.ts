@@ -66,8 +66,12 @@ export async function getV2AuthState(): Promise<V2AuthState> {
       return { status: 'profile_missing' }
     }
 
-    if (profile.is_active === false) {
-      console.warn(`[V2 Auth Context] Inactive user profile id=${profile.id}`)
+    // Fail-Closed: Only explicit boolean true is considered active.
+    // false, null, and undefined are strictly treated as inactive.
+    if (profile.is_active !== true) {
+      console.warn(
+        `[V2 Auth Context] Inactive or unverified user profile id=${profile.id}, is_active=${profile.is_active}`
+      )
       return { status: 'inactive' }
     }
 

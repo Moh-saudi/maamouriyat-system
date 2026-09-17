@@ -10,6 +10,7 @@
 export interface PasswordPolicyResult {
   valid: boolean
   error?: string
+  normalizedPassword?: string
 }
 
 export function validatePasswordPolicy(
@@ -23,16 +24,22 @@ export function validatePasswordPolicy(
     }
   }
 
-  const trimmed = newPassword.trim()
+  // Prevent silent modification: reject leading/trailing spaces explicitly
+  if (newPassword !== newPassword.trim()) {
+    return {
+      valid: false,
+      error: 'كلمة المرور لا يجب أن تحتوي على مسافات فارغة في البداية أو النهاية',
+    }
+  }
 
-  if (trimmed.length < 6) {
+  if (newPassword.length < 6) {
     return {
       valid: false,
       error: 'كلمة المرور يجب أن تكون 6 أحرف أو أرقام على الأقل',
     }
   }
 
-  if (trimmed === '123456') {
+  if (newPassword === '123456') {
     return {
       valid: false,
       error: 'يجب اختيار كلمة مرور جديدة مختلفة عن الكلمة الافتراضية (123456)',
@@ -48,5 +55,5 @@ export function validatePasswordPolicy(
     }
   }
 
-  return { valid: true }
+  return { valid: true, normalizedPassword: newPassword }
 }

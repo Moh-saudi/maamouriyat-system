@@ -56,15 +56,28 @@ export async function POST(request: Request) {
       )
     }
 
+    // Fetch latest auth user record to prevent lost metadata updates
+    const { data: latestUserData, error: latestUserError } =
+      await supabaseAdmin.auth.admin.getUserById(user.id)
+
+    if (latestUserError || !latestUserData?.user) {
+      return NextResponse.json(
+        { error: 'تعذر التحقق من أحدث بيانات الحساب على الخادم' },
+        { status: 500 }
+      )
+    }
+
+    const latestAuthUser = latestUserData.user
+
     // 4. Update password and clear the must_change_password flag
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
       password: newPassword,
       app_metadata: {
-        ...(user.app_metadata || {}),
+        ...(latestAuthUser.app_metadata || {}),
         must_change_password: false,
       },
       user_metadata: {
-        ...(user.user_metadata || {}),
+        ...(latestAuthUser.user_metadata || {}),
         must_change_password: false,
       },
     })
