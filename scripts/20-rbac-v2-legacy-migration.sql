@@ -42,7 +42,40 @@ DO $rbac$
 DECLARE
   missing_org_users INTEGER;
   null_allowed_pages_rows INTEGER;
+  seeded_permission_count INTEGER;
+  seeded_system_role_count INTEGER;
 BEGIN
+  -- Scripts 18 and 19 are mandatory prerequisites for this one-time migration.
+  -- Fail explicitly rather than silently producing partial assignments/overrides.
+  SELECT COUNT(*)
+  INTO seeded_permission_count
+  FROM public.permissions
+  WHERE is_active IS TRUE;
+
+  IF seeded_permission_count <> 52 THEN
+    RAISE EXCEPTION 'Pre-migration check failed: expected 52 active canonical permissions from script 18, found %. Apply/review scripts 17-19 in order before script 20.', seeded_permission_count;
+  END IF;
+
+  SELECT COUNT(*)
+  INTO seeded_system_role_count
+  FROM public.roles
+  WHERE is_system IS TRUE
+    AND is_active IS TRUE
+    AND code IN (
+      'system_techadmin',
+      'system_superadmin',
+      'sector_manager',
+      'central_admin_manager',
+      'general_admin_manager',
+      'directorate_manager',
+      'health_admin_manager',
+      'field_inspector'
+    );
+
+  IF seeded_system_role_count <> 8 THEN
+    RAISE EXCEPTION 'Pre-migration check failed: expected all 8 active canonical system roles from script 19, found %. Apply/review scripts 17-19 in order before script 20.', seeded_system_role_count;
+  END IF;
+
   SELECT COUNT(*)
   INTO missing_org_users
   FROM public.users u
