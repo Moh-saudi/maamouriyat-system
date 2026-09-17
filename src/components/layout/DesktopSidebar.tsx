@@ -19,12 +19,14 @@ interface DesktopSidebarProps {
   collapsed: boolean
   onToggleCollapse: () => void
   items?: readonly NavItem[]
+  homeHref?: string
 }
 
 export function DesktopSidebar({
   collapsed,
   onToggleCollapse,
   items = V2_NAVIGATION_ITEMS,
+  homeHref = '/v2/dashboard',
 }: DesktopSidebarProps) {
   const pathname = usePathname()
 
@@ -41,7 +43,7 @@ export function DesktopSidebar({
       {/* ── Header: Logo & Branding ────────────────────────────────────── */}
       <div className="h-16 flex items-center justify-between px-3.5 border-b border-slate-200/80 shrink-0">
         <Link
-          href="/v2/dashboard"
+          href={homeHref}
           className="flex items-center gap-3 overflow-hidden focus-visible:outline-teal-600 rounded-lg p-1"
         >
           <div className="relative w-9 h-9 shrink-0 flex items-center justify-center rounded-lg bg-teal-50 border border-teal-200">
