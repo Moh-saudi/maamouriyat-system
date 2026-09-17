@@ -19,6 +19,7 @@ function createPermission(permissionKey: string): V2EffectivePermission {
     deniedByUserOverride: false,
     sourceRoleIds: [],
     allowedByUserOverride: false,
+    sources: [],
   }
 }
 
@@ -51,6 +52,20 @@ export function evaluateV2Authorization(input: {
     permission.granted = true
     pushUnique(permission.scopes, grant.scopeType)
     pushUnique(permission.sourceRoleIds, grant.roleId)
+    if (
+      !permission.sources.some(
+        (source) =>
+          source.kind === 'role' &&
+          source.roleId === grant.roleId &&
+          source.scopeType === grant.scopeType
+      )
+    ) {
+      permission.sources.push({
+        kind: 'role',
+        roleId: grant.roleId,
+        scopeType: grant.scopeType,
+      })
+    }
     permissions[grant.permissionKey] = permission
   }
 
@@ -63,6 +78,7 @@ export function evaluateV2Authorization(input: {
       permission.scopes = []
       permission.deniedByUserOverride = true
       permission.allowedByUserOverride = false
+      permission.sources = []
       permissions[override.permissionKey] = permission
       continue
     }
@@ -76,6 +92,18 @@ export function evaluateV2Authorization(input: {
       permission.granted = true
       permission.allowedByUserOverride = true
       pushUnique(permission.scopes, override.scopeType)
+      if (
+        !permission.sources.some(
+          (source) =>
+            source.kind === 'user_override' &&
+            source.scopeType === override.scopeType
+        )
+      ) {
+        permission.sources.push({
+          kind: 'user_override',
+          scopeType: override.scopeType,
+        })
+      }
     }
 
     permissions[override.permissionKey] = permission
