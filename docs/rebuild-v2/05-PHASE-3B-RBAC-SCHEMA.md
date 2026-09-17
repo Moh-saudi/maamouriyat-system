@@ -129,6 +129,7 @@
 1. **أُزيل `idx_permissions_module_action`:** لوجود `uq_permissions_module_action UNIQUE (module, action)` الذي ينشئ فهرساً مطابقاً تلقائياً.
 2. **أُزيل `idx_role_perm_grants_role`:** لأن المفتاح الأساسي المركب `PRIMARY KEY (role_id, permission_key)` يبدأ بحقل `role_id` ويغطي استعلاماته بالكامل.
 3. **أُزيل `idx_user_perm_overrides_user`:** لأن القيد الفريد `UNIQUE (user_id, permission_key)` يبدأ بحقل `user_id` ويغطي استعلاماته بالكامل.
+4. **أُزيل `idx_user_roles_user`:** لأن الفهرس الفريد التعبيري `idx_uq_user_roles_user_role_org` يبدأ بـ `user_id` ويغطي مسار الاستعلام الأساسي لجلب أدوار مستخدم واحد.
 
 ---
 
@@ -168,9 +169,25 @@
 3. **الانغلاق عند فحص التنشيط (Fail-Closed is_active):**
    تعيين `user_roles.is_active = (ulm.user_is_active IS TRUE)`، مما يمنع تنشيط أي إسناد لمستخدم غير مفعل أو يملك قيمة `NULL`.
 4. **معالجة المصفوفات الفارغة لقيود الصفحات (Empty allowed_pages Bug Fix):**
-   إلغاء شرط `array_length > 0`. المستخدم المقيد الذي يملك مصفوفة فارغة `allowed_pages = '{}'` يحصل على استثناء حظر صريح (`DENY Override`) على كافة الموديولات العشرة المحمية.
-5. **استثناء لوحة المؤشرات (`dashboard`):**
+   إلغاء شرط `array_length > 0`. المستخدم المقيد الذي يملك مصفوفة فارغة `allowed_pages = '{}'` يُعامل باعتباره ممنوعًا من الصفحات المحمية كلها، مع بقاء استثناء لوحة المؤشرات الموضح أدناه.
+5. **Fail-Closed عند `allowed_pages = NULL`:**
+   رغم أن الـ schema التاريخية تعرّف `allowed_pages` كحقل `NOT NULL`، فإن أي انحراف بيانات تاريخي بقيمة `NULL` يوقف Migration 20 عبر `RAISE EXCEPTION`. لا يتم تفسير `NULL` كمستخدم غير مقيد ولا يتم تحويله إلى مصفوفة فارغة بصمت.
+6. **ترحيل قيود الصفحة إلى كل عمليات الموديول:**
+   إخفاء صفحة في V1 لا يترجم فقط إلى `*.view = DENY`. بل يتم إنشاء `DENY Override` لكل Permission ينتمي إلى الموديول الذي تم حجبه، حتى لا يستطيع المستخدم الوصول مباشرة إلى عملية `create/edit/delete/assign/...` عبر API مستقبلية. صفحة `missions` تشمل أيضًا `mission_results.*`، بينما `targets-report` تظل مستقلة عن صفحة `targets` كما كانت في V1.
+7. **استثناء لوحة المؤشرات (`dashboard`):**
    تم استثناء `dashboard.view` من قيود الحظر التلقائي لضمان عدم إغلاق حسابات المستخدمين، حيث كانت لوحة المؤشرات متاحة لجميع المسجلين في V1.
+
+---
+
+## 6.1. تصحيحات المراجعة الخارجية قبل التنفيذ
+
+بعد انتهاء Phase 3B.0.5 تمت مراجعة ملفات SQL نفسها على GitHub قبل السماح بأي تنفيذ فعلي، وتم إغلاق النقاط التالية:
+
+- تصحيح تعريف `user_permission_overrides.updated_at` إلى `TIMESTAMPTZ NOT NULL DEFAULT NOW()` بعد اكتشاف typo كان سيمنع Script 17 من التنفيذ.
+- إزالة الفهرس المنفصل `idx_user_roles_user` لأنه مغطى بالفعل بالفهرس الفريد التعبيري الذي يبدأ بـ `user_id`.
+- إضافة preflight صريح في Script 20 يرفض أي صف legacy يحتوي `allowed_pages IS NULL` بدل التعامل معه كتسامح أو وصول غير مقيد.
+- توسيع ترحيل قيود `allowed_pages` ليحظر كل عمليات الموديول المرتبطة بالصفحة المحجوبة، وليس Permission العرض فقط. هذا يمنع وجود صلاحية API غير مرئية خلف صفحة محجوبة.
+- لم يتم تنفيذ أي من Scripts 17–20 على Supabase حتى الآن؛ جميع هذه التغييرات ما زالت Design/Migration Review فقط.
 
 ---
 
