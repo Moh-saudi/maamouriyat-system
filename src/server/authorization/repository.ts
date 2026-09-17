@@ -52,11 +52,18 @@ export async function loadV2AuthorizationSnapshot(
 
   const assignmentList = assignmentRows ?? []
   if (assignmentList.length === 0) {
+    const rawOverrides = await loadOverrides(profileId)
+    const activePermissionKeys = await loadActivePermissionKeys(
+      rawOverrides.map((override) => override.permissionKey)
+    )
+
     return evaluateV2Authorization({
       profileId,
       roles: [],
       grants: [],
-      overrides: await loadOverrides(profileId),
+      overrides: rawOverrides.filter((override) =>
+        activePermissionKeys.has(override.permissionKey)
+      ),
     })
   }
 
@@ -101,14 +108,20 @@ export async function loadV2AuthorizationSnapshot(
   })
 
   const activeRoleIds = [...new Set(roles.map((role) => role.roleId))]
-  const grants = await loadGrants(activeRoleIds)
-  const overrides = await loadOverrides(profileId)
+  const rawGrants = await loadGrants(activeRoleIds)
+  const rawOverrides = await loadOverrides(profileId)
+  const activePermissionKeys = await loadActivePermissionKeys([
+    ...rawGrants.map((grant) => grant.permissionKey),
+    ...rawOverrides.map((override) => override.permissionKey),
+  ])
 
   return evaluateV2Authorization({
     profileId,
     roles,
-    grants,
-    overrides,
+    grants: rawGrants.filter((grant) => activePermissionKeys.has(grant.permissionKey)),
+    overrides: rawOverrides.filter((override) =>
+      activePermissionKeys.has(override.permissionKey)
+    ),
   })
 }
 
@@ -176,4 +189,27 @@ async function loadOverrides(profileId: string): Promise<V2UserPermissionOverrid
       scopeType: row.scope_type as V2ScopeType | null,
     }
   })
+}
+
+
+async function loadActivePermissionKeys(
+  permissionKeys: string[]
+): Promise<Set<string>> {
+  const uniquePermissionKeys = [...new Set(permissionKeys)]
+  if (uniquePermissionKeys.length === 0) return new Set()
+
+  const admin = getAdminSupabaseClient()
+  const { data, error } = await admin
+    .from('permissions')
+    .select('key')
+    .in('key', uniquePermissionKeys)
+    .eq('is_active', true)
+
+  if (error) {
+    throw new Error(
+      `[V2 Authorization] Failed to validate active permissions: ${error.message}`
+    )
+  }
+
+  return new Set((data ?? []).map((row) => String(row.key)))
 }
