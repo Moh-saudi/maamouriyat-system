@@ -33,6 +33,17 @@ export interface V2UserPermissionOverride {
   scopeType: V2ScopeType | null
 }
 
+export type V2PermissionSource =
+  | {
+      kind: 'role'
+      roleId: string
+      scopeType: V2ScopeType
+    }
+  | {
+      kind: 'user_override'
+      scopeType: V2ScopeType
+    }
+
 export interface V2EffectivePermission {
   permissionKey: string
   granted: boolean
@@ -40,6 +51,7 @@ export interface V2EffectivePermission {
   deniedByUserOverride: boolean
   sourceRoleIds: string[]
   allowedByUserOverride: boolean
+  sources: V2PermissionSource[]
 }
 
 export interface V2AuthorizationSnapshot {
