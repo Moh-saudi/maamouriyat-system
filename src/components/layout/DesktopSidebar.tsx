@@ -4,7 +4,6 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { ChevronRight, ChevronLeft } from 'lucide-react'
-import { Tooltip } from '@heroui/react'
 import { NavIcon } from './NavIcon'
 import { BRANDING } from '@/config/branding'
 import {
@@ -50,6 +49,7 @@ export function DesktopSidebar({
               width={30}
               height={30}
               className="object-contain"
+              style={{ width: 30, height: 30 }}
               priority
             />
           </div>
@@ -101,6 +101,7 @@ export function DesktopSidebar({
                     <Link
                       href={item.href}
                       aria-current={active ? 'page' : undefined}
+                      title={collapsed ? item.label : undefined}
                       className={`relative flex min-h-11 items-center gap-3 rounded-xl text-sm transition-colors focus-visible:outline-2 focus-visible:outline-teal-600 ${
                         collapsed
                           ? 'justify-center px-0'
@@ -131,12 +132,7 @@ export function DesktopSidebar({
                   return (
                     <div key={item.id}>
                       <div className={collapsed ? 'block' : 'lg:hidden'}>
-                        <Tooltip delay={150}>
-                          <Tooltip.Trigger>{link}</Tooltip.Trigger>
-                          <Tooltip.Content className="z-50 rounded-lg bg-slate-900 px-2.5 py-1 text-xs text-white">
-                            {item.label}
-                          </Tooltip.Content>
-                        </Tooltip>
+                        {link}
                       </div>
                       {!collapsed && <div className="hidden lg:block">{link}</div>}
                     </div>
