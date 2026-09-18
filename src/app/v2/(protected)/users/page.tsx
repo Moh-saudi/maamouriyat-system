@@ -1,6 +1,8 @@
 import { V2Placeholder } from '@/components/ui/V2Placeholder'
+import { requireV2PagePermission } from '@/server/authorization/page-guard'
 
-export default function V2UsersPage() {
+export default async function V2UsersPage() {
+  await requireV2PagePermission('users.view')
   return (
     <V2Placeholder
       title="المستخدمون والفرق"
