@@ -51,7 +51,7 @@ export function AppShell({
   }
 
   return (
-    <div className="min-h-screen w-full overflow-x-hidden bg-[#f6f8f8] text-slate-900 antialiased">
+    <div className="min-h-screen w-full overflow-x-clip bg-[#f6f8f8] text-slate-900 antialiased">
       {/* ── Desktop Sidebar & Tablet Navigation Rail ──────────────────────── */}
       <DesktopSidebar
         collapsed={sidebarCollapsed}
@@ -69,7 +69,14 @@ export function AppShell({
         }`}
       >
         {/* Topbar with user profile wiring */}
-        <Topbar user={user} items={items} homeHref={homeHref} />
+        <Topbar
+          user={user}
+          items={items}
+          homeHref={homeHref}
+          sidebarCollapsed={sidebarCollapsed}
+        />
+
+        <div aria-hidden="true" className="h-[60px] shrink-0" />
 
         {/* Primary Page Content Container */}
         <main
