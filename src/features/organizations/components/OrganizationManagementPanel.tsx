@@ -12,11 +12,11 @@ import {
   X,
 } from 'lucide-react'
 import {
-  OrganizationTreeSelect,
-  type OrganizationTreeOption,
-} from '@/components/ui/OrganizationTreeSelect'
+  CascadingOrganizationSelect,
+  type CascadingOrganizationOption,
+} from '@/components/ui/CascadingOrganizationSelect'
 
-type Organization = OrganizationTreeOption & {
+type Organization = CascadingOrganizationOption & {
   health_admin: string | null
   is_active: boolean | null
   can_issue_missions: boolean
@@ -34,7 +34,6 @@ type OrganizationsResponse = {
 interface OrganizationManagementPanelProps {
   canCreate: boolean
   canEdit: boolean
-  canManageCapabilities: boolean
 }
 
 const LEVEL_LABELS: Record<number, string> = {
@@ -80,7 +79,6 @@ function descendantsOf(
 export function OrganizationManagementPanel({
   canCreate,
   canEdit,
-  canManageCapabilities,
 }: OrganizationManagementPanelProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [loading, setLoading] = useState(true)
@@ -94,12 +92,6 @@ export function OrganizationManagementPanel({
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [parentId, setParentId] = useState<string | null>(null)
-  const [capabilities, setCapabilities] = useState({
-    can_issue_missions: true,
-    can_approve_missions: false,
-    can_view_all_governorate: false,
-    can_view_sector_facilities: false,
-  })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -168,12 +160,6 @@ export function OrganizationManagementPanel({
     setName(organization.name)
     setCode(organization.code || '')
     setParentId(organization.parent_id)
-    setCapabilities({
-      can_issue_missions: organization.can_issue_missions,
-      can_approve_missions: organization.can_approve_missions,
-      can_view_all_governorate: organization.can_view_all_governorate,
-      can_view_sector_facilities: organization.can_view_sector_facilities,
-    })
     setError(null)
   }
 
@@ -183,12 +169,6 @@ export function OrganizationManagementPanel({
     setName('')
     setCode('')
     setParentId(null)
-    setCapabilities({
-      can_issue_missions: true,
-      can_approve_missions: false,
-      can_view_all_governorate: false,
-      can_view_sector_facilities: false,
-    })
     setError(null)
   }
 
@@ -200,8 +180,9 @@ export function OrganizationManagementPanel({
 
   const parentOptions = useMemo(() => {
     if (editing) {
+      const parentLevel = editing.level - 1
       return organizations.filter(
-        (organization) => organization.level === editing.level - 1
+        (organization) => organization.level <= parentLevel
       )
     }
 
@@ -228,6 +209,19 @@ export function OrganizationManagementPanel({
       return
     }
 
+    if (editing && parentId) {
+      const selectedParent = organizations.find(
+        (organization) => organization.id === parentId
+      )
+
+      if (!selectedParent || selectedParent.level !== editing.level - 1) {
+        setError(
+          `الجهة الأم يجب أن تكون من مستوى ${LEVEL_LABELS[editing.level - 1] || editing.level - 1}`
+        )
+        return
+      }
+    }
+
     setSaving(true)
     setError(null)
 
@@ -236,10 +230,6 @@ export function OrganizationManagementPanel({
         name: name.trim(),
         code: code.trim() || undefined,
         parent_id: parentId,
-      }
-
-      if (canManageCapabilities) {
-        Object.assign(body, capabilities)
       }
 
       if (editing) body.id = editing.id
@@ -536,14 +526,17 @@ export function OrganizationManagementPanel({
                 />
               </label>
 
-              <OrganizationTreeSelect
+              <CascadingOrganizationSelect
                 organizations={parentOptions}
                 value={parentId}
                 onChange={setParentId}
                 label="الجهة الأم"
-                placeholder="اختر الجهة الأم من الشجرة"
                 disabledIds={disabledParentIds}
-                required
+                helperText={
+                  editing
+                    ? `اختر التبعية بالتدرج حتى مستوى ${LEVEL_LABELS[editing.level - 1] || editing.level - 1}.`
+                    : 'اختر الجهة الأم بالتدرج؛ مستوى الجهة الجديدة يُحدد تلقائيًا بناءً عليها.'
+                }
               />
 
               {editing && (
@@ -552,55 +545,7 @@ export function OrganizationManagementPanel({
                 </div>
               )}
 
-              {canManageCapabilities && (
-                <details className="rounded-xl border border-slate-200">
-                  <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700">
-                    إعدادات متقدمة
-                  </summary>
-                  <div className="space-y-2 border-t border-slate-100 p-4">
-                    <CapabilityToggle
-                      label="يمكن للجهة إصدار مأموريات"
-                      checked={capabilities.can_issue_missions}
-                      onChange={(checked) =>
-                        setCapabilities((current) => ({
-                          ...current,
-                          can_issue_missions: checked,
-                        }))
-                      }
-                    />
-                    <CapabilityToggle
-                      label="يمكن للجهة اعتماد مأموريات"
-                      checked={capabilities.can_approve_missions}
-                      onChange={(checked) =>
-                        setCapabilities((current) => ({
-                          ...current,
-                          can_approve_missions: checked,
-                        }))
-                      }
-                    />
-                    <CapabilityToggle
-                      label="رؤية منشآت المحافظة"
-                      checked={capabilities.can_view_all_governorate}
-                      onChange={(checked) =>
-                        setCapabilities((current) => ({
-                          ...current,
-                          can_view_all_governorate: checked,
-                        }))
-                      }
-                    />
-                    <CapabilityToggle
-                      label="رؤية منشآت القطاع"
-                      checked={capabilities.can_view_sector_facilities}
-                      onChange={(checked) =>
-                        setCapabilities((current) => ({
-                          ...current,
-                          can_view_sector_facilities: checked,
-                        }))
-                      }
-                    />
-                  </div>
-                </details>
-              )}
+
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-4">
@@ -647,27 +592,5 @@ function SimpleStat({
       </p>
       <p className="mt-1 text-sm text-slate-500">{label}</p>
     </div>
-  )
-}
-
-function CapabilityToggle({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string
-  checked: boolean
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
-      <span className="text-sm font-medium text-slate-700">{label}</span>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 accent-teal-700"
-      />
-    </label>
   )
 }
