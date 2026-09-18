@@ -13,6 +13,8 @@ export type V2FacilityDirectoryItem = {
   visitCount: number
   lastVisitAt: string | null
   updatedAt: string | null
+  lastAuditAt: string | null
+  lastAuditActorName: string | null
 }
 
 export type V2HealthAdministrationOption = {
