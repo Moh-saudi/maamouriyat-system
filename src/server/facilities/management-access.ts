@@ -7,7 +7,10 @@ import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
 
 export type FacilityManagementAnchor = {
   organizationId: string
-  level: number
+  organizationTypeCode:
+    | 'ministry'
+    | 'health_directorate'
+    | 'health_administration'
   governorate: string | null
 }
 
@@ -69,7 +72,7 @@ export async function getFacilityManagementCapabilities(input: {
   const admin = getAdminSupabaseClient()
   const { data, error } = await admin
     .from('organizations')
-    .select('id, level, governorate')
+    .select('id, organization_type_code, governorate')
     .in('id', anchorIds)
     .eq('is_active', true)
 
@@ -84,15 +87,31 @@ export async function getFacilityManagementCapabilities(input: {
   // hierarchy must not accidentally become an ownership boundary for regional
   // facilities.
   const anchors: FacilityManagementAnchor[] = (data ?? [])
-    .map((row) => ({
-      organizationId: String(row.id),
-      level: Number(row.level),
-      governorate:
-        typeof row.governorate === 'string' && row.governorate.trim()
-          ? row.governorate.trim()
-          : null,
-    }))
-    .filter((anchor) => [1, 5, 6].includes(anchor.level))
+    .flatMap((row) => {
+      const organizationTypeCode =
+        typeof row.organization_type_code === 'string'
+          ? row.organization_type_code
+          : ''
+
+      if (
+        organizationTypeCode !== 'ministry' &&
+        organizationTypeCode !== 'health_directorate' &&
+        organizationTypeCode !== 'health_administration'
+      ) {
+        return []
+      }
+
+      return [
+        {
+          organizationId: String(row.id),
+          organizationTypeCode,
+          governorate:
+            typeof row.governorate === 'string' && row.governorate.trim()
+              ? row.governorate.trim()
+              : null,
+        },
+      ]
+    })
 
   const hasEligibleAnchor = anchors.length > 0
 
@@ -123,9 +142,9 @@ export function canInformationCenterManageFacility(input: {
   if (!capabilities.isInformationCenter) return false
 
   return capabilities.anchors.some((anchor) => {
-    if (anchor.level === 1) return true
+    if (anchor.organizationTypeCode === 'ministry') return true
 
-    if (anchor.level === 5) {
+    if (anchor.organizationTypeCode === 'health_directorate') {
       return Boolean(
         anchor.governorate &&
           resource.governorate &&
@@ -133,7 +152,7 @@ export function canInformationCenterManageFacility(input: {
       )
     }
 
-    if (anchor.level === 6) {
+    if (anchor.organizationTypeCode === 'health_administration') {
       return Boolean(
         resource.organizationId &&
           resource.organizationId === anchor.organizationId
