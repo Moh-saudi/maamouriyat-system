@@ -11,16 +11,7 @@ export default async function V2OrganizationsPage() {
     <V2PageContainer fluid>
       <PageHeader
         title="الهيكل التنظيمي"
-        description="إدارة الجهات والوحدات وتبعيتها داخل الشجرة التنظيمية الرسمية، مع فصل قدرات الجهة عن صلاحيات المستخدم."
-        breadcrumbs={[
-          { label: 'المنظومة', href: '/v2/dashboard' },
-          { label: 'الهيكل التنظيمي' },
-        ]}
-        badge={
-          <span className="rounded-full border border-teal-200 bg-teal-50 px-2.5 py-1 text-xs font-bold text-teal-800">
-            شجرة تنظيمية موثوقة
-          </span>
-        }
+        description="دليل الجهات وتبعيتها داخل وزارة الصحة والسكان."
       />
 
       <OrganizationManagementPanel
