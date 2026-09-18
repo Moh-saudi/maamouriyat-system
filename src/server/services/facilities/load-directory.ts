@@ -158,7 +158,7 @@ async function loadHealthAdministrations(): Promise<
   const { data, error } = await admin
     .from('organizations')
     .select('id, name, governorate, health_admin')
-    .eq('level', 6)
+    .eq('organization_type_code', 'health_administration')
     .eq('is_active', true)
     .order('governorate')
     .order('name')
