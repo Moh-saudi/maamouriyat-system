@@ -141,38 +141,33 @@ export async function POST(request: Request) {
 
     if (createError) {
       const msg = createError.message || ''
-      if (msg.includes('already been registered') || msg.includes('already registered')) {
-        // البريد موجود في Auth — نبحث عنه ونحدّثه
-        const { data: authList } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 })
-        authUser = authList?.users.find((u) => u.email?.toLowerCase() === normalizedEmail) ?? null
-        if (!authUser) {
-          return NextResponse.json(
-            { error: 'البريد مسجل في المصادقة لكن تعذر الوصول إليه' },
-            { status: 500 }
-          )
-        }
-        await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
-          password: tempPassword,
-          email_confirm: true,
-          app_metadata: { ...(authUser.app_metadata || {}), must_change_password: true },
-          user_metadata: { ...(authUser.user_metadata || {}), full_name, must_change_password: true },
-        })
-      } else {
+      if (
+        msg.includes('already been registered') ||
+        msg.includes('already registered')
+      ) {
         return NextResponse.json(
-          { error: 'فشل إنشاء الحساب: ' + createError.message },
-          { status: 500 }
+          {
+            error:
+              'البريد الإلكتروني موجود بالفعل في خدمة المصادقة ويحتاج مراجعة إدارية قبل ربطه بملف جديد',
+          },
+          { status: 409 }
         )
       }
-    } else {
-      authUser = authData.user
+
+      return NextResponse.json(
+        { error: 'فشل إنشاء الحساب: ' + createError.message },
+        { status: 500 }
+      )
     }
+
+    authUser = authData.user
 
     if (!authUser) {
       return NextResponse.json({ error: 'لم يُنشأ حساب مصادقة صالح' }, { status: 500 })
     }
 
     // ── إنشاء ملف المستخدم في جدول users
-    const profilePayload: any = {
+    const profilePayload: Record<string, unknown> = {
       auth_id:            authUser.id,
       full_name,
       job_title:          job_title || null,
