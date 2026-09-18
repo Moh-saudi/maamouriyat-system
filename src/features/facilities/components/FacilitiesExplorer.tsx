@@ -223,6 +223,36 @@ export function FacilitiesExplorer({
     [data.facilityTypes]
   )
 
+  const groupedFacilityTypes = useMemo(() => {
+    const groups = new Map<string, string[]>()
+
+    for (const item of STANDARD_FACILITY_TYPES) {
+      const category = item.category || 'أنواع أخرى'
+      const labels = groups.get(category) ?? []
+      labels.push(item.label)
+      groups.set(category, labels)
+    }
+
+    const knownLabels = new Set(
+      STANDARD_FACILITY_TYPES.map((item) => item.label)
+    )
+
+    const extraLabels = allFacilityTypeLabels.filter(
+      (label) => !knownLabels.has(label)
+    )
+
+    if (extraLabels.length > 0) {
+      groups.set('أنواع أخرى', extraLabels)
+    }
+
+    return [...groups.entries()].map(([category, labels]) => ({
+      category,
+      labels: [...new Set(labels)].sort((a, b) =>
+        a.localeCompare(b, 'ar')
+      ),
+    }))
+  }, [allFacilityTypeLabels])
+
   const filteredFacilities = useMemo(() => {
     const q = deferredSearch.trim().toLocaleLowerCase('ar')
 
@@ -715,10 +745,14 @@ export function FacilitiesExplorer({
                     }
                     className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs"
                   >
-                    {allFacilityTypeLabels.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
+                    {groupedFacilityTypes.map((group) => (
+                      <optgroup key={group.category} label={group.category}>
+                        {group.labels.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </label>
