@@ -140,7 +140,14 @@ export async function GET(request: Request) {
         organization_id: target.profile.organization_id,
         org_level: target.profile.org_level ?? target.profile.level,
       },
-      roles,
+      roles: roles.map((role) => ({
+        id: role.id,
+        name_ar: role.name_ar,
+        description_ar: role.description_ar,
+        is_system: role.is_system,
+        is_active: role.is_active,
+        priority: role.priority,
+      })),
       assignments: assignments ?? [],
     })
   } catch (error) {
@@ -396,7 +403,6 @@ export async function POST(request: Request) {
       assignment_id: assignmentId,
       role: {
         id: role.id,
-        code: role.code,
         name_ar: role.name_ar,
       },
     })
