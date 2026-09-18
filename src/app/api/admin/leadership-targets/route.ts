@@ -1,229 +1,422 @@
 import { NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
-import { createClient } from '@supabase/supabase-js'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  checkV2ResourceAccess,
+  hasV2Permission,
+} from '@/server/authorization'
+import { requireV2Permission } from '@/server/authorization/http-guard'
+import { getAdminSupabaseClient } from '@/server/supabase/admin'
+import type { V2ResourceScopeContext } from '@/server/authorization/scope-types'
 
-const dataFilePath = path.join(process.cwd(), 'src', 'data', 'leadership-targets.json')
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://upxmlpiemqdfbhyipihh.supabase.co'
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
-                             process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 
-                             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-                             ''
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Missing Supabase configuration')
-  }
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { autoRefreshToken: false, persistSession: false }
-  })
+type LeadershipTargetRow = {
+  id: string
+  title: string
+  sector_head_id: string | null
+  sector_id: string | null
+  target_organization_id: string | null
+  undersecretary_id: string | null
+  undersecretary_name: string
+  governorate: string | null
+  target_missions: number
+  start_date: string
+  end_date: string
+  status: string
+  instructions: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
 }
 
-function readStoredTargets(): any[] {
-  try {
-    if (!fs.existsSync(dataFilePath)) {
-      return []
-    }
-    const raw = fs.readFileSync(dataFilePath, 'utf8')
-    return JSON.parse(raw)
-  } catch (e) {
-    console.error('Error reading leadership targets file:', e)
-    return []
+type CandidateRow = {
+  id: string
+  full_name: string
+  email: string | null
+  job_title: string | null
+  organization_id: string | null
+  sector_id: string | null
+  org_level: number | null
+  organization?: {
+    id: string
+    name: string
+    governorate: string | null
+    sector_id: string | null
+  } | null
+}
+
+function targetResource(target: LeadershipTargetRow): V2ResourceScopeContext {
+  return {
+    ownerUserId: target.created_by,
+    assignedUserIds: target.undersecretary_id
+      ? [target.undersecretary_id]
+      : [],
+    organizationId: target.target_organization_id,
+    sectorId: target.sector_id,
+    governorate: target.governorate,
   }
 }
 
-function writeStoredTargets(targets: any[]) {
-  try {
-    const dir = path.dirname(dataFilePath)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
+function candidateResource(candidate: CandidateRow): V2ResourceScopeContext {
+  return {
+    assignedUserIds: [candidate.id],
+    organizationId: candidate.organization_id,
+    sectorId: candidate.sector_id ?? candidate.organization?.sector_id ?? null,
+    governorate: candidate.organization?.governorate ?? null,
+  }
+}
+
+async function enrichTargetExecution(target: LeadershipTargetRow) {
+  const admin = getAdminSupabaseClient()
+
+  let query = admin
+    .from('missions')
+    .select('id, status, scheduled_date, assigned_user_id, facility_id')
+    .gte('scheduled_date', target.start_date)
+    .lte('scheduled_date', target.end_date)
+
+  if (target.undersecretary_id) {
+    query = query.eq('assigned_user_id', target.undersecretary_id)
+  }
+
+  const { data: missions, error } = await query
+
+  if (error) {
+    console.error('[leadership-targets] mission metrics failed:', error.message)
+    return {
+      ...target,
+      executed_missions: 0,
+      in_progress_missions: 0,
+      completion_rate: 0,
     }
-    fs.writeFileSync(dataFilePath, JSON.stringify(targets, null, 2), 'utf8')
-  } catch (e) {
-    console.error('Error writing leadership targets file:', e)
+  }
+
+  let relevant = missions ?? []
+
+  if (target.governorate && !target.undersecretary_id) {
+    const facilityIds = [...new Set(
+      relevant
+        .map((mission) => mission.facility_id)
+        .filter((value): value is string => Boolean(value))
+    )]
+
+    if (facilityIds.length > 0) {
+      const { data: facilities } = await admin
+        .from('facilities')
+        .select('id, governorate')
+        .in('id', facilityIds)
+
+      const allowedFacilityIds = new Set(
+        (facilities ?? [])
+          .filter((facility) => facility.governorate === target.governorate)
+          .map((facility) => String(facility.id))
+      )
+
+      relevant = relevant.filter(
+        (mission) =>
+          mission.facility_id && allowedFacilityIds.has(String(mission.facility_id))
+      )
+    } else {
+      relevant = []
+    }
+  }
+
+  const executed = relevant.filter((mission) =>
+    ['completed', 'closed', 'done', 'منفذة'].includes(String(mission.status))
+  ).length
+
+  const inProgress = relevant.filter(
+    (mission) =>
+      !['completed', 'closed', 'done', 'cancelled', 'منفذة'].includes(
+        String(mission.status)
+      )
+  ).length
+
+  const targetCount = Math.max(1, Number(target.target_missions))
+
+  return {
+    ...target,
+    executed_missions: executed,
+    in_progress_missions: inProgress,
+    completion_rate: Math.min(100, Math.round((executed / targetCount) * 100)),
   }
 }
 
 export async function GET() {
   try {
-    const admin = getAdminClient()
+    const gate = await requireV2Permission('leadership_targets.view')
+    if (!gate.ok) return gate.response
 
-    // 1. Resolve logged in user context
-    let currentUser = {
-      level: 1,
-      id: '',
-      email: '',
-      governorate: '',
-      isSectorHeadOrAbove: true
+    const admin = getAdminSupabaseClient()
+
+    const { data: rows, error } = await admin
+      .from('leadership_targets')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('[leadership-targets:GET] query failed:', error.message)
+      return NextResponse.json(
+        { error: 'تعذر تحميل مستهدفات القيادات' },
+        { status: 500 }
+      )
     }
 
-    try {
-      const serverClient = await createServerSupabaseClient()
-      if (serverClient) {
-        const { data: { user } } = await serverClient.auth.getUser()
-        if (user) {
-          const { data: profile } = await admin
-            .from('users')
-            .select('id, email, full_name, level, org_level, organization_id, sector_id')
-            .eq('auth_id', user.id)
-            .maybeSingle()
+    const targets = (rows ?? []) as LeadershipTargetRow[]
+    const visibleTargets: LeadershipTargetRow[] = []
 
-          if (profile) {
-            const level = profile.org_level ?? profile.level ?? 7
-            let userGov = ''
-            if (profile.organization_id) {
-              const { data: org } = await admin.from('organizations').select('governorate').eq('id', profile.organization_id).maybeSingle()
-              if (org?.governorate) userGov = org.governorate
-            }
-
-            currentUser = {
-              level,
-              id: profile.id,
-              email: profile.email || user.email || '',
-              governorate: userGov,
-              isSectorHeadOrAbove: level <= 2
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Could not resolve user auth in leadership-targets, defaulting to admin:', e)
-    }
-
-    // 2. Fetch all undersecretaries and directorate heads (level 5 and 6)
-    const { data: undersecretaries } = await admin
-      .from('users')
-      .select('id, full_name, email, job_title, department, org_level, organization_id')
-      .in('org_level', [5, 6])
-      .order('full_name')
-
-    // Fetch organizations to match governorates
-    const { data: orgs } = await admin
-      .from('organizations')
-      .select('id, name, governorate, level')
-      .in('level', [5, 6])
-
-    const orgMap = new Map((orgs || []).map(o => [o.id, o]))
-
-    const candidates = (undersecretaries || []).map(u => {
-      const org = u.organization_id ? orgMap.get(u.organization_id) : null
-      return {
-        id: u.id,
-        full_name: u.full_name,
-        email: u.email,
-        job_title: u.job_title,
-        governorate: org?.governorate || (u.full_name.includes('القاهرة') ? 'القاهرة' : (u.full_name.includes('أبنوب') ? 'أسيوط' : 'عام'))
-      }
-    })
-
-    // 3. Fetch targets from storage
-    const rawTargets = readStoredTargets()
-
-    // 4. Fetch actual completed missions from database to compute executed counts dynamically
-    const { data: allMissions } = await admin
-      .from('missions')
-      .select('id, status, scheduled_date, assigned_user_id, facilities:facility_id(governorate)')
-
-    // 5. Enrich targets with dynamic execution metrics
-    const targets = rawTargets.map(target => {
-      const start = target.start_date
-      const end = target.end_date
-      const gov = target.governorate?.trim()
-
-      const relevantMissions = (allMissions || []).filter(m => {
-        const dateMatch = (!start || (m.scheduled_date && m.scheduled_date >= start)) &&
-                          (!end || (m.scheduled_date && m.scheduled_date <= end))
-        const govMatch = !gov || (m.facilities as any)?.governorate === gov || gov === 'عام'
-        const userMatch = target.undersecretary_id && m.assigned_user_id === target.undersecretary_id
-        return dateMatch && (govMatch || userMatch)
+    for (const target of targets) {
+      const decision = await checkV2ResourceAccess({
+        user: gate.user,
+        snapshot: gate.access,
+        permissionKey: 'leadership_targets.view',
+        resource: targetResource(target),
       })
 
-      const executedCount = relevantMissions.filter(m => m.status === 'completed' || m.status === 'منفذة').length
-      const targetCount = Number(target.target_missions) || 1
-      const completionRate = Math.min(100, Math.round((executedCount / targetCount) * 100))
+      if (decision.allowed) visibleTargets.push(target)
+    }
 
-      return {
-        ...target,
-        executed_missions: executedCount,
-        in_progress_missions: relevantMissions.filter(m => m.status !== 'completed' && m.status !== 'cancelled').length,
-        completion_rate: completionRate
+    const enrichedTargets = await Promise.all(
+      visibleTargets.map((target) => enrichTargetExecution(target))
+    )
+
+    let candidates: Array<Record<string, unknown>> = []
+
+    if (hasV2Permission(gate.access, 'leadership_targets.create')) {
+      const { data: candidateRows, error: candidatesError } = await admin
+        .from('users')
+        .select(
+          'id, full_name, email, job_title, organization_id, sector_id, org_level, organization:organization_id(id, name, governorate, sector_id)'
+        )
+        .in('org_level', [5, 6])
+        .eq('is_active', true)
+        .order('full_name')
+
+      if (candidatesError) {
+        console.error(
+          '[leadership-targets:GET] candidates failed:',
+          candidatesError.message
+        )
+      } else {
+        const scopedCandidates: Array<Record<string, unknown>> = []
+
+        for (const candidate of (candidateRows ?? []) as unknown as CandidateRow[]) {
+          const decision = await checkV2ResourceAccess({
+            user: gate.user,
+            snapshot: gate.access,
+            permissionKey: 'leadership_targets.create',
+            resource: candidateResource(candidate),
+          })
+
+          if (!decision.allowed) continue
+
+          scopedCandidates.push({
+            id: candidate.id,
+            full_name: candidate.full_name,
+            email: candidate.email,
+            job_title: candidate.job_title,
+            governorate: candidate.organization?.governorate ?? null,
+            organization_id: candidate.organization_id,
+            sector_id: candidate.sector_id,
+          })
+        }
+
+        candidates = scopedCandidates
       }
+    }
+
+    return NextResponse.json({
+      currentUser: {
+        level: gate.user.orgLevel,
+        id: gate.user.profileId,
+        email: gate.user.email,
+        governorate: null,
+        isSectorHeadOrAbove: hasV2Permission(
+          gate.access,
+          'leadership_targets.create'
+        ),
+      },
+      candidates,
+      targets: enrichedTargets,
+    })
+  } catch (error) {
+    console.error('[leadership-targets:GET] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء تحميل المستهدفات' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const gate = await requireV2Permission('leadership_targets.create')
+    if (!gate.ok) return gate.response
+
+    const body = (await request.json()) as Record<string, unknown>
+
+    const title = typeof body.title === 'string' ? body.title.trim() : ''
+    const undersecretaryId =
+      typeof body.undersecretary_id === 'string' ? body.undersecretary_id : ''
+    const targetMissions = Number(body.target_missions)
+    const startDate =
+      typeof body.start_date === 'string' ? body.start_date : ''
+    const endDate = typeof body.end_date === 'string' ? body.end_date : ''
+
+    if (
+      !title ||
+      !undersecretaryId ||
+      !Number.isFinite(targetMissions) ||
+      targetMissions <= 0 ||
+      !startDate ||
+      !endDate
+    ) {
+      return NextResponse.json(
+        { error: 'يرجى ملء جميع الحقول الإلزامية للمستهدف' },
+        { status: 400 }
+      )
+    }
+
+    const admin = getAdminSupabaseClient()
+
+    const { data: candidateData, error: candidateError } = await admin
+      .from('users')
+      .select(
+        'id, full_name, email, job_title, organization_id, sector_id, org_level, is_active, organization:organization_id(id, name, governorate, sector_id)'
+      )
+      .eq('id', undersecretaryId)
+      .maybeSingle()
+
+    if (candidateError || !candidateData || candidateData.is_active !== true) {
+      return NextResponse.json(
+        { error: 'المسؤول المستهدف غير موجود أو غير نشط' },
+        { status: 400 }
+      )
+    }
+
+    const candidate = candidateData as unknown as CandidateRow
+    const resource = candidateResource(candidate)
+
+    const decision = await checkV2ResourceAccess({
+      user: gate.user,
+      snapshot: gate.access,
+      permissionKey: 'leadership_targets.create',
+      resource,
     })
 
-    // Filter targets based on user scope:
-    // If undersecretary / directorate head (level 5/6), only return their targets or their governorate
-    let scopedTargets = targets
-    if (!currentUser.isSectorHeadOrAbove && currentUser.governorate) {
-      scopedTargets = targets.filter(t => 
-        t.governorate === currentUser.governorate || 
-        t.undersecretary_id === currentUser.id ||
-        t.undersecretary_email?.toLowerCase() === currentUser.email.toLowerCase()
+    if (!decision.allowed) {
+      return NextResponse.json(
+        {
+          error: 'لا يمكنك إنشاء مستهدف لهذا المسؤول خارج نطاقك',
+          code: 'SCOPE_DENIED',
+        },
+        { status: 403 }
+      )
+    }
+
+    const { data: inserted, error: insertError } = await admin
+      .from('leadership_targets')
+      .insert({
+        title,
+        sector_head_id: gate.user.profileId,
+        sector_id:
+          candidate.sector_id ?? candidate.organization?.sector_id ?? null,
+        target_organization_id: candidate.organization_id,
+        undersecretary_id: candidate.id,
+        undersecretary_name: candidate.full_name,
+        governorate: candidate.organization?.governorate ?? null,
+        target_missions: Math.floor(targetMissions),
+        start_date: startDate,
+        end_date: endDate,
+        status: 'active',
+        instructions:
+          typeof body.instructions === 'string'
+            ? body.instructions.trim() || null
+            : null,
+        created_by: gate.user.profileId,
+      })
+      .select('*')
+      .single()
+
+    if (insertError) {
+      console.error('[leadership-targets:POST] insert failed:', insertError.message)
+      return NextResponse.json(
+        { error: 'تعذر حفظ المستهدف' },
+        { status: 500 }
       )
     }
 
     return NextResponse.json({
-      currentUser,
-      candidates,
-      targets: scopedTargets
+      success: true,
+      target: {
+        ...(inserted as LeadershipTargetRow),
+        undersecretary_email: candidate.email,
+      },
     })
-  } catch (err: any) {
-    console.error('Error in leadership-targets GET:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error) {
+    console.error('[leadership-targets:POST] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء حفظ المستهدف' },
+      { status: 500 }
+    )
   }
 }
 
-export async function POST(req: Request) {
+export async function DELETE(request: Request) {
   try {
-    const body = await req.json()
-    const { title, undersecretary_id, undersecretary_name, undersecretary_email, governorate, target_missions, start_date, end_date, instructions } = body
+    const gate = await requireV2Permission('leadership_targets.delete')
+    if (!gate.ok) return gate.response
 
-    if (!title || !governorate || !target_missions || !start_date || !end_date) {
-      return NextResponse.json({ error: 'يرجى ملء جميع الحقول الإلزامية للمستهدف' }, { status: 400 })
-    }
-
-    const currentTargets = readStoredTargets()
-    const newTarget = {
-      id: `target-${Date.now()}`,
-      title,
-      sector_head_id: body.sector_head_id || 'sector-head',
-      sector_name: body.sector_name || 'قطاع الطب العلاجي',
-      undersecretary_id: undersecretary_id || '',
-      undersecretary_name: undersecretary_name || 'وكيل الوزارة',
-      undersecretary_email: undersecretary_email || '',
-      governorate,
-      target_missions: Number(target_missions),
-      start_date,
-      end_date,
-      status: 'active',
-      instructions: instructions || '',
-      created_at: new Date().toISOString()
-    }
-
-    currentTargets.unshift(newTarget)
-    writeStoredTargets(currentTargets)
-
-    return NextResponse.json({ success: true, target: newTarget })
-  } catch (err: any) {
-    console.error('Error in leadership-targets POST:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-export async function DELETE(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url)
-    const id = searchParams.get('id')
+    const id = new URL(request.url).searchParams.get('id')
     if (!id) {
       return NextResponse.json({ error: 'Missing target ID' }, { status: 400 })
     }
 
-    const currentTargets = readStoredTargets()
-    const filtered = currentTargets.filter(t => t.id !== id)
-    writeStoredTargets(filtered)
+    const admin = getAdminSupabaseClient()
+    const { data, error } = await admin
+      .from('leadership_targets')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (error) {
+      console.error('[leadership-targets:DELETE] lookup failed:', error.message)
+      return NextResponse.json({ error: 'تعذر تحميل المستهدف' }, { status: 500 })
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: 'المستهدف غير موجود' }, { status: 404 })
+    }
+
+    const target = data as LeadershipTargetRow
+
+    const decision = await checkV2ResourceAccess({
+      user: gate.user,
+      snapshot: gate.access,
+      permissionKey: 'leadership_targets.delete',
+      resource: targetResource(target),
+    })
+
+    if (!decision.allowed) {
+      return NextResponse.json(
+        { error: 'لا يمكنك حذف مستهدف خارج نطاقك', code: 'SCOPE_DENIED' },
+        { status: 403 }
+      )
+    }
+
+    const { error: deleteError } = await admin
+      .from('leadership_targets')
+      .delete()
+      .eq('id', id)
+
+    if (deleteError) {
+      console.error('[leadership-targets:DELETE] delete failed:', deleteError.message)
+      return NextResponse.json({ error: 'تعذر حذف المستهدف' }, { status: 500 })
+    }
 
     return NextResponse.json({ success: true })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error) {
+    console.error('[leadership-targets:DELETE] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء حذف المستهدف' },
+      { status: 500 }
+    )
   }
 }
