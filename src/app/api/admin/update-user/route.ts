@@ -1,186 +1,308 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  checkV2ResourceAccess,
+  hasV2Permission,
+} from '@/server/authorization'
+import { requireV2Permission } from '@/server/authorization/http-guard'
+import { loadUserAuthorizationResource } from '@/server/authorization/resources/user'
+import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
-// ══════════════════════════════════════════════════════════════
-// POST /api/admin/update-user
-// تحديث بيانات وصلاحيات ومستويات الموظفين بصلاحيات الإدارة المعتمدة
-// ══════════════════════════════════════════════════════════════
+type OrganizationRow = {
+  id: string
+  name: string
+  level: number
+  sector_id: string | null
+  governorate: string | null
+}
 
 export async function POST(request: Request) {
   try {
-    const supabaseServer = await createServerSupabaseClient()
-    if (!supabaseServer) {
-      return NextResponse.json({ error: 'خادم الاتصال بقاعدة البيانات غير مهيأ' }, { status: 500 })
-    }
+    const gate = await requireV2Permission('users.edit')
+    if (!gate.ok) return gate.response
 
-    const { data: { user: caller }, error: authError } = await supabaseServer.auth.getUser()
-    if (authError || !caller) {
-      return NextResponse.json({ error: 'غير مصرح بالوصول — يرجى تسجيل الدخول' }, { status: 401 })
-    }
+    const body = (await request.json()) as Record<string, unknown>
+    const userId = typeof body.userId === 'string' ? body.userId : ''
 
-    // التحقق من صلاحية المعدّل (المستويات 1 إلى 4 مسموح لها)
-    const { data: callerProfile, error: profileError } = await supabaseServer
-      .from('users')
-      .select('id, level, org_level, sector_id, organization_id')
-      .eq('auth_id', caller.id)
-      .maybeSingle()
-
-    if (profileError || !callerProfile) {
-      return NextResponse.json({ error: 'تعذر التحقق من صلاحياتك' }, { status: 403 })
-    }
-
-    const callerLevel = Number(callerProfile.level ?? callerProfile.org_level ?? 7)
-    if (callerLevel > 4) {
+    if (!userId) {
       return NextResponse.json(
-        { error: 'غير مصرح — تعديل المستخدمين مقتصر على الإدارات القيادية (مستوى 1 إلى 4)' },
+        { error: 'معرّف الموظف مطلوب' },
+        { status: 400 }
+      )
+    }
+
+    const target = await loadUserAuthorizationResource(userId)
+    if (!target) {
+      return NextResponse.json(
+        { error: 'الموظف المطلوب غير موجود بقاعدة البيانات' },
+        { status: 404 }
+      )
+    }
+
+    const editDecision = await checkV2ResourceAccess({
+      user: gate.user,
+      snapshot: gate.access,
+      permissionKey: 'users.edit',
+      resource: target.resource,
+    })
+
+    if (!editDecision.allowed) {
+      return NextResponse.json(
+        {
+          error: 'لا يمكنك تعديل موظف خارج نطاقك الإداري',
+          code: 'SCOPE_DENIED',
+        },
         { status: 403 }
       )
     }
 
-    const body = await request.json()
-    const {
-      userId,
-      full_name,
-      job_title,
-      level,
-      org_level,
-      department,
-      organization_id,
-      org_unit_id,
-      facility_id,
-      email,
-      phone,
-      financial_code,
-      is_active,
-    } = body
+    const current = target.profile
+    const admin = getAdminSupabaseClient()
 
-    if (!userId) {
-      return NextResponse.json({ error: 'معرّف الموظف مطلوب' }, { status: 400 })
+    const requestedOrgId =
+      typeof body.organization_id === 'string'
+        ? body.organization_id
+        : typeof body.org_unit_id === 'string'
+          ? body.org_unit_id
+          : current.organization_id
+
+    let targetOrg: OrganizationRow | null = null
+
+    if (requestedOrgId) {
+      const { data: orgData, error: orgError } = await admin
+        .from('organizations')
+        .select('id, name, level, sector_id, governorate')
+        .eq('id', requestedOrgId)
+        .maybeSingle()
+
+      if (orgError || !orgData) {
+        return NextResponse.json(
+          { error: 'الجهة التنظيمية المحددة غير موجودة' },
+          { status: 400 }
+        )
+      }
+
+      targetOrg = orgData as OrganizationRow
+
+      const destinationDecision = await checkV2ResourceAccess({
+        user: gate.user,
+        snapshot: gate.access,
+        permissionKey: 'users.edit',
+        resource: {
+          organizationId: targetOrg.id,
+          sectorId:
+            targetOrg.level === 2 ? targetOrg.id : targetOrg.sector_id,
+          governorate: targetOrg.governorate,
+        },
+      })
+
+      if (!destinationDecision.allowed) {
+        return NextResponse.json(
+          {
+            error: 'لا يمكنك نقل الموظف إلى جهة خارج نطاقك الإداري',
+            code: 'DESTINATION_SCOPE_DENIED',
+          },
+          { status: 403 }
+        )
+      }
     }
 
-    const targetOrgId = organization_id || org_unit_id || null
-    const finalLevel = Number(level ?? org_level ?? 7)
+    const currentLevel = Number(current.org_level ?? current.level ?? 7)
+    const requestedLevelRaw = body.level ?? body.org_level
+    const finalLevel =
+      requestedLevelRaw === undefined
+        ? currentLevel
+        : Number(requestedLevelRaw)
 
-    // التحقق من التدرج القيادي: لا يجوز للمشرف رفع مستخدم لمستوى أعلى من مستواه
-    if (callerLevel > 1 && finalLevel < callerLevel) {
+    if (
+      !Number.isInteger(finalLevel) ||
+      finalLevel < 1 ||
+      finalLevel > 7
+    ) {
+      return NextResponse.json(
+        { error: 'المستوى التنظيمي للمستخدم غير صحيح' },
+        { status: 400 }
+      )
+    }
+
+    if (finalLevel < gate.user.orgLevel) {
       return NextResponse.json(
         { error: 'لا يمكنك تعيين مستوى إداري أعلى من مستواك الوظيفي' },
         { status: 403 }
       )
     }
 
-    // إعداد عميل الخدمة الإدارية (Service Role)
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: 'مفتاح الخدمة الإدارية غير متوفر' }, { status: 500 })
+    if (targetOrg && finalLevel < targetOrg.level) {
+      return NextResponse.json(
+        { error: 'مستوى المستخدم لا يمكن أن يكون أعلى من مستوى الجهة التابع لها' },
+        { status: 400 }
+      )
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
+    const requestedActive =
+      typeof body.is_active === 'boolean'
+        ? body.is_active
+        : current.is_active
 
-    // جلب بيانات الموظف الحالية للتحقق
-    const { data: existingUser, error: userFetchError } = await supabaseAdmin
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
-
-    if (userFetchError || !existingUser) {
-      return NextResponse.json({ error: 'الموظف المطلوب غير موجود بقاعدة البيانات' }, { status: 404 })
-    }
-
-    // التحقق من نطاق القطاع للمستويات 2 إلى 4
-    const callerSectorId = callerProfile.sector_id || callerProfile.organization_id
-    if (callerLevel > 1 && callerSectorId) {
-      const isSameSector =
-        existingUser.sector_id === callerSectorId ||
-        existingUser.organization_id === callerSectorId ||
-        existingUser.id === callerProfile.id
-
-      if (!isSameSector) {
+    if (
+      typeof body.is_active === 'boolean' &&
+      body.is_active !== current.is_active
+    ) {
+      if (!hasV2Permission(gate.access, 'users.deactivate')) {
         return NextResponse.json(
-          { error: 'لا يمكنك تعديل موظف خارج نطاق قطاعك الإداري' },
+          {
+            error: 'ليس لديك صلاحية تغيير حالة تنشيط الحساب',
+            code: 'DEACTIVATE_PERMISSION_DENIED',
+          },
+          { status: 403 }
+        )
+      }
+
+      const deactivateDecision = await checkV2ResourceAccess({
+        user: gate.user,
+        snapshot: gate.access,
+        permissionKey: 'users.deactivate',
+        resource: target.resource,
+      })
+
+      if (!deactivateDecision.allowed) {
+        return NextResponse.json(
+          {
+            error: 'لا يمكنك تغيير حالة مستخدم خارج نطاقك الإداري',
+            code: 'DEACTIVATE_SCOPE_DENIED',
+          },
           { status: 403 }
         )
       }
     }
 
-    // في حال تحديد جهة تنظيمية جديدة، نتحقق منها ونجلب قطاعها واسمها
-    let targetOrg: any = null
-    if (targetOrgId) {
-      const { data: orgData } = await supabaseAdmin
-        .from('organizations')
-        .select('id, name, level, sector_id')
-        .eq('id', targetOrgId)
-        .maybeSingle()
-      targetOrg = orgData
-    }
+    const normalizedEmail =
+      typeof body.email === 'string' && body.email.trim()
+        ? body.email.trim().toLowerCase()
+        : current.email
 
-    const normalizedEmail = email ? String(email).trim().toLowerCase() : existingUser.email
-    const finalDepartment = department || targetOrg?.name || existingUser.department || 'ديوان عام الوزارة'
-    const finalSectorId = targetOrg?.sector_id || targetOrg?.id || existingUser.sector_id || null
+    const resolvedSectorId = targetOrg
+      ? targetOrg.level === 2
+        ? targetOrg.id
+        : targetOrg.sector_id
+      : current.sector_id
 
-    const updatePayload: Record<string, any> = {
-      full_name: full_name ? String(full_name).trim() : existingUser.full_name,
-      job_title: job_title !== undefined ? (job_title ? String(job_title).trim() : null) : existingUser.job_title,
+    const updatePayload: Record<string, unknown> = {
+      full_name:
+        typeof body.full_name === 'string' && body.full_name.trim()
+          ? body.full_name.trim()
+          : current.full_name,
+      job_title:
+        body.job_title !== undefined
+          ? typeof body.job_title === 'string' && body.job_title.trim()
+            ? body.job_title.trim()
+            : null
+          : current.job_title,
       level: finalLevel,
-      org_level: finalLevel, // الحفاظ على اتساق الحقلين معاً بشكل متزامن
-      department: finalDepartment,
-      organization_id: targetOrgId || existingUser.organization_id,
-      org_unit_id: targetOrgId || existingUser.org_unit_id,
-      sector_id: finalSectorId,
-      facility_id: facility_id !== undefined ? (facility_id || null) : existingUser.facility_id,
+      org_level: finalLevel,
+      department:
+        typeof body.department === 'string' && body.department.trim()
+          ? body.department.trim()
+          : targetOrg?.name ?? current.department ?? 'ديوان عام الوزارة',
+      organization_id: requestedOrgId,
+      org_unit_id: requestedOrgId,
+      sector_id: resolvedSectorId,
+      facility_id:
+        body.facility_id !== undefined
+          ? typeof body.facility_id === 'string' && body.facility_id
+            ? body.facility_id
+            : null
+          : current.facility_id,
       email: normalizedEmail,
-      phone: phone !== undefined ? (phone ? String(phone).trim() : null) : existingUser.phone,
-      financial_code: financial_code !== undefined ? (financial_code ? String(financial_code).trim() : null) : existingUser.financial_code,
-      is_active: is_active !== undefined ? Boolean(is_active) : existingUser.is_active,
+      phone:
+        body.phone !== undefined
+          ? typeof body.phone === 'string' && body.phone.trim()
+            ? body.phone.trim()
+            : null
+          : current.phone,
+      financial_code:
+        body.financial_code !== undefined
+          ? typeof body.financial_code === 'string' &&
+            body.financial_code.trim()
+            ? body.financial_code.trim()
+            : null
+          : current.financial_code,
+      is_active: requestedActive,
     }
 
-    const { data: updatedProfile, error: updateError } = await supabaseAdmin
+    const { data: updatedProfile, error: updateError } = await admin
       .from('users')
       .update(updatePayload)
       .eq('id', userId)
-      .select('id, full_name, job_title, level, org_level, department, is_active, email, phone, facility_id, financial_code, organization_id, org_unit_id, sector_id, created_at')
+      .select(
+        'id, full_name, job_title, level, org_level, department, is_active, email, phone, facility_id, financial_code, organization_id, org_unit_id, sector_id, created_at'
+      )
       .single()
 
     if (updateError) {
-      console.error('[update-user] database update failed:', updateError)
+      console.error('[update-user] database update failed:', updateError.message)
       return NextResponse.json(
-        { error: 'فشل تحديث بيانات الموظف: ' + updateError.message },
+        { error: 'فشل تحديث بيانات الموظف' },
         { status: 500 }
       )
     }
 
-    // تحديث حساب المصادقة في Supabase Auth إذا كان للموظف auth_id
-    if (existingUser.auth_id) {
-      try {
-        const authUpdates: Record<string, any> = {
+    let authSyncWarning: string | null = null
+
+    if (current.auth_id) {
+      const { data: latestAuthData, error: latestAuthError } =
+        await admin.auth.admin.getUserById(current.auth_id)
+
+      if (latestAuthError || !latestAuthData?.user) {
+        authSyncWarning = 'تعذر تحميل أحدث بيانات حساب المصادقة'
+      } else {
+        const latestAuthUser = latestAuthData.user
+        const authUpdate: {
+          email?: string
+          user_metadata: Record<string, unknown>
+        } = {
           user_metadata: {
+            ...(latestAuthUser.user_metadata || {}),
             full_name: updatePayload.full_name,
             job_title: updatePayload.job_title,
             level: finalLevel,
             org_level: finalLevel,
-          }
+          },
         }
-        if (normalizedEmail && normalizedEmail !== existingUser.email) {
-          authUpdates.email = normalizedEmail
+
+        if (
+          normalizedEmail &&
+          normalizedEmail !== latestAuthUser.email
+        ) {
+          authUpdate.email = normalizedEmail
         }
-        await supabaseAdmin.auth.admin.updateUserById(existingUser.auth_id, authUpdates)
-      } catch (authErr) {
-        console.warn('[update-user] auth metadata update warning:', authErr)
+
+        const { error: authUpdateError } =
+          await admin.auth.admin.updateUserById(current.auth_id, authUpdate)
+
+        if (authUpdateError) {
+          console.error(
+            '[update-user] auth metadata update failed:',
+            authUpdateError.message
+          )
+          authSyncWarning =
+            'تم تحديث ملف الموظف ولكن تعذر مزامنة بعض بيانات حساب المصادقة'
+        }
       }
     }
 
     return NextResponse.json({
       success: true,
       data: updatedProfile,
-      message: 'تم تحديث بيانات ومستوى وصلاحيات الموظف بنجاح.',
+      auth_sync_warning: authSyncWarning,
+      role_assignment_unchanged: true,
+      message:
+        'تم تحديث بيانات الموظف. تغيير المستوى أو الجهة لا يغيّر أدوار V2 تلقائيًا.',
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error('[update-user] unexpected error:', error)
-    return NextResponse.json({ error: error.message || 'خطأ غير متوقع أثناء التحديث' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'خطأ غير متوقع أثناء التحديث' },
+      { status: 500 }
+    )
   }
 }
