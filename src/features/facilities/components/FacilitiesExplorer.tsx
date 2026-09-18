@@ -6,12 +6,12 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from 'react'
 import {
   Building2,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Edit3,
   History,
   Loader2,
@@ -27,31 +27,17 @@ import { STANDARD_FACILITY_TYPES } from '@/lib/facility-types'
 import type {
   V2FacilityDirectoryData,
   V2FacilityDirectoryItem,
+  V2FacilityManagementUi,
   V2HealthAdministrationOption,
-} from '@/server/services/facilities/load-directory'
+} from '@/features/facilities/types'
 import { FacilityMap } from './FacilityMap'
 import { FacilityAuditDrawer } from './FacilityAuditDrawer'
 
 const PAGE_SIZE = 30
 
-type ManagementAnchor = {
-  organizationId: string
-  level: number
-  governorate: string | null
-}
-
-type FacilityManagementUi = {
-  isInformationCenter: boolean
-  canCreate: boolean
-  canEdit: boolean
-  canDeactivate: boolean
-  canAudit: boolean
-  anchors: ManagementAnchor[]
-}
-
 interface FacilitiesExplorerProps {
   data: V2FacilityDirectoryData
-  management: FacilityManagementUi
+  management: V2FacilityManagementUi
 }
 
 type EditorMode = 'create' | 'edit'
@@ -87,7 +73,7 @@ function emptyEditor(): EditorState {
 }
 
 function canManageFacility(
-  management: FacilityManagementUi,
+  management: V2FacilityManagementUi,
   facility: V2FacilityDirectoryItem
 ): boolean {
   if (!management.isInformationCenter) return false
@@ -111,7 +97,7 @@ function canManageFacility(
 }
 
 function canManageHealthAdministration(
-  management: FacilityManagementUi,
+  management: V2FacilityManagementUi,
   organization: V2HealthAdministrationOption
 ): boolean {
   if (!management.isInformationCenter) return false
@@ -139,7 +125,7 @@ function CompactMetric({
   value,
   label,
 }: {
-  icon: React.ReactNode
+  icon: ReactNode
   value: number
   label: string
 }) {
