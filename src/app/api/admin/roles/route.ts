@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server'
 import { checkV2ResourceAccess } from '@/server/authorization'
 import { canDelegateV2RoleGrants } from '@/server/authorization/delegation'
 import { requireV2Permission } from '@/server/authorization/http-guard'
-import { V2_SCOPE_TYPES, type V2ScopeType } from '@/server/authorization/types'
+import {
+  V2_SCOPE_TYPES,
+  type V2AuthorizationSnapshot,
+  type V2ScopeType,
+} from '@/server/authorization/types'
+import type { V2AuthenticatedUser } from '@/server/auth/types'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 type RoleRow = {
@@ -32,7 +37,7 @@ function isScopeType(value: unknown): value is V2ScopeType {
 }
 
 function hasNationalManageRoleScope(
-  access: Parameters<typeof canDelegateV2RoleGrants>[0]['snapshot']
+  access: V2AuthorizationSnapshot
 ): boolean {
   const permission = access.permissions['settings.manage_roles']
   return (
@@ -43,17 +48,9 @@ function hasNationalManageRoleScope(
 
 async function authorizeRoleOwner(input: {
   ownerOrganizationId: string | null
-  user: Awaited<ReturnType<typeof requireV2Permission>> extends infer T
-    ? T extends { ok: true; user: infer U }
-      ? U
-      : never
-    : never
-  access: Awaited<ReturnType<typeof requireV2Permission>> extends infer T
-    ? T extends { ok: true; access: infer A }
-      ? A
-      : never
-    : never
-}): Promise<boolean> {
+  user: V2AuthenticatedUser
+  access: V2AuthorizationSnapshot
+})): Promise<boolean> {
   if (!input.ownerOrganizationId) {
     return hasNationalManageRoleScope(input.access)
   }
