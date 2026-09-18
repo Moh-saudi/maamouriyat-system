@@ -6,6 +6,7 @@ export interface V2OrganizationFact {
   sectorId: string | null
   governorate: string | null
   level: number
+  organizationTypeCode: string | null
 }
 
 export interface V2ResourceScopeContext {
