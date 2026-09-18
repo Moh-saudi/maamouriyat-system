@@ -5,16 +5,6 @@ import { V2_NAVIGATION_ITEMS } from '@/config/navigation'
 import { filterV2NavigationItems } from '@/config/permissions'
 import { getV2AccessState } from '@/server/authorization'
 
-function computeInitials(fullName: string): string {
-  if (!fullName) return 'م'
-  const parts = fullName.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return 'م'
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2)
-  }
-  return `${parts[0][0]}${parts[1][0]}`
-}
-
 /**
  * Canonical V2 protected-layout gate.
  *
@@ -56,7 +46,7 @@ export default async function V2ProtectedLayout({
     name: user.fullName,
     jobTitle: user.jobTitle || 'عضو بالمنظومة',
     organization: user.organizationName,
-    initials: computeInitials(user.fullName),
+    roleCode: access.roles[0]?.roleCode ?? null,
   }
 
   return (
