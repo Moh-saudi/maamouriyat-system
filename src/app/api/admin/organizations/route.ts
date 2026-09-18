@@ -50,6 +50,12 @@ const CAPABILITY_FIELDS = [
 ] as const
 
 
+type DatabaseErrorLike = {
+  code?: string | null
+  message?: string | null
+  details?: string | null
+}
+
 type OrganizationTypeRow = {
   code: string
   display_name_ar: string
@@ -306,6 +312,32 @@ function toResource(org: Pick<OrganizationRow, 'id' | 'sector_id' | 'governorate
 
 function hasCapabilityMutation(body: Record<string, unknown>): boolean {
   return CAPABILITY_FIELDS.some((field) => field in body)
+}
+
+function organizationConflictResponse(
+  error: DatabaseErrorLike | null | undefined
+): NextResponse | null {
+  if (error?.code !== '23505') return null
+
+  const diagnostic = `${error.message ?? ''} ${error.details ?? ''}`
+
+  if (diagnostic.includes('idx_org_code')) {
+    return NextResponse.json(
+      {
+        error: 'كود الجهة مستخدم بالفعل',
+        code: 'ORGANIZATION_CODE_CONFLICT',
+      },
+      { status: 409 }
+    )
+  }
+
+  return NextResponse.json(
+    {
+      error: 'توجد جهة بنفس الاسم والنوع تحت الجهة الأم نفسها',
+      code: 'ORGANIZATION_DUPLICATE',
+    },
+    { status: 409 }
+  )
 }
 
 function toOrganizationFacts(
@@ -836,6 +868,9 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (insertError) {
+      const conflictResponse = organizationConflictResponse(insertError)
+      if (conflictResponse) return conflictResponse
+
       console.error('[organizations:POST] insert failed:', insertError.message)
       return NextResponse.json({ error: 'فشل حفظ الوحدة الفرعية' }, { status: 500 })
     }
@@ -995,6 +1030,9 @@ export async function PUT(request: NextRequest) {
       )
 
       if (moveError) {
+        const conflictResponse = organizationConflictResponse(moveError)
+        if (conflictResponse) return conflictResponse
+
         console.error(
           '[organizations:PUT] type-aware move failed:',
           moveError.message
@@ -1024,7 +1062,7 @@ export async function PUT(request: NextRequest) {
     const admin = getAdminSupabaseClient()
 
     let updated: OrganizationRow | null = null
-    let error: { message: string } | null = null
+    let error: DatabaseErrorLike | null = null
 
     if (Object.keys(updatePayload).length > 0) {
       const updateResult = await admin
@@ -1048,6 +1086,9 @@ export async function PUT(request: NextRequest) {
     }
 
     if (error) {
+      const conflictResponse = organizationConflictResponse(error)
+      if (conflictResponse) return conflictResponse
+
       console.error('[organizations:PUT] update failed:', error.message)
       return NextResponse.json({ error: 'فشل تحديث بيانات الوحدة' }, { status: 500 })
     }
