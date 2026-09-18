@@ -40,7 +40,10 @@ export type V2FacilityManagementUi = {
   canAudit: boolean
   anchors: Array<{
     organizationId: string
-    level: number
+    organizationTypeCode:
+      | 'ministry'
+      | 'health_directorate'
+      | 'health_administration'
     governorate: string | null
   }>
 }
