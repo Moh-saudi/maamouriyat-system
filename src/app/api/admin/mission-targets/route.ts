@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server'
-import fs from 'fs'
-import path from 'path'
-import { createClient } from '@supabase/supabase-js'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import {
+  evaluateV2ResourceScope,
+  hasV2Permission,
+} from '@/server/authorization'
+import { requireV2Permission } from '@/server/authorization/http-guard'
+import { isOrganizationWithinTree } from '@/server/authorization/organization-scope-repository'
+import { getAdminSupabaseClient } from '@/server/supabase/admin'
+import type {
+  V2OrganizationFact,
+  V2ResourceScopeContext,
+} from '@/server/authorization/scope-types'
 
-// ─── Types ───────────────────────────────────────────────────────────────────
 export type TargetFacility = {
   id: string
   name: string
@@ -27,8 +33,8 @@ export type MissionTarget = {
   scope_level: 'ministry' | 'sector' | 'governorate' | 'health_admin' | 'user'
   scope_name: string
   scope_id?: string
-  target_type?: 'aggregate' | 'specific_facilities'
-  target_facilities?: TargetFacility[]
+  target_type: 'aggregate' | 'specific_facilities'
+  target_facilities: TargetFacility[]
   assigned_user_id?: string
   assigned_user_name?: string
   sector_id?: string
@@ -38,335 +44,751 @@ export type MissionTarget = {
   created_by?: string
   created_by_name?: string
   created_at: string
-  // Computed on read
   executed_missions?: number
   completion_rate?: number
 }
 
-import defaultTargetsData from '@/data/mission-targets.json'
-
-// ─── Data File ───────────────────────────────────────────────────────────────
-const DATA_PATH = path.join(process.cwd(), 'src', 'data', 'mission-targets.json')
-
-function readTargets(): MissionTarget[] {
-  try {
-    if (fs.existsSync(DATA_PATH)) {
-      const content = fs.readFileSync(DATA_PATH, 'utf8')
-      return JSON.parse(content)
-    }
-  } catch (e) {
-    console.warn('Could not read dynamic targets from fs, falling back to bundled data:', e)
-  }
-  return (defaultTargetsData as unknown as MissionTarget[]) || []
+type TargetRow = {
+  id: string
+  title: string
+  period_type: 'monthly' | 'quarterly' | 'custom'
+  period_label: string
+  start_date: string
+  end_date: string
+  target_missions: number
+  scope_level: 'ministry' | 'sector' | 'governorate' | 'health_admin' | 'user'
+  scope_name: string
+  scope_organization_id: string | null
+  assigned_user_id: string | null
+  sector_id: string | null
+  target_type: 'aggregate' | 'specific_facilities'
+  notes: string | null
+  status: 'active' | 'completed' | 'cancelled'
+  created_by: string
+  created_at: string
+  updated_at: string
 }
 
-function writeTargets(targets: MissionTarget[]) {
-  try {
-    const dir = path.dirname(DATA_PATH)
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(DATA_PATH, JSON.stringify(targets, null, 2), 'utf8')
-  } catch (e) {
-    console.warn('Could not write targets to disk (read-only filesystem in serverless):', e)
+type OrganizationRow = {
+  id: string
+  name: string
+  parent_id: string | null
+  sector_id: string | null
+  governorate: string | null
+  health_admin: string | null
+  level: number
+}
+
+type UserRow = {
+  id: string
+  full_name: string
+  job_title: string | null
+  org_level: number | null
+  organization_id: string | null
+  sector_id: string | null
+  is_active: boolean | null
+}
+
+type FacilityRow = {
+  id: string
+  name: string
+  facility_type: string | null
+  organization_id: string | null
+  sector_id: string | null
+  governorate: string | null
+  health_admin: string | null
+  is_active: boolean | null
+}
+
+type TargetScopeResolution = {
+  scopeLevel: TargetRow['scope_level']
+  scopeName: string
+  scopeOrganizationId: string | null
+  assignedUserId: string | null
+  assignedUserName: string | null
+  sectorId: string | null
+  sectorName: string | null
+  resource: V2ResourceScopeContext
+}
+
+function toOrganizationFacts(
+  organizations: readonly OrganizationRow[]
+): Map<string, V2OrganizationFact> {
+  return new Map(
+    organizations.map((organization) => [
+      organization.id,
+      {
+        id: organization.id,
+        parentId: organization.parent_id,
+        sectorId: organization.sector_id,
+        governorate: organization.governorate,
+        level: Number(organization.level),
+      },
+    ])
+  )
+}
+
+function targetResource(target: TargetRow): V2ResourceScopeContext {
+  return {
+    ownerUserId: target.created_by,
+    assignedUserIds: target.assigned_user_id ? [target.assigned_user_id] : [],
+    organizationId: target.scope_organization_id,
+    sectorId: target.sector_id,
+    governorate:
+      target.scope_level === 'governorate' ? target.scope_name : null,
   }
 }
 
-// ─── Supabase Client ──────────────────────────────────────────────────────────
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://upxmlpiemqdfbhyipihh.supabase.co'
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || 
-              process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 
-              process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-              ''
-  if (!url || !key) return null
-  try {
-    return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
-  } catch (e) {
-    console.error('Failed to create Supabase client:', e)
+function userResource(
+  user: UserRow,
+  organizations: ReadonlyMap<string, OrganizationRow>
+): V2ResourceScopeContext {
+  const organization = user.organization_id
+    ? organizations.get(user.organization_id)
+    : undefined
+
+  return {
+    assignedUserIds: [user.id],
+    organizationId: user.organization_id,
+    sectorId: user.sector_id ?? organization?.sector_id ?? null,
+    governorate: organization?.governorate ?? null,
+  }
+}
+
+function facilityResource(facility: FacilityRow): V2ResourceScopeContext {
+  return {
+    organizationId: facility.organization_id,
+    sectorId: facility.sector_id,
+    governorate: facility.governorate,
+  }
+}
+
+function isAllowed(input: {
+  user: Parameters<typeof evaluateV2ResourceScope>[0]['user']
+  access: Parameters<typeof evaluateV2ResourceScope>[0]['snapshot']
+  permissionKey: string
+  resource: V2ResourceScopeContext
+  organizationFacts: ReadonlyMap<string, V2OrganizationFact>
+}): boolean {
+  return evaluateV2ResourceScope({
+    user: input.user,
+    snapshot: input.access,
+    permissionKey: input.permissionKey,
+    resource: input.resource,
+    organizationFacts: input.organizationFacts,
+  }).allowed
+}
+
+async function loadOrganizations(): Promise<{
+  list: OrganizationRow[]
+  byId: Map<string, OrganizationRow>
+  facts: Map<string, V2OrganizationFact>
+}> {
+  const admin = getAdminSupabaseClient()
+  const { data, error } = await admin
+    .from('organizations')
+    .select('id, name, parent_id, sector_id, governorate, health_admin, level')
+
+  if (error) {
+    throw new Error(`Failed to load organizations: ${error.message}`)
+  }
+
+  const list = (data ?? []) as OrganizationRow[]
+  return {
+    list,
+    byId: new Map(list.map((organization) => [organization.id, organization])),
+    facts: toOrganizationFacts(list),
+  }
+}
+
+async function loadUsersByIds(userIds: readonly string[]): Promise<Map<string, UserRow>> {
+  if (userIds.length === 0) return new Map()
+
+  const admin = getAdminSupabaseClient()
+  const { data, error } = await admin
+    .from('users')
+    .select('id, full_name, job_title, org_level, organization_id, sector_id, is_active')
+    .in('id', [...new Set(userIds)])
+
+  if (error) {
+    throw new Error(`Failed to load target users: ${error.message}`)
+  }
+
+  return new Map(((data ?? []) as UserRow[]).map((user) => [user.id, user]))
+}
+
+async function loadFacilitiesByIds(
+  facilityIds: readonly string[]
+): Promise<Map<string, FacilityRow>> {
+  if (facilityIds.length === 0) return new Map()
+
+  const admin = getAdminSupabaseClient()
+  const { data, error } = await admin
+    .from('facilities')
+    .select('id, name, facility_type, organization_id, sector_id, governorate, health_admin, is_active')
+    .in('id', [...new Set(facilityIds)])
+
+  if (error) {
+    throw new Error(`Failed to load target facilities: ${error.message}`)
+  }
+
+  return new Map(((data ?? []) as FacilityRow[]).map((facility) => [facility.id, facility]))
+}
+
+async function resolveTargetScope(
+  body: Record<string, unknown>,
+  organizations: {
+    byId: ReadonlyMap<string, OrganizationRow>
+  }
+): Promise<TargetScopeResolution | null> {
+  const admin = getAdminSupabaseClient()
+  const scopeLevel =
+    typeof body.scope_level === 'string' ? body.scope_level : ''
+
+  if (
+    !['ministry', 'sector', 'governorate', 'health_admin', 'user'].includes(
+      scopeLevel
+    )
+  ) {
     return null
   }
+
+  if (scopeLevel === 'ministry') {
+    return {
+      scopeLevel: 'ministry',
+      scopeName: 'وزارة الصحة والسكان',
+      scopeOrganizationId: null,
+      assignedUserId: null,
+      assignedUserName: null,
+      sectorId: null,
+      sectorName: null,
+      resource: {},
+    }
+  }
+
+  if (scopeLevel === 'user') {
+    const userId =
+      typeof body.assigned_user_id === 'string' ? body.assigned_user_id : ''
+    if (!userId) return null
+
+    const { data, error } = await admin
+      .from('users')
+      .select('id, full_name, job_title, org_level, organization_id, sector_id, is_active')
+      .eq('id', userId)
+      .maybeSingle()
+
+    const targetUser = data as UserRow | null
+    if (error || !targetUser || targetUser.is_active !== true) return null
+
+    const organization = targetUser.organization_id
+      ? organizations.byId.get(targetUser.organization_id)
+      : undefined
+    const sector = targetUser.sector_id
+      ? organizations.byId.get(targetUser.sector_id)
+      : undefined
+
+    return {
+      scopeLevel: 'user',
+      scopeName: targetUser.full_name,
+      scopeOrganizationId: targetUser.organization_id,
+      assignedUserId: targetUser.id,
+      assignedUserName: targetUser.full_name,
+      sectorId: targetUser.sector_id ?? organization?.sector_id ?? null,
+      sectorName: sector?.name ?? null,
+      resource: userResource(targetUser, organizations.byId),
+    }
+  }
+
+  const scopeIdCandidate =
+    typeof body.scope_id === 'string'
+      ? body.scope_id
+      : typeof body.sector_id === 'string'
+        ? body.sector_id
+        : ''
+
+  if (!scopeIdCandidate) return null
+
+  const organization = organizations.byId.get(scopeIdCandidate)
+  if (!organization) return null
+
+  if (scopeLevel === 'sector' && organization.level !== 2) return null
+  if (scopeLevel === 'governorate' && organization.level !== 5) return null
+  if (scopeLevel === 'health_admin' && organization.level !== 6) return null
+
+  const sectorId =
+    organization.level === 2
+      ? organization.id
+      : organization.sector_id
+
+  const sector = sectorId ? organizations.byId.get(sectorId) : undefined
+
+  return {
+    scopeLevel: scopeLevel as 'sector' | 'governorate' | 'health_admin',
+    scopeName:
+      scopeLevel === 'governorate'
+        ? organization.governorate ?? organization.name
+        : scopeLevel === 'health_admin'
+          ? organization.health_admin ?? organization.name
+          : organization.name,
+    scopeOrganizationId: organization.id,
+    assignedUserId: null,
+    assignedUserName: null,
+    sectorId,
+    sectorName: sector?.name ?? null,
+    resource: {
+      organizationId: organization.id,
+      sectorId,
+      governorate: organization.governorate,
+    },
+  }
 }
 
-// ─── Helper: Count executed missions & enrich facility status ────────────────
+function facilityFitsDeclaredTargetScope(input: {
+  facility: FacilityRow
+  scope: TargetScopeResolution
+  organizationFacts: ReadonlyMap<string, V2OrganizationFact>
+}): boolean {
+  const { facility, scope, organizationFacts } = input
+
+  if (scope.scopeLevel === 'ministry' || scope.scopeLevel === 'user') {
+    return true
+  }
+
+  if (scope.scopeLevel === 'sector') {
+    return Boolean(scope.sectorId && facility.sector_id === scope.sectorId)
+  }
+
+  if (scope.scopeLevel === 'governorate') {
+    return Boolean(
+      facility.governorate &&
+        scope.resource.governorate &&
+        facility.governorate === scope.resource.governorate
+    )
+  }
+
+  if (scope.scopeLevel === 'health_admin') {
+    if (!facility.organization_id || !scope.scopeOrganizationId) return false
+
+    return isOrganizationWithinTree({
+      resourceOrganizationId: facility.organization_id,
+      anchorOrganizationId: scope.scopeOrganizationId,
+      facts: organizationFacts,
+    })
+  }
+
+  return false
+}
+
+async function loadTargetFacilities(
+  targetIds: readonly string[]
+): Promise<Map<string, TargetFacility[]>> {
+  if (targetIds.length === 0) return new Map()
+
+  const admin = getAdminSupabaseClient()
+  const { data: links, error: linkError } = await admin
+    .from('mission_target_facilities')
+    .select('target_id, facility_id')
+    .in('target_id', [...new Set(targetIds)])
+
+  if (linkError) {
+    throw new Error(`Failed to load target facilities: ${linkError.message}`)
+  }
+
+  const facilityIds = [...new Set((links ?? []).map((link) => String(link.facility_id)))]
+  const facilities = await loadFacilitiesByIds(facilityIds)
+  const result = new Map<string, TargetFacility[]>()
+
+  for (const link of links ?? []) {
+    const facility = facilities.get(String(link.facility_id))
+    if (!facility) continue
+
+    const targetId = String(link.target_id)
+    const list = result.get(targetId) ?? []
+    list.push({
+      id: facility.id,
+      name: facility.name,
+      governorate: facility.governorate ?? undefined,
+      facility_type: facility.facility_type ?? undefined,
+      health_admin: facility.health_admin ?? undefined,
+      is_visited: false,
+    })
+    result.set(targetId, list)
+  }
+
+  return result
+}
+
 async function enrichTargetExecution(
-  admin: ReturnType<typeof getAdminClient>,
   target: MissionTarget
-): Promise<{ executed: number; facilities?: TargetFacility[] }> {
-  if (!admin) return { executed: 0, facilities: target.target_facilities }
-  try {
-    // 1. If specific facilities are targeted: check each facility individually
-    if (target.target_type === 'specific_facilities' && target.target_facilities && target.target_facilities.length > 0) {
-      const facilityIds = target.target_facilities.map(f => typeof f === 'string' ? f : f.id)
-      
-      let facQuery = admin
-        .from('missions')
-        .select('id, target_facility_id, facility_id, scheduled_date, completed_at, status, assigned_user_id')
-        .in('status', ['completed', 'closed', 'done'])
-        .gte('scheduled_date', target.start_date)
-        .lte('scheduled_date', target.end_date)
+): Promise<{ executed: number; facilities: TargetFacility[] }> {
+  const admin = getAdminSupabaseClient()
 
-      if (target.assigned_user_id) {
-        facQuery = facQuery.eq('assigned_user_id', target.assigned_user_id)
-      }
+  if (
+    target.target_type === 'specific_facilities' &&
+    target.target_facilities.length > 0
+  ) {
+    const facilityIds = target.target_facilities.map((facility) => facility.id)
 
-      const { data: missions } = await facQuery
-      const visitedMap = new Map<string, { visited_at?: string; mission_id?: string }>()
-
-      for (const m of (missions || [])) {
-        const fid = m.target_facility_id || m.facility_id
-        if (fid && facilityIds.includes(fid)) {
-          visitedMap.set(fid, {
-            visited_at: m.completed_at || m.scheduled_date || undefined,
-            mission_id: m.id,
-          })
-        }
-      }
-
-      const updatedFacilities: TargetFacility[] = target.target_facilities.map(f => {
-        const item = typeof f === 'string' ? { id: f, name: 'منشأة' } : { ...f }
-        const visit = visitedMap.get(item.id)
-        if (visit) {
-          return {
-            ...item,
-            is_visited: true,
-            visited_at: visit.visited_at,
-            mission_id: visit.mission_id,
-          }
-        }
-        return {
-          ...item,
-          is_visited: false,
-        }
-      })
-
-      const executedCount = updatedFacilities.filter(f => f.is_visited).length
-      return { executed: executedCount, facilities: updatedFacilities }
-    }
-
-    // 2. Aggregate target mode
     let query = admin
       .from('missions')
-      .select('id', { count: 'exact', head: true })
+      .select('id, target_facility_id, facility_id, scheduled_date, completed_at, status, assigned_user_id')
       .in('status', ['completed', 'closed', 'done'])
       .gte('scheduled_date', target.start_date)
       .lte('scheduled_date', target.end_date)
 
-    if (target.scope_level === 'user' && target.assigned_user_id) {
+    if (target.assigned_user_id) {
       query = query.eq('assigned_user_id', target.assigned_user_id)
-    } else if (target.scope_level === 'sector' && target.sector_id) {
-      query = query.eq('sector_id', target.sector_id)
-    } else if (target.scope_level === 'governorate' && target.scope_name) {
-      const { data: facIds } = await admin
-        .from('facilities')
-        .select('id')
-        .eq('governorate', target.scope_name)
-      if (facIds && facIds.length > 0) {
-        query = query.in('target_facility_id', facIds.map((f: any) => f.id))
-      }
-    } else if (target.scope_level === 'health_admin' && target.scope_name) {
-      const { data: facIds } = await admin
-        .from('facilities')
-        .select('id')
-        .eq('health_admin', target.scope_name)
-      if (facIds && facIds.length > 0) {
-        query = query.in('target_facility_id', facIds.map((f: any) => f.id))
-      }
     }
 
-    const { count } = await query
-    return { executed: count ?? 0 }
-  } catch {
-    return { executed: 0 }
+    const { data, error } = await query
+    if (error) {
+      console.error('[mission-targets] facility metrics failed:', error.message)
+      return { executed: 0, facilities: target.target_facilities }
+    }
+
+    const visited = new Map<string, { visited_at?: string; mission_id?: string }>()
+
+    for (const mission of data ?? []) {
+      const facilityId = mission.target_facility_id ?? mission.facility_id
+      if (!facilityId || !facilityIds.includes(String(facilityId))) continue
+
+      visited.set(String(facilityId), {
+        visited_at:
+          mission.completed_at ?? mission.scheduled_date ?? undefined,
+        mission_id: String(mission.id),
+      })
+    }
+
+    const facilities = target.target_facilities.map((facility) => {
+      const visit = visited.get(facility.id)
+      return {
+        ...facility,
+        is_visited: Boolean(visit),
+        visited_at: visit?.visited_at,
+        mission_id: visit?.mission_id,
+      }
+    })
+
+    return {
+      executed: facilities.filter((facility) => facility.is_visited).length,
+      facilities,
+    }
+  }
+
+  let query = admin
+    .from('missions')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['completed', 'closed', 'done'])
+    .gte('scheduled_date', target.start_date)
+    .lte('scheduled_date', target.end_date)
+
+  if (target.scope_level === 'user' && target.assigned_user_id) {
+    query = query.eq('assigned_user_id', target.assigned_user_id)
+  } else if (target.scope_level === 'sector' && target.sector_id) {
+    query = query.eq('sector_id', target.sector_id)
+  } else if (
+    (target.scope_level === 'governorate' ||
+      target.scope_level === 'health_admin') &&
+    target.scope_id
+  ) {
+    const { data: facilities } = await admin
+      .from('facilities')
+      .select('id')
+      .eq(
+        target.scope_level === 'governorate'
+          ? 'governorate'
+          : 'health_admin',
+        target.scope_name
+      )
+
+    const facilityIds = (facilities ?? []).map((facility) => String(facility.id))
+    if (facilityIds.length === 0) {
+      return { executed: 0, facilities: target.target_facilities }
+    }
+
+    query = query.in('target_facility_id', facilityIds)
+  }
+
+  const { count, error } = await query
+  if (error) {
+    console.error('[mission-targets] aggregate metrics failed:', error.message)
+    return { executed: 0, facilities: target.target_facilities }
+  }
+
+  return {
+    executed: count ?? 0,
+    facilities: target.target_facilities,
   }
 }
 
-// ─── GET ──────────────────────────────────────────────────────────────────────
+function toApiTarget(
+  row: TargetRow,
+  facilities: TargetFacility[],
+  users: ReadonlyMap<string, UserRow>,
+  organizations: ReadonlyMap<string, OrganizationRow>
+): MissionTarget {
+  const assigned = row.assigned_user_id
+    ? users.get(row.assigned_user_id)
+    : undefined
+  const creator = users.get(row.created_by)
+  const sector = row.sector_id ? organizations.get(row.sector_id) : undefined
+
+  return {
+    id: row.id,
+    title: row.title,
+    period_type: row.period_type,
+    period_label: row.period_label,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    target_missions: row.target_missions,
+    scope_level: row.scope_level,
+    scope_name: row.scope_name,
+    scope_id: row.scope_organization_id ?? undefined,
+    target_type: row.target_type,
+    target_facilities: facilities,
+    assigned_user_id: row.assigned_user_id ?? undefined,
+    assigned_user_name: assigned?.full_name,
+    sector_id: row.sector_id ?? undefined,
+    sector_name: sector?.name,
+    notes: row.notes ?? undefined,
+    status: row.status,
+    created_by: row.created_by,
+    created_by_name: creator?.full_name,
+    created_at: row.created_at,
+  }
+}
+
+async function replaceFacilityLinks(
+  targetId: string,
+  facilityIds: readonly string[]
+): Promise<void> {
+  const admin = getAdminSupabaseClient()
+  const { error } = await admin.rpc('replace_mission_target_facilities', {
+    p_target_id: targetId,
+    p_facility_ids: [...new Set(facilityIds)],
+  })
+
+  if (error) {
+    throw new Error(`Failed to replace target facilities: ${error.message}`)
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const scopeFilter  = searchParams.get('scope') || 'all'
+    const scopeFilter = searchParams.get('scope') || 'all'
     const statusFilter = searchParams.get('status') || 'all'
-    const typeFilter   = searchParams.get('type') || 'all' // 'aggregate' | 'specific_facilities' | 'all'
-    const reportMode   = searchParams.get('report') === 'true'
-    const forMission   = searchParams.get('for_mission') === 'true' || searchParams.get('all') === 'true'
+    const typeFilter = searchParams.get('type') || 'all'
+    const reportMode = searchParams.get('report') === 'true'
+    const forMission =
+      searchParams.get('for_mission') === 'true' ||
+      searchParams.get('all') === 'true'
 
-    const admin = getAdminClient()
+    const permissionKey = reportMode ? 'targets.report' : 'targets.view'
+    const gate = await requireV2Permission(permissionKey)
+    if (!gate.ok) return gate.response
 
-    // Resolve caller identity & hierarchy
-    let callerLevel = 1
-    let callerSectorId: string | null = null
-    let callerGov: string | null = null
-    let callerHealthAdmin: string | null = null
-    let callerUserId: string | null = null
-    let callerName = ''
+    const admin = getAdminSupabaseClient()
+    const organizations = await loadOrganizations()
 
-    try {
-      const serverClient = await createServerSupabaseClient()
-      if (serverClient) {
-        const { data: { user } } = await serverClient.auth.getUser()
-        if (user && admin) {
-          const { data: profile } = await admin
-            .from('users')
-            .select('id, full_name, level, org_level, sector_id, organization_id')
-            .eq('auth_id', user.id)
-            .maybeSingle()
-          if (profile) {
-            callerLevel    = profile.org_level ?? profile.level ?? 7
-            callerSectorId = profile.sector_id || null
-            callerUserId   = profile.id
-            callerName     = profile.full_name || ''
-            if (profile.organization_id) {
-              const { data: org } = await admin.from('organizations').select('governorate, health_admin').eq('id', profile.organization_id).maybeSingle()
-              callerGov = org?.governorate || null
-              callerHealthAdmin = org?.health_admin || null
-            }
-          }
-        }
-      }
-    } catch { /* non-blocking */ }
+    let query = admin
+      .from('mission_targets')
+      .select('*')
+      .order('created_at', { ascending: false })
 
-    // Fetch targets and filter by caller level
-    let targets = readTargets()
+    if (forMission) query = query.eq('status', 'active')
+    else if (statusFilter !== 'all') query = query.eq('status', statusFilter)
 
-    if (forMission) {
-      // For mission creation wizard: return active targets so any selected team member's targets are available
-      targets = targets.filter(t => t.status === 'active')
-    } else if (callerLevel >= 2 && callerLevel <= 4 && callerSectorId) {
-      targets = targets.filter(t => 
-        (callerUserId && t.assigned_user_id === callerUserId) ||
-        !t.sector_id || 
-        t.sector_id === callerSectorId ||
-        t.scope_level === 'user'
-      )
-    } else if (callerLevel === 5 && callerGov) {
-      targets = targets.filter(t => 
-        (callerUserId && t.assigned_user_id === callerUserId) ||
-        t.scope_level === 'user' || 
-        t.scope_level === 'governorate' || 
-        t.scope_name === callerGov || 
-        !t.scope_name
-      )
-    } else if (callerLevel === 6 && callerGov) {
-      targets = targets.filter(t => 
-        (callerUserId && t.assigned_user_id === callerUserId) ||
-        t.scope_level === 'user' || 
-        t.scope_name === callerGov || 
-        !t.scope_name
-      )
-    } else if (callerLevel === 7 && callerUserId) {
-      targets = targets.filter(t => t.scope_level === 'user' && t.assigned_user_id === callerUserId)
+    if (scopeFilter !== 'all') query = query.eq('scope_level', scopeFilter)
+    if (typeFilter !== 'all') query = query.eq('target_type', typeFilter)
+
+    const { data: rows, error } = await query
+    if (error) {
+      console.error('[mission-targets:GET] query failed:', error.message)
+      return NextResponse.json({ error: 'تعذر تحميل المستهدفات' }, { status: 500 })
     }
 
-    // Additional filters
-    if (scopeFilter !== 'all') targets = targets.filter(t => t.scope_level === scopeFilter)
-    if (statusFilter !== 'all') targets = targets.filter(t => t.status === statusFilter)
-    if (typeFilter !== 'all') targets = targets.filter(t => (t.target_type || 'aggregate') === typeFilter)
+    const targetRows = (rows ?? []) as TargetRow[]
+    const visibleRows = targetRows.filter((target) =>
+      isAllowed({
+        user: gate.user,
+        access: gate.access,
+        permissionKey,
+        resource: targetResource(target),
+        organizationFacts: organizations.facts,
+      })
+    )
 
-    // Enrich with live execution counts & facility statuses
+    const facilityLists = await loadTargetFacilities(
+      visibleRows.map((target) => target.id)
+    )
+
+    const userIds = [
+      ...visibleRows.map((target) => target.created_by),
+      ...visibleRows
+        .map((target) => target.assigned_user_id)
+        .filter((value): value is string => Boolean(value)),
+    ]
+    const usersById = await loadUsersByIds(userIds)
+
+    const apiTargets = visibleRows.map((target) =>
+      toApiTarget(
+        target,
+        facilityLists.get(target.id) ?? [],
+        usersById,
+        organizations.byId
+      )
+    )
+
     const enriched = await Promise.all(
-      targets.map(async (t) => {
-        const { executed, facilities } = await enrichTargetExecution(admin, t)
-        const rate = Math.min(100, Math.round((executed / Math.max(1, t.target_missions)) * 100))
+      apiTargets.map(async (target) => {
+        const metrics = await enrichTargetExecution(target)
         return {
-          ...t,
-          target_facilities: facilities || t.target_facilities,
-          executed_missions: executed,
-          completion_rate: rate,
+          ...target,
+          target_facilities: metrics.facilities,
+          executed_missions: metrics.executed,
+          completion_rate: Math.min(
+            100,
+            Math.round(
+              (metrics.executed / Math.max(1, target.target_missions)) * 100
+            )
+          ),
         }
       })
     )
 
-    // Fetch subordinate users (who caller is allowed to set targets for)
-    let users: any[] = []
-    if (admin && callerLevel <= 6) {
-      let usersQuery = admin
-        .from('users')
-        .select('id, full_name, job_title, level, org_level, sector_id, organization_id')
-        .order('full_name')
+    let users: UserRow[] = []
+    let facilities: FacilityRow[] = []
 
-      // SuperAdmin (level 1): all users
-      if (callerLevel === 1) {
-        usersQuery = usersQuery.gt('level', 1)
-      } else if (callerLevel >= 2 && callerLevel <= 4 && callerSectorId) {
-        // Sector: users in caller's sector
-        usersQuery = usersQuery.eq('sector_id', callerSectorId).gt('level', callerLevel)
-      } else if (callerLevel === 5) {
-        // Directorate: users in level 6 or 7
-        usersQuery = usersQuery.gte('level', 6)
-      } else if (callerLevel === 6) {
-        // Health admin: level 7 inspectors
-        usersQuery = usersQuery.gte('level', 7)
-      }
+    if (hasV2Permission(gate.access, 'targets.create')) {
+      const [{ data: userRows }, { data: facilityRows }] = await Promise.all([
+        admin
+          .from('users')
+          .select('id, full_name, job_title, org_level, organization_id, sector_id, is_active')
+          .eq('is_active', true)
+          .order('full_name')
+          .limit(500),
+        admin
+          .from('facilities')
+          .select('id, name, facility_type, organization_id, sector_id, governorate, health_admin, is_active')
+          .eq('is_active', true)
+          .order('name')
+          .limit(2000),
+      ])
 
-      const { data: usersData } = await usersQuery.limit(500)
-      users = usersData || []
+      users = ((userRows ?? []) as UserRow[]).filter((candidate) => {
+        if (
+          candidate.id !== gate.user.profileId &&
+          candidate.org_level !== null &&
+          candidate.org_level <= gate.user.orgLevel
+        ) {
+          return false
+        }
+
+        return isAllowed({
+          user: gate.user,
+          access: gate.access,
+          permissionKey: 'targets.create',
+          resource: userResource(candidate, organizations.byId),
+          organizationFacts: organizations.facts,
+        })
+      })
+
+      facilities = ((facilityRows ?? []) as FacilityRow[]).filter((facility) =>
+        isAllowed({
+          user: gate.user,
+          access: gate.access,
+          permissionKey: 'targets.create',
+          resource: facilityResource(facility),
+          organizationFacts: organizations.facts,
+        })
+      )
     }
 
-    // Fetch facilities available for facility-based target selection
-    let facilities: any[] = []
-    if (admin && callerLevel <= 6) {
-      let facQuery = admin
-        .from('facilities')
-        .select('id, name, facility_type, governorate, health_admin, sector_id')
-        .eq('is_active', true)
-        .order('name')
-
-      if (callerLevel >= 2 && callerLevel <= 4 && callerSectorId) {
-        facQuery = facQuery.eq('sector_id', callerSectorId)
-      } else if (callerLevel === 5 && callerGov) {
-        facQuery = facQuery.eq('governorate', callerGov)
-      } else if (callerLevel === 6 && callerHealthAdmin) {
-        facQuery = facQuery.eq('health_admin', callerHealthAdmin)
-      }
-
-      const { data: facData } = await facQuery.limit(2000)
-      facilities = facData || []
+    let callerGov: string | null = null
+    let callerHealthAdmin: string | null = null
+    if (gate.user.organizationId) {
+      const callerOrg = organizations.byId.get(gate.user.organizationId)
+      callerGov = callerOrg?.governorate ?? null
+      callerHealthAdmin = callerOrg?.health_admin ?? null
     }
 
-    // Compute aggregate report data if requested
     let report = null
     if (reportMode) {
-      const totalTarget   = enriched.reduce((s, t) => s + t.target_missions, 0)
-      const totalExecuted = enriched.reduce((s, t) => s + (t.executed_missions ?? 0), 0)
-      const byScope: Record<string, { target: number; executed: number; count: number }> = {}
-      
-      let specificTargetsCount = 0
-      let aggregateTargetsCount = 0
-      let totalFacilitiesTargeted = 0
-      let totalFacilitiesVisited = 0
+      const totalTarget = enriched.reduce(
+        (sum, target) => sum + target.target_missions,
+        0
+      )
+      const totalExecuted = enriched.reduce(
+        (sum, target) => sum + (target.executed_missions ?? 0),
+        0
+      )
 
-      for (const t of enriched) {
-        const key = t.scope_name || t.scope_level
-        if (!byScope[key]) byScope[key] = { target: 0, executed: 0, count: 0 }
-        byScope[key].target   += t.target_missions
-        byScope[key].executed += t.executed_missions ?? 0
-        byScope[key].count    += 1
+      const byScope: Record<
+        string,
+        { target: number; executed: number; count: number }
+      > = {}
 
-        if (t.target_type === 'specific_facilities') {
-          specificTargetsCount++
-          const facs = t.target_facilities || []
-          totalFacilitiesTargeted += facs.length
-          totalFacilitiesVisited  += facs.filter(f => f.is_visited).length
-        } else {
-          aggregateTargetsCount++
+      for (const target of enriched) {
+        const key = target.scope_name || target.scope_level
+        if (!byScope[key]) {
+          byScope[key] = { target: 0, executed: 0, count: 0 }
         }
+
+        byScope[key].target += target.target_missions
+        byScope[key].executed += target.executed_missions ?? 0
+        byScope[key].count += 1
       }
+
+      const specificTargets = enriched.filter(
+        (target) => target.target_type === 'specific_facilities'
+      )
+      const totalFacilitiesTargeted = specificTargets.reduce(
+        (sum, target) => sum + target.target_facilities.length,
+        0
+      )
+      const totalFacilitiesVisited = specificTargets.reduce(
+        (sum, target) =>
+          sum +
+          target.target_facilities.filter((facility) => facility.is_visited)
+            .length,
+        0
+      )
 
       report = {
         totalTarget,
         totalExecuted,
-        overallRate: Math.min(100, Math.round((totalExecuted / Math.max(1, totalTarget)) * 100)),
-        specificTargetsCount,
-        aggregateTargetsCount,
+        overallRate: Math.min(
+          100,
+          Math.round((totalExecuted / Math.max(1, totalTarget)) * 100)
+        ),
+        specificTargetsCount: specificTargets.length,
+        aggregateTargetsCount: enriched.length - specificTargets.length,
         totalFacilitiesTargeted,
         totalFacilitiesVisited,
-        facilityCoverageRate: totalFacilitiesTargeted > 0 ? Math.min(100, Math.round((totalFacilitiesVisited / totalFacilitiesTargeted) * 100)) : 100,
-        byScope: Object.entries(byScope).map(([name, d]) => ({
-          name,
-          target: d.target,
-          executed: d.executed,
-          rate: Math.min(100, Math.round((d.executed / Math.max(1, d.target)) * 100)),
-          count: d.count,
-        })).sort((a, b) => b.executed - a.executed),
+        facilityCoverageRate:
+          totalFacilitiesTargeted > 0
+            ? Math.min(
+                100,
+                Math.round(
+                  (totalFacilitiesVisited / totalFacilitiesTargeted) * 100
+                )
+              )
+            : 100,
+        byScope: Object.entries(byScope)
+          .map(([name, value]) => ({
+            name,
+            target: value.target,
+            executed: value.executed,
+            rate: Math.min(
+              100,
+              Math.round(
+                (value.executed / Math.max(1, value.target)) * 100
+              )
+            ),
+            count: value.count,
+          }))
+          .sort((a, b) => b.executed - a.executed),
       }
     }
 
@@ -374,172 +796,483 @@ export async function GET(request: Request) {
       targets: enriched,
       users,
       facilities,
-      callerLevel,
-      callerSectorId,
+      callerLevel: gate.user.orgLevel,
+      callerSectorId: gate.user.sectorId,
       callerGov,
       callerHealthAdmin,
-      callerUserId,
-      callerName,
+      callerUserId: gate.user.profileId,
+      callerName: gate.user.fullName,
       report,
     })
-  } catch (err: any) {
-    console.error('Error in /api/admin/mission-targets GET:', err)
-    return NextResponse.json({
-      targets: readTargets(),
-      users: [],
-      facilities: [],
-      callerLevel: 1,
-      report: null,
-      error: err?.message || 'Internal Server Error',
-    }, { status: 200 })
+  } catch (error) {
+    console.error('[mission-targets:GET] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء تحميل المستهدفات' },
+      { status: 500 }
+    )
   }
 }
 
-// ─── POST (Create) ────────────────────────────────────────────────────────────
 export async function POST(request: Request) {
   try {
-    const serverClient = await createServerSupabaseClient()
-    if (!serverClient) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const { data: { user } } = await serverClient.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const gate = await requireV2Permission('targets.create')
+    if (!gate.ok) return gate.response
 
-    const admin = getAdminClient()
-    if (!admin) return NextResponse.json({ error: 'Supabase service is unavailable' }, { status: 503 })
+    const body = (await request.json()) as Record<string, unknown>
+    const title = typeof body.title === 'string' ? body.title.trim() : ''
+    const startDate = typeof body.start_date === 'string' ? body.start_date : ''
+    const endDate = typeof body.end_date === 'string' ? body.end_date : ''
 
-    const { data: profile } = await admin
-      .from('users')
-      .select('id, full_name, level, org_level, sector_id')
-      .eq('auth_id', user.id)
-      .maybeSingle()
-
-    const callerLevel = profile?.org_level ?? profile?.level ?? 7
-    if (callerLevel > 6) return NextResponse.json({ error: 'ليس لديك صلاحية إضافة مستهدفات' }, { status: 403 })
-
-    const body = await request.json()
-    const {
-      title, period_type, period_label, start_date, end_date,
-      target_missions, scope_level, scope_name, scope_id,
-      target_type, target_facilities,
-      assigned_user_id, assigned_user_name, sector_id, sector_name, notes
-    } = body
-
-    if (!title || !start_date || !end_date || !scope_level) {
+    if (!title || !startDate || !endDate) {
       return NextResponse.json({ error: 'بيانات غير مكتملة' }, { status: 400 })
     }
 
-    // Determine target count: if specific facilities, defaults to number of facilities
-    const finalTargetCount = (target_type === 'specific_facilities' && Array.isArray(target_facilities) && target_facilities.length > 0)
-      ? (Number(target_missions) > 0 ? Number(target_missions) : target_facilities.length)
-      : Number(target_missions || 1)
+    const organizations = await loadOrganizations()
+    const scope = await resolveTargetScope(body, organizations)
+    if (!scope) {
+      return NextResponse.json({ error: 'نطاق المستهدف غير صحيح' }, { status: 400 })
+    }
 
-    // Format target facilities
-    const formattedFacilities: TargetFacility[] = Array.isArray(target_facilities)
-      ? target_facilities.map((f: any) => ({
-          id: f.id,
-          name: f.name || 'منشأة',
-          governorate: f.governorate,
-          facility_type: f.facility_type,
-          health_admin: f.health_admin,
-          is_visited: false,
-        }))
+    if (
+      !isAllowed({
+        user: gate.user,
+        access: gate.access,
+        permissionKey: 'targets.create',
+        resource: scope.resource,
+        organizationFacts: organizations.facts,
+      })
+    ) {
+      return NextResponse.json(
+        { error: 'لا يمكنك إنشاء مستهدف خارج نطاقك', code: 'SCOPE_DENIED' },
+        { status: 403 }
+      )
+    }
+
+    const targetType =
+      body.target_type === 'specific_facilities'
+        ? 'specific_facilities'
+        : 'aggregate'
+
+    const requestedFacilityIds = Array.isArray(body.target_facilities)
+      ? body.target_facilities
+          .map((facility) => {
+            if (typeof facility === 'string') return facility
+            if (
+              facility &&
+              typeof facility === 'object' &&
+              'id' in facility &&
+              typeof facility.id === 'string'
+            ) {
+              return facility.id
+            }
+            return ''
+          })
+          .filter(Boolean)
       : []
 
-    const newTarget: MissionTarget = {
-      id: `target-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      title: title.trim(),
-      period_type: period_type || 'monthly',
-      period_label: period_label || title,
-      start_date,
-      end_date,
-      target_missions: finalTargetCount,
-      scope_level,
-      scope_name: scope_name || (scope_level === 'user' ? (assigned_user_name || 'مفتش') : ''),
-      scope_id: scope_id || undefined,
-      target_type: target_type || 'aggregate',
-      target_facilities: formattedFacilities,
-      assigned_user_id: assigned_user_id || undefined,
-      assigned_user_name: assigned_user_name || undefined,
-      sector_id: sector_id || profile?.sector_id || undefined,
-      sector_name: sector_name || undefined,
-      notes: notes || undefined,
-      status: 'active',
-      created_by: profile?.id,
-      created_by_name: profile?.full_name || user.email || '',
-      created_at: new Date().toISOString(),
+    const facilitiesById = await loadFacilitiesByIds(requestedFacilityIds)
+
+    if (facilitiesById.size !== [...new Set(requestedFacilityIds)].length) {
+      return NextResponse.json(
+        { error: 'توجد منشأة غير صحيحة ضمن المستهدف' },
+        { status: 400 }
+      )
     }
 
-    const targets = readTargets()
-    targets.unshift(newTarget)
-    writeTargets(targets)
+    for (const facility of facilitiesById.values()) {
+      if (facility.is_active !== true) {
+        return NextResponse.json(
+          { error: 'لا يمكن استهداف منشأة غير نشطة' },
+          { status: 400 }
+        )
+      }
 
-    return NextResponse.json({ target: newTarget })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+      if (
+        !isAllowed({
+          user: gate.user,
+          access: gate.access,
+          permissionKey: 'targets.create',
+          resource: facilityResource(facility),
+          organizationFacts: organizations.facts,
+        }) ||
+        !facilityFitsDeclaredTargetScope({
+          facility,
+          scope,
+          organizationFacts: organizations.facts,
+        })
+      ) {
+        return NextResponse.json(
+          {
+            error: 'إحدى المنشآت المحددة خارج نطاق المستهدف أو خارج صلاحياتك',
+            code: 'FACILITY_SCOPE_DENIED',
+          },
+          { status: 403 }
+        )
+      }
+    }
+
+    const requestedTargetCount = Number(body.target_missions)
+    const targetMissions =
+      targetType === 'specific_facilities' &&
+      requestedFacilityIds.length > 0 &&
+      (!Number.isFinite(requestedTargetCount) || requestedTargetCount <= 0)
+        ? requestedFacilityIds.length
+        : Math.max(1, Math.floor(requestedTargetCount || 1))
+
+    const periodType =
+      body.period_type === 'quarterly' || body.period_type === 'custom'
+        ? body.period_type
+        : 'monthly'
+
+    const admin = getAdminSupabaseClient()
+    const { data: inserted, error: insertError } = await admin
+      .from('mission_targets')
+      .insert({
+        title,
+        period_type: periodType,
+        period_label:
+          typeof body.period_label === 'string' && body.period_label.trim()
+            ? body.period_label.trim()
+            : title,
+        start_date: startDate,
+        end_date: endDate,
+        target_missions: targetMissions,
+        scope_level: scope.scopeLevel,
+        scope_name: scope.scopeName,
+        scope_organization_id: scope.scopeOrganizationId,
+        assigned_user_id: scope.assignedUserId,
+        sector_id: scope.sectorId,
+        target_type: targetType,
+        notes:
+          typeof body.notes === 'string' ? body.notes.trim() || null : null,
+        status: 'active',
+        created_by: gate.user.profileId,
+      })
+      .select('*')
+      .single()
+
+    if (insertError) {
+      console.error('[mission-targets:POST] insert failed:', insertError.message)
+      return NextResponse.json({ error: 'تعذر حفظ المستهدف' }, { status: 500 })
+    }
+
+    const row = inserted as TargetRow
+
+    try {
+      await replaceFacilityLinks(row.id, requestedFacilityIds)
+    } catch (linkError) {
+      console.error('[mission-targets:POST] facility link failed:', linkError)
+      await admin.from('mission_targets').delete().eq('id', row.id)
+      return NextResponse.json(
+        { error: 'تعذر حفظ منشآت المستهدف' },
+        { status: 500 }
+      )
+    }
+
+    const creatorMap = new Map<string, UserRow>([
+      [
+        gate.user.profileId,
+        {
+          id: gate.user.profileId,
+          full_name: gate.user.fullName,
+          job_title: gate.user.jobTitle,
+          org_level: gate.user.orgLevel,
+          organization_id: gate.user.organizationId,
+          sector_id: gate.user.sectorId,
+          is_active: true,
+        },
+      ],
+    ])
+
+    if (scope.assignedUserId && scope.assignedUserName) {
+      creatorMap.set(scope.assignedUserId, {
+        id: scope.assignedUserId,
+        full_name: scope.assignedUserName,
+        job_title: null,
+        org_level: null,
+        organization_id: scope.scopeOrganizationId,
+        sector_id: scope.sectorId,
+        is_active: true,
+      })
+    }
+
+    const target = toApiTarget(
+      row,
+      [...facilitiesById.values()].map((facility) => ({
+        id: facility.id,
+        name: facility.name,
+        governorate: facility.governorate ?? undefined,
+        facility_type: facility.facility_type ?? undefined,
+        health_admin: facility.health_admin ?? undefined,
+        is_visited: false,
+      })),
+      creatorMap,
+      organizations.byId
+    )
+
+    return NextResponse.json({ target })
+  } catch (error) {
+    console.error('[mission-targets:POST] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء حفظ المستهدف' },
+      { status: 500 }
+    )
   }
 }
 
-// ─── PATCH (Update) ───────────────────────────────────────────────────────────
 export async function PATCH(request: Request) {
   try {
-    const serverClient = await createServerSupabaseClient()
-    if (!serverClient) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const { data: { user } } = await serverClient.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const gate = await requireV2Permission('targets.edit')
+    if (!gate.ok) return gate.response
 
-    const { id, target_facilities, target_missions, ...updates } = await request.json()
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
-
-    const targets = readTargets()
-    const idx = targets.findIndex(t => t.id === id)
-    if (idx === -1) return NextResponse.json({ error: 'Target not found' }, { status: 404 })
-
-    const current = targets[idx]
-    let formattedFacilities = current.target_facilities
-
-    if (Array.isArray(target_facilities)) {
-      formattedFacilities = target_facilities.map((f: any) => ({
-        id: f.id,
-        name: f.name || 'منشأة',
-        governorate: f.governorate,
-        facility_type: f.facility_type,
-        health_admin: f.health_admin,
-        is_visited: Boolean(f.is_visited),
-        visited_at: f.visited_at,
-        mission_id: f.mission_id,
-      }))
+    const body = (await request.json()) as Record<string, unknown>
+    const id = typeof body.id === 'string' ? body.id : ''
+    if (!id) {
+      return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     }
 
-    targets[idx] = {
-      ...current,
-      ...updates,
-      target_missions: target_missions ? Number(target_missions) : current.target_missions,
-      target_facilities: formattedFacilities,
-    }
-    writeTargets(targets)
+    const admin = getAdminSupabaseClient()
+    const { data, error } = await admin
+      .from('mission_targets')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
 
-    return NextResponse.json({ target: targets[idx] })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    if (error) {
+      return NextResponse.json({ error: 'تعذر تحميل المستهدف' }, { status: 500 })
+    }
+    if (!data) {
+      return NextResponse.json({ error: 'Target not found' }, { status: 404 })
+    }
+
+    const current = data as TargetRow
+    const organizations = await loadOrganizations()
+
+    if (
+      !isAllowed({
+        user: gate.user,
+        access: gate.access,
+        permissionKey: 'targets.edit',
+        resource: targetResource(current),
+        organizationFacts: organizations.facts,
+      })
+    ) {
+      return NextResponse.json(
+        { error: 'لا يمكنك تعديل مستهدف خارج نطاقك', code: 'SCOPE_DENIED' },
+        { status: 403 }
+      )
+    }
+
+    if (
+      'scope_level' in body ||
+      'scope_id' in body ||
+      'sector_id' in body ||
+      'assigned_user_id' in body
+    ) {
+      return NextResponse.json(
+        { error: 'تغيير نطاق المستهدف يتطلب إنشاء مستهدف جديد' },
+        { status: 400 }
+      )
+    }
+
+    const updates: Record<string, unknown> = {}
+
+    if (typeof body.title === 'string' && body.title.trim()) {
+      updates.title = body.title.trim()
+    }
+    if (typeof body.period_label === 'string' && body.period_label.trim()) {
+      updates.period_label = body.period_label.trim()
+    }
+    if (typeof body.start_date === 'string') updates.start_date = body.start_date
+    if (typeof body.end_date === 'string') updates.end_date = body.end_date
+    if (typeof body.notes === 'string') updates.notes = body.notes.trim() || null
+    if (
+      body.status === 'active' ||
+      body.status === 'completed' ||
+      body.status === 'cancelled'
+    ) {
+      updates.status = body.status
+    }
+
+    const targetMissions = Number(body.target_missions)
+    if (Number.isFinite(targetMissions) && targetMissions > 0) {
+      updates.target_missions = Math.floor(targetMissions)
+    }
+
+    let requestedFacilityIds: string[] | null = null
+
+    if (Array.isArray(body.target_facilities)) {
+      requestedFacilityIds = body.target_facilities
+        .map((facility) => {
+          if (typeof facility === 'string') return facility
+          if (
+            facility &&
+            typeof facility === 'object' &&
+            'id' in facility &&
+            typeof facility.id === 'string'
+          ) {
+            return facility.id
+          }
+          return ''
+        })
+        .filter(Boolean)
+
+      const facilitiesById = await loadFacilitiesByIds(requestedFacilityIds)
+
+      if (facilitiesById.size !== [...new Set(requestedFacilityIds)].length) {
+        return NextResponse.json(
+          { error: 'توجد منشأة غير صحيحة ضمن المستهدف' },
+          { status: 400 }
+        )
+      }
+
+      const declaredScope: TargetScopeResolution = {
+        scopeLevel: current.scope_level,
+        scopeName: current.scope_name,
+        scopeOrganizationId: current.scope_organization_id,
+        assignedUserId: current.assigned_user_id,
+        assignedUserName: null,
+        sectorId: current.sector_id,
+        sectorName: null,
+        resource: targetResource(current),
+      }
+
+      for (const facility of facilitiesById.values()) {
+        if (
+          facility.is_active !== true ||
+          !isAllowed({
+            user: gate.user,
+            access: gate.access,
+            permissionKey: 'targets.edit',
+            resource: facilityResource(facility),
+            organizationFacts: organizations.facts,
+          }) ||
+          !facilityFitsDeclaredTargetScope({
+            facility,
+            scope: declaredScope,
+            organizationFacts: organizations.facts,
+          })
+        ) {
+          return NextResponse.json(
+            {
+              error: 'إحدى المنشآت المحددة خارج نطاق المستهدف أو خارج صلاحياتك',
+              code: 'FACILITY_SCOPE_DENIED',
+            },
+            { status: 403 }
+          )
+        }
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const { error: updateError } = await admin
+        .from('mission_targets')
+        .update(updates)
+        .eq('id', id)
+
+      if (updateError) {
+        console.error('[mission-targets:PATCH] update failed:', updateError.message)
+        return NextResponse.json({ error: 'تعذر تحديث المستهدف' }, { status: 500 })
+      }
+    }
+
+    if (requestedFacilityIds) {
+      await replaceFacilityLinks(id, requestedFacilityIds)
+    }
+
+    const { data: updated, error: reloadError } = await admin
+      .from('mission_targets')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (reloadError) {
+      return NextResponse.json({ error: 'تعذر إعادة تحميل المستهدف' }, { status: 500 })
+    }
+
+    const facilities = await loadTargetFacilities([id])
+    const usersById = await loadUsersByIds([
+      gate.user.profileId,
+      ...((updated as TargetRow).assigned_user_id
+        ? [(updated as TargetRow).assigned_user_id as string]
+        : []),
+    ])
+
+    return NextResponse.json({
+      target: toApiTarget(
+        updated as TargetRow,
+        facilities.get(id) ?? [],
+        usersById,
+        organizations.byId
+      ),
+    })
+  } catch (error) {
+    console.error('[mission-targets:PATCH] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء تحديث المستهدف' },
+      { status: 500 }
+    )
   }
 }
 
-// ─── DELETE ───────────────────────────────────────────────────────────────────
 export async function DELETE(request: Request) {
   try {
-    const serverClient = await createServerSupabaseClient()
-    if (!serverClient) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const { data: { user } } = await serverClient.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const gate = await requireV2Permission('targets.delete')
+    if (!gate.ok) return gate.response
 
-    const { searchParams } = new URL(request.url)
-    const id = searchParams.get('id')
-    if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+    const id = new URL(request.url).searchParams.get('id')
+    if (!id) {
+      return NextResponse.json({ error: 'Missing id' }, { status: 400 })
+    }
 
-    const targets = readTargets()
-    writeTargets(targets.filter(t => t.id !== id))
+    const admin = getAdminSupabaseClient()
+    const { data, error } = await admin
+      .from('mission_targets')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (error) {
+      return NextResponse.json({ error: 'تعذر تحميل المستهدف' }, { status: 500 })
+    }
+    if (!data) {
+      return NextResponse.json({ error: 'Target not found' }, { status: 404 })
+    }
+
+    const target = data as TargetRow
+    const organizations = await loadOrganizations()
+
+    if (
+      !isAllowed({
+        user: gate.user,
+        access: gate.access,
+        permissionKey: 'targets.delete',
+        resource: targetResource(target),
+        organizationFacts: organizations.facts,
+      })
+    ) {
+      return NextResponse.json(
+        { error: 'لا يمكنك حذف مستهدف خارج نطاقك', code: 'SCOPE_DENIED' },
+        { status: 403 }
+      )
+    }
+
+    const { error: deleteError } = await admin
+      .from('mission_targets')
+      .delete()
+      .eq('id', id)
+
+    if (deleteError) {
+      console.error('[mission-targets:DELETE] delete failed:', deleteError.message)
+      return NextResponse.json({ error: 'تعذر حذف المستهدف' }, { status: 500 })
+    }
 
     return NextResponse.json({ success: true })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error) {
+    console.error('[mission-targets:DELETE] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ غير متوقع أثناء حذف المستهدف' },
+      { status: 500 }
+    )
   }
 }
