@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Network,
   Users,
+  type LucideIcon,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { V2PageContainer } from '@/components/ui/V2PageContainer'
@@ -13,7 +14,12 @@ import { requireV2PagePermission } from '@/server/authorization/page-guard'
 export default async function V2DashboardPage() {
   const { user, access } = await requireV2PagePermission('dashboard.view')
 
-  const shortcuts = [
+  const shortcutCandidates: Array<{
+    title: string
+    description: string
+    href: string
+    icon: LucideIcon
+  } | null> = [
     hasV2Permission(access, 'missions.view')
       ? {
           title: 'المأموريات',
@@ -46,15 +52,10 @@ export default async function V2DashboardPage() {
           icon: Users,
         }
       : null,
-  ].filter(
-    (
-      item
-    ): item is {
-      title: string
-      description: string
-      href: string
-      icon: typeof ClipboardList
-    } => Boolean(item)
+  ]
+
+  const shortcuts = shortcutCandidates.filter(
+    (item): item is NonNullable<typeof item> => item !== null
   )
 
   return (
