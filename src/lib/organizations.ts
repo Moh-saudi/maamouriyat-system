@@ -26,11 +26,11 @@ export type UserScope = {
   governorate: string | null
   health_admin: string | null
   can_inspect: boolean
-  /** هل يرى كل المحافظات؟ (مستوى 1-4) */
+  /** توافق قديم فقط؛ لا يُستخدم لتفويض V2. */
   hasNationalScope: boolean
-  /** هل يرى كل محافظة واحدة؟ (مستوى 5) */
+  /** مؤشر سياق جغرافي قديم. */
   hasGovernorateScope: boolean
-  /** هل يرى إدارة صحية واحدة فقط؟ (مستوى 6) */
+  /** مؤشر سياق إدارة صحية قديم. */
   hasHealthAdminScope: boolean
 }
 
@@ -70,9 +70,10 @@ export async function getOrganizationsByLevel(level: number): Promise<Organizati
   return all.filter((o) => o.level === level)
 }
 
-/** جلب القطاعات المركزية (مستوى 2) */
+/** جلب القطاعات المركزية حسب نوع الجهة الحقيقي. */
 export async function getSectors(): Promise<Organization[]> {
-  return getOrganizationsByLevel(2)
+  const all = await fetchAll()
+  return all.filter((o) => o.organization_type_code === 'sector')
 }
 
 /** جلب مديريات الشؤون الصحية حسب نوع الجهة الحقيقي. */
@@ -115,13 +116,25 @@ export async function getAllowedOrgsForUserCreation(
   creatorSectorId: string | null
 ): Promise<Organization[]> {
   const all = await fetchAll()
-  if (creatorOrgLevel === 1) return all               // الوزارة: كل الجهات
-  if (creatorOrgLevel === 2) {
-    // القطاع: جهاته وما تحتها
-    return all.filter((o) => o.sector_id === creatorSectorId || o.id === creatorSectorId)
-  }
-  // المستويات الأعلى: لا تنشئ مستخدمين عبر هذه الدالة
-  return []
+
+  // Legacy helper only. V2 creation is authorized server-side by dynamic RBAC.
+  if (creatorOrgLevel === 1) return all
+
+  if (!creatorSectorId) return []
+
+  const sector = all.find(
+    (organization) =>
+      organization.id === creatorSectorId &&
+      organization.organization_type_code === 'sector'
+  )
+
+  if (!sector) return []
+
+  return all.filter(
+    (organization) =>
+      organization.id === sector.id ||
+      organization.sector_id === sector.id
+  )
 }
 
 /**
@@ -140,7 +153,10 @@ export async function getOrgBreadcrumb(orgId: string): Promise<Organization[]> {
   return path
 }
 
-/** تحديد نطاق المستخدم من org_level */
+/**
+ * توافق قديم فقط. لا تستخدم هذه الدالة كأساس لصلاحيات V2.
+ * الصلاحيات الفعلية تُحسب من RBAC والنطاقات على الخادم.
+ */
 export function resolveUserScope(user: {
   org_id: string
   org_level: number
@@ -151,9 +167,9 @@ export function resolveUserScope(user: {
 }): UserScope {
   return {
     ...user,
-    hasNationalScope:     user.org_level <= 4,
-    hasGovernorateScope:  user.org_level === 5,
-    hasHealthAdminScope:  user.org_level === 6,
+    hasNationalScope: user.org_level === 1,
+    hasGovernorateScope: Boolean(user.governorate && !user.health_admin),
+    hasHealthAdminScope: Boolean(user.health_admin),
   }
 }
 
