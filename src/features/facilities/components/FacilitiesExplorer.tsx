@@ -471,7 +471,7 @@ export function FacilitiesExplorer({
         <CompactMetric
           icon={<Building2 className="h-4 w-4" />}
           value={data.ministryTotal}
-          label="إجمالي السجل"
+          label="إجمالي المنشآت"
         />
         <CompactMetric
           icon={<Stethoscope className="h-4 w-4" />}
@@ -483,12 +483,6 @@ export function FacilitiesExplorer({
           value={data.governorateCount}
           label="محافظة"
         />
-        <CompactMetric
-          icon={<Search className="h-4 w-4" />}
-          value={filteredFacilities.length}
-          label="نتيجة ظاهرة"
-        />
-
         {management.canCreate && manageableHealthAdmins.length > 0 && (
           <button
             type="button"
@@ -499,6 +493,77 @@ export function FacilitiesExplorer({
             إضافة منشأة
           </button>
         )}
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xs font-extrabold text-slate-800">
+              توزيع المنشآت حسب النوع
+            </h2>
+            <p className="mt-0.5 text-[10px] text-slate-400">
+              اضغط على أي نوع لتصفية القائمة والخريطة مباشرة.
+            </p>
+          </div>
+
+          {facilityType && (
+            <button
+              type="button"
+              onClick={() => {
+                setFacilityType('')
+                setSelectedFacilityId(null)
+              }}
+              className="text-[10px] font-bold text-teal-700 hover:text-teal-800"
+            >
+              عرض كل الأنواع
+            </button>
+          )}
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {data.facilityTypeCounts.map((item) => {
+            const selected = facilityType === item.label
+
+            return (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => {
+                  setFacilityType(selected ? '' : item.label)
+                  setSelectedFacilityId(null)
+                }}
+                className={`min-w-[150px] shrink-0 rounded-xl border px-3 py-2.5 text-right transition ${
+                  selected
+                    ? 'border-teal-300 bg-teal-50'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span
+                    className={`text-[11px] font-bold ${
+                      selected ? 'text-teal-800' : 'text-slate-700'
+                    }`}
+                  >
+                    {item.label}
+                  </span>
+                  <strong
+                    className={`text-base font-black ${
+                      selected ? 'text-teal-800' : 'text-slate-900'
+                    }`}
+                  >
+                    {item.total.toLocaleString('en-US')}
+                  </strong>
+                </div>
+
+                {item.active !== item.total && (
+                  <p className="mt-1 text-[9px] text-slate-400">
+                    {item.active.toLocaleString('en-US')} نشطة
+                  </p>
+                )}
+              </button>
+            )
+          })}
+        </div>
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-3">
