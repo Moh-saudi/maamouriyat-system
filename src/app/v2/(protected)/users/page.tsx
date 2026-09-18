@@ -9,6 +9,7 @@ import {
 import { PageHeader } from '@/components/ui/PageHeader'
 import { V2PageContainer } from '@/components/ui/V2PageContainer'
 import { UserRolesManager } from '@/features/users/components/UserRolesManager'
+import { CreateUserDialog } from '@/features/users/components/CreateUserDialog'
 import { hasV2Permission } from '@/server/authorization'
 import { requireV2PagePermission } from '@/server/authorization/page-guard'
 import { listV2Users } from '@/server/services/users/list-users'
@@ -57,6 +58,7 @@ export default async function V2UsersPage({
   })
 
   const canAssignRoles = hasV2Permission(access, 'users.assign_role')
+  const canCreateUsers = hasV2Permission(access, 'users.create')
   const activeOnPage = result.items.filter((item) => item.isActive).length
 
   return (
@@ -64,6 +66,11 @@ export default async function V2UsersPage({
       <PageHeader
         title="المستخدمون"
         description="إدارة حسابات العاملين داخل نطاق الجهة المسموح لك بإدارتها."
+        actions={
+          canCreateUsers ? (
+            <CreateUserDialog canAssignRole={canAssignRoles} />
+          ) : undefined
+        }
       />
 
       <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
