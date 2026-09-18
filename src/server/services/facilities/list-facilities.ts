@@ -25,10 +25,7 @@ export type V2FacilityListItem = {
 export type V2FacilityFilterOptions = {
   governorates: string[]
   healthAdmins: string[]
-  facilityTypes: Array<{
-    value: string
-    label: string
-  }>
+  facilityTypes: string[]
 }
 
 export type V2FacilitiesPageResult = {
@@ -144,14 +141,15 @@ async function loadFilterOptions(input: {
     )
   )
 
-  const facilityTypes = uniqueSorted(
-    (typeRows ?? []).map((row) =>
-      typeof row.facility_type === 'string' ? row.facility_type : null
-    )
-  ).map((value) => ({
-    value,
-    label: safeFacilityTypeLabel(value),
-  }))
+  const facilityTypes = [
+    ...new Set(
+      uniqueSorted(
+        (typeRows ?? []).map((row) =>
+          typeof row.facility_type === 'string' ? row.facility_type : null
+        )
+      ).map((value) => safeFacilityTypeLabel(value))
+    ),
+  ].sort((a, b) => a.localeCompare(b, 'ar'))
 
   return {
     governorates,
@@ -166,7 +164,7 @@ export async function listV2Facilities(input: {
   search?: string
   governorate?: string
   healthAdmin?: string
-  facilityType?: string
+  facilityTypeLabel?: string
   status?: V2FacilityStatusFilter
 }): Promise<V2FacilitiesPageResult> {
   const page = Math.max(1, Math.floor(input.page ?? 1))
@@ -179,7 +177,16 @@ export async function listV2Facilities(input: {
   const search = sanitizeSearch(input.search ?? '')
   const governorate = normalizeFilter(input.governorate)
   const healthAdmin = normalizeFilter(input.healthAdmin)
-  const facilityType = normalizeFilter(input.facilityType)
+  const facilityTypeLabel = normalizeFilter(input.facilityTypeLabel)
+  const facilityType =
+    facilityTypeLabel
+      ? STANDARD_FACILITY_TYPES.find(
+          (item) => item.label === facilityTypeLabel
+        )?.key ??
+        (/[\u0600-\u06FF]/.test(facilityTypeLabel)
+          ? facilityTypeLabel
+          : '')
+      : ''
   const status: V2FacilityStatusFilter =
     input.status === 'inactive' || input.status === 'all'
       ? input.status
