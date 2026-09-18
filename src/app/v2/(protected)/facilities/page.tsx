@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import {
   Building2,
@@ -63,7 +64,7 @@ function CompactMetric({
   value,
   label,
 }: {
-  icon: React.ReactNode
+  icon: ReactNode
   value: number
   label: string
 }) {
