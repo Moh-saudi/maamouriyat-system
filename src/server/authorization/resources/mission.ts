@@ -5,8 +5,6 @@ import type { V2ResourceScopeContext } from '@/server/authorization/scope-types'
 
 type MissionScopeRow = {
   id: string
-  facility_id: string | null
-  target_facility_id: string | null
   sector_id: string | null
   inspector_org_id: string | null
   created_by_org: string | null
@@ -15,10 +13,14 @@ type MissionScopeRow = {
   created_by: string | null
 }
 
-type FacilityScopeRow = {
+type UserScopeRow = {
   id: string
   organization_id: string | null
   sector_id: string | null
+}
+
+type OrganizationScopeRow = {
+  id: string
   governorate: string | null
 }
 
@@ -30,7 +32,7 @@ export async function loadMissionResourceScope(
   const { data: mission, error } = await admin
     .from('missions')
     .select(
-      'id, facility_id, target_facility_id, sector_id, inspector_org_id, created_by_org, assigned_user_id, primary_inspector_id, created_by'
+      'id, sector_id, inspector_org_id, created_by_org, assigned_user_id, primary_inspector_id, created_by'
     )
     .eq('id', missionId)
     .maybeSingle()
@@ -42,23 +44,51 @@ export async function loadMissionResourceScope(
   if (!mission) return null
 
   const row = mission as MissionScopeRow
-  const facilityId = row.target_facility_id ?? row.facility_id
-  let facility: FacilityScopeRow | null = null
 
-  if (facilityId) {
-    const { data: facilityData, error: facilityError } = await admin
-      .from('facilities')
-      .select('id, organization_id, sector_id, governorate')
-      .eq('id', facilityId)
+  let creator: UserScopeRow | null = null
+  if (row.created_by) {
+    const { data: creatorData, error: creatorError } = await admin
+      .from('users')
+      .select('id, organization_id, sector_id')
+      .eq('id', row.created_by)
       .maybeSingle()
 
-    if (facilityError) {
+    if (creatorError) {
       throw new Error(
-        `[V2 Scope] Failed to load mission facility: ${facilityError.message}`
+        `[V2 Scope] Failed to load mission creator: ${creatorError.message}`
       )
     }
 
-    facility = (facilityData as FacilityScopeRow | null) ?? null
+    creator = (creatorData as UserScopeRow | null) ?? null
+  }
+
+  const missionOrganizationId =
+    row.inspector_org_id ??
+    row.created_by_org ??
+    creator?.organization_id ??
+    null
+
+  const missionSectorId =
+    row.sector_id ??
+    creator?.sector_id ??
+    null
+
+  let missionGovernorate: string | null = null
+  if (missionOrganizationId) {
+    const { data: organizationData, error: organizationError } = await admin
+      .from('organizations')
+      .select('id, governorate')
+      .eq('id', missionOrganizationId)
+      .maybeSingle()
+
+    if (organizationError) {
+      throw new Error(
+        `[V2 Scope] Failed to load mission organization: ${organizationError.message}`
+      )
+    }
+
+    missionGovernorate =
+      (organizationData as OrganizationScopeRow | null)?.governorate ?? null
   }
 
   const assignedUserIds = [
@@ -68,10 +98,9 @@ export async function loadMissionResourceScope(
 
   return {
     ownerUserId: row.created_by,
-    assignedUserIds: [...new Set(assignedUserIds)],
-    organizationId:
-      facility?.organization_id ?? row.inspector_org_id ?? row.created_by_org,
-    sectorId: row.sector_id ?? facility?.sector_id ?? null,
-    governorate: facility?.governorate ?? null,
+    assignedUserIds: Array.from(new Set(assignedUserIds)),
+    organizationId: missionOrganizationId,
+    sectorId: missionSectorId,
+    governorate: missionGovernorate,
   }
 }
