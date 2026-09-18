@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
-import {
-  checkV2ResourceAccess,
-  hasV2Permission,
-} from '@/server/authorization'
+import { checkV2ResourceAccess } from '@/server/authorization'
 import { requireV2Permission } from '@/server/authorization/http-guard'
 import { loadUserAuthorizationResource } from '@/server/authorization/resources/user'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
+import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
 
 type RoleRow = {
   id: string
@@ -24,11 +22,7 @@ type GrantRow = {
 }
 
 function callerRoleCodes(
-  access: Awaited<ReturnType<typeof requireV2Permission>> extends infer T
-    ? T extends { ok: true; access: infer A }
-      ? A
-      : never
-    : never
+  access: V2AuthorizationSnapshot
 ): Set<string> {
   return new Set(access.roles.map((role) => role.roleCode))
 }
