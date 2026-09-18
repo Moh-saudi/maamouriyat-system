@@ -13,7 +13,6 @@ type Organization = CascadingOrganizationOption & {
 
 type Role = {
   id: string
-  code: string
   name_ar: string
   description_ar: string | null
 }
