@@ -51,3 +51,46 @@
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
+
+
+/* Compact V2 typography scale
+   Keep the public/legacy app untouched; these overrides only apply under V2. */
+.v2-root {
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.v2-root .text-xs {
+  font-size: 0.70rem;
+  line-height: 1.05rem;
+}
+
+.v2-root .text-sm {
+  font-size: 0.80rem;
+  line-height: 1.25rem;
+}
+
+.v2-root .text-base {
+  font-size: 0.90rem;
+  line-height: 1.35rem;
+}
+
+.v2-root .text-lg {
+  font-size: 1rem;
+  line-height: 1.45rem;
+}
+
+.v2-root .text-xl {
+  font-size: 1.10rem;
+  line-height: 1.55rem;
+}
+
+.v2-root .text-2xl {
+  font-size: 1.30rem;
+  line-height: 1.7rem;
+}
+
+.v2-root .text-3xl {
+  font-size: 1.60rem;
+  line-height: 1.95rem;
+}
