@@ -352,15 +352,13 @@ async function loadOrganizationUsage(
     .eq('organization_id', organizationId)
     .maybeSingle()
 
-  if (error || !data) {
-    if (error) {
-      console.warn(
-        '[organizations] usage lookup unavailable:',
-        error.message
-      )
-    }
-    return emptyOrganizationUsage()
+  if (error) {
+    throw new Error(
+      `[Organizations] Failed to load usage summary: ${error.message}`
+    )
   }
+
+  if (!data) return emptyOrganizationUsage()
 
   const row = data as OrganizationUsageRow
 
@@ -1138,11 +1136,16 @@ export async function PATCH(request: NextRequest) {
     if (action !== 'reactivate') {
       const usage = await loadOrganizationUsage(id)
 
-      if (usage.childOrganizationsActive > 0 || usage.usersActive > 0) {
+      if (
+        usage.childOrganizationsActive > 0 ||
+        usage.usersActive > 0 ||
+        usage.facilitiesActive > 0 ||
+        usage.activeRoleAssignments > 0
+      ) {
         return NextResponse.json(
           {
             error:
-              'لا يمكن إيقاف أو أرشفة الجهة قبل معالجة الجهات التابعة والحسابات النشطة',
+              'لا يمكن إيقاف أو أرشفة الجهة قبل معالجة الجهات التابعة والحسابات والمنشآت وإسنادات العمل النشطة',
             code: 'ORGANIZATION_HAS_ACTIVE_DEPENDENCIES',
             usage,
           },
