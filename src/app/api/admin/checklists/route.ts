@@ -80,7 +80,7 @@ export async function GET() {
     }
 
     // Assemble hierarchical structure (ignoring any non-question headers or total footers)
-    const criteriaBySection = new Map<string, any[]>()
+    const criteriaBySection = new Map<string, typeof criteria>()
     for (const c of criteria || []) {
       const t = (c.criterion_text || '').trim()
       if (
@@ -120,7 +120,7 @@ export async function GET() {
       criteriaBySection.get(c.section_id)!.push(processedCriterion)
     }
 
-    const sectionsByTemplate = new Map<string, any[]>()
+    const sectionsByTemplate = new Map<string, typeof sections>()
     for (const s of sections || []) {
       const secWithCriteria = {
         ...s,
@@ -359,7 +359,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Missing template_id or name' }, { status: 400 })
       }
 
-      const updates: any = {
+      const updates: Record<string, unknown> = {
         name: name.trim(),
         updated_at: new Date().toISOString()
       }
@@ -392,7 +392,11 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error) {
+    console.error('[Checklists POST exception]', error)
+    return NextResponse.json(
+      { error: 'تعذر تنفيذ تعديل نموذج التقييم' },
+      { status: 500 }
+    )
   }
 }
