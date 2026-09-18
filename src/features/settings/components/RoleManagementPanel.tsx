@@ -129,6 +129,11 @@ export function RoleManagementPanel() {
     setError(null)
 
     try {
+      const roleCode =
+        draft.roleId && draft.code
+          ? draft.code
+          : `custom_${Date.now().toString(36)}`
+
       const response = await fetch('/api/admin/roles', {
         cache: 'no-store',
         credentials: 'same-origin',
@@ -219,8 +224,8 @@ export function RoleManagementPanel() {
   }
 
   async function saveRole() {
-    if (!draft.code.trim() || !draft.nameAr.trim()) {
-      setError('اسم نوع العمل والكود مطلوبان')
+    if (!draft.nameAr.trim()) {
+      setError('اسم نوع العمل مطلوب')
       return
     }
 
@@ -246,7 +251,7 @@ export function RoleManagementPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           role_id: draft.roleId,
-          code: draft.code,
+          code: roleCode,
           name_ar: draft.nameAr,
           description_ar: draft.descriptionAr,
           owner_organization_id: draft.ownerOrganizationId,
@@ -494,26 +499,6 @@ export function RoleManagementPanel() {
                 globalLabel="نوع عمل عام على مستوى المنظومة"
                 required={!data.capabilities.canCreateGlobalRoles}
               />
-
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-bold text-slate-600">
-                  كود داخلي
-                </span>
-                <input
-                  dir="ltr"
-                  value={draft.code}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      code: event.target.value
-                        .toLowerCase()
-                        .replace(/[^a-z0-9_]/g, ''),
-                    }))
-                  }
-                  className="h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-teal-500"
-                  placeholder="information_center"
-                />
-              </label>
 
               <details className="rounded-xl border border-slate-200">
                 <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700">
