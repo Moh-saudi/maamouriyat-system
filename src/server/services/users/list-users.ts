@@ -38,6 +38,7 @@ type OrgRow = {
   sector_id: string | null
   governorate: string | null
   level: number
+  organization_type_code: string | null
 }
 
 function assignmentAnchorsForSource(input: {
@@ -135,7 +136,7 @@ async function buildUserScopeFilter(input: {
   if (anchorIds.length > 0) {
     const { data, error } = await admin
       .from('organizations')
-      .select('id, parent_id, sector_id, governorate, level')
+      .select('id, parent_id, sector_id, governorate, level, organization_type_code')
 
     if (error) {
       throw new Error(
@@ -177,7 +178,10 @@ async function buildUserScopeFilter(input: {
       if (!anchorOrg) continue
 
       if (source.scopeType === 'sector') {
-        const sectorId = anchorOrg.level === 2 ? anchorOrg.id : anchorOrg.sector_id
+        const sectorId =
+          anchorOrg.organization_type_code === 'sector'
+            ? anchorOrg.id
+            : anchorOrg.sector_id
         if (sectorId) sectorIds.add(sectorId)
         continue
       }
