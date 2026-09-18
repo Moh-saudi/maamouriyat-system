@@ -193,7 +193,7 @@ export function UserRolesManager({
                   {userName}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  حدّد نوع العمل الذي يؤديه المستخدم داخل المنظومة.
+                  يمكن للحساب الجمع بين أكثر من نوع عمل عند الحاجة، مع بقاء نطاق كل نوع مستقلًا.
                 </p>
               </div>
               <button
@@ -222,7 +222,7 @@ export function UserRolesManager({
                 <>
                   <section>
                     <h3 className="mb-2 text-sm font-bold text-slate-900">
-                      نوع العمل الحالي
+                      أنواع العمل الحالية
                     </h3>
 
                     {activeAssignments.length === 0 ? (
@@ -231,7 +231,18 @@ export function UserRolesManager({
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {activeAssignments.map((assignment) => {
+                        {activeAssignments
+                          .slice()
+                          .sort((a, b) => {
+                            const aRole = data.roles.find(
+                              (item) => item.id === a.role_id
+                            )
+                            const bRole = data.roles.find(
+                              (item) => item.id === b.role_id
+                            )
+                            return (aRole?.priority ?? 999) - (bRole?.priority ?? 999)
+                          })
+                          .map((assignment, index) => {
                           const role = data.roles.find(
                             (item) => item.id === assignment.role_id
                           )
@@ -240,9 +251,12 @@ export function UserRolesManager({
                               key={assignment.id}
                               className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3"
                             >
-                              <div>
+                              <div className="min-w-0">
+                                <span className="mb-1 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500">
+                                  نوع عمل {index + 1}
+                                </span>
                                 <p className="text-sm font-bold text-slate-900">
-                                  {role?.name_ar || 'نوع عمل غير معروف'}
+                                  {role?.name_ar || 'نوع عمل غير مسمى'}
                                 </p>
                                 {role?.description_ar && (
                                   <p className="mt-1 text-xs text-slate-500">
@@ -269,7 +283,7 @@ export function UserRolesManager({
                     <section className="rounded-xl bg-slate-50 p-4">
                       <label className="block">
                         <span className="mb-1.5 block text-xs font-bold text-slate-600">
-                          إضافة نوع عمل
+                          إضافة نوع عمل أو مهمة إضافية
                         </span>
                         <select
                           value={selectedRoleId}
@@ -295,7 +309,7 @@ export function UserRolesManager({
                         ) : (
                           <Plus className="h-4 w-4" />
                         )}
-                        حفظ نوع العمل
+                        إضافة للحساب
                       </button>
                     </section>
                   )}
