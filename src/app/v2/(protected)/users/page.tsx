@@ -73,25 +73,29 @@ export default async function V2UsersPage({
         }
       />
 
-      <section className="mb-5 grid gap-3 sm:grid-cols-2 lg:max-w-2xl">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
-            <Users className="h-5 w-5" />
+      <section className="mb-4 flex flex-wrap gap-2.5">
+        <div className="flex min-w-[190px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+            <Users className="h-4 w-4" />
           </div>
-          <p className="text-3xl font-black text-slate-900">
-            {result.total.toLocaleString('ar-EG')}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">مستخدم داخل نطاقك</p>
+          <div>
+            <p className="text-xl font-black leading-none text-slate-900">
+              {result.total.toLocaleString('en-US')}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">مستخدم داخل نطاقك</p>
+          </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
-            <UserCheck className="h-5 w-5" />
+        <div className="flex min-w-[210px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+            <UserCheck className="h-4 w-4" />
           </div>
-          <p className="text-3xl font-black text-slate-900">
-            {activeOnPage.toLocaleString('ar-EG')}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">حساب نشط في الصفحة الحالية</p>
+          <div>
+            <p className="text-xl font-black leading-none text-slate-900">
+              {activeOnPage.toLocaleString('en-US')}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">حساب نشط في الصفحة الحالية</p>
+          </div>
         </div>
       </section>
 
@@ -109,19 +113,19 @@ export default async function V2UsersPage({
                 name="q"
                 defaultValue={search}
                 placeholder="ابحث بالاسم أو البريد أو المسمى الوظيفي..."
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white pr-10 pl-3 text-sm outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white pr-9 pl-3 text-xs outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
             </label>
             <button
               type="submit"
-              className="h-11 rounded-xl bg-teal-700 px-5 text-sm font-bold text-white hover:bg-teal-800"
+              className="h-9 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white hover:bg-teal-800"
             >
               بحث
             </button>
             {search && (
               <Link
                 href="/v2/users"
-                className="flex h-11 items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                className="flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50"
               >
                 مسح
               </Link>
@@ -143,25 +147,25 @@ export default async function V2UsersPage({
               <table className="w-full min-w-[850px] border-collapse text-right">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/60 text-xs font-bold text-slate-500">
-                    <th className="px-5 py-3.5">المستخدم</th>
-                    <th className="px-5 py-3.5">الجهة</th>
-                    <th className="px-5 py-3.5">نوع العمل</th>
-                    <th className="px-5 py-3.5">الحالة</th>
-                    <th className="px-5 py-3.5">الإجراءات</th>
+                    <th className="px-4 py-2.5">المستخدم</th>
+                    <th className="px-4 py-2.5">الجهة</th>
+                    <th className="px-4 py-2.5">نوع العمل</th>
+                    <th className="px-4 py-2.5">الحالة</th>
+                    <th className="px-4 py-2.5">الإجراءات</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {result.items.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/60">
-                      <td className="px-5 py-4">
-                        <p className="font-bold text-slate-900">{item.fullName}</p>
+                      <td className="px-4 py-3">
+                        <p className="text-xs font-bold text-slate-900">{item.fullName}</p>
                         <p className="mt-1 text-xs text-slate-500">
                           {item.jobTitle || 'بدون مسمى وظيفي'}
                           {item.email ? ` • ${item.email}` : ''}
                         </p>
                       </td>
-                      <td className="px-5 py-4">
-                        <p className="max-w-[280px] text-sm font-medium text-slate-700">
+                      <td className="px-4 py-3">
+                        <p className="max-w-[280px] text-xs font-medium text-slate-700">
                           {item.organizationName}
                         </p>
                         {item.governorate && (
@@ -170,9 +174,9 @@ export default async function V2UsersPage({
                           </p>
                         )}
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3">
                         {item.roleNames.length > 0 ? (
-                          <p className="text-sm font-semibold text-slate-700">
+                          <p className="text-xs font-semibold text-slate-700">
                             {item.roleNames.join('، ')}
                           </p>
                         ) : (
@@ -181,10 +185,10 @@ export default async function V2UsersPage({
                           </span>
                         )}
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3">
                         <ActiveBadge active={item.isActive} />
                       </td>
-                      <td className="px-5 py-4">
+                      <td className="px-4 py-3">
                         <UserRolesManager
                           userId={item.id}
                           userName={item.fullName}
@@ -236,8 +240,8 @@ export default async function V2UsersPage({
 
         <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-slate-500">
-            صفحة {result.page.toLocaleString('ar-EG')} من{' '}
-            {Math.max(1, result.totalPages).toLocaleString('ar-EG')}
+            صفحة {result.page.toLocaleString('en-US')} من{' '}
+            {Math.max(1, result.totalPages).toLocaleString('en-US')}
           </p>
 
           <div className="flex items-center gap-2">
