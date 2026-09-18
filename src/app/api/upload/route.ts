@@ -1,86 +1,118 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { requireAnyV2Permission } from '@/server/authorization/http-guard'
+import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://upxmlpiemqdfbhyipihh.supabase.co'
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
-                             process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 
-                             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-                             ''
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Supabase configuration is missing on the server.')
-  }
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  })
+const ALLOWED_BUCKET = 'violation-photos'
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+
+const UPLOAD_PERMISSIONS = [
+  'mission_results.record',
+  'mission_results.edit',
+  'violations.create',
+  'violations.correct',
+] as const
+
+function safeExtension(fileName: string): string {
+  const candidate = fileName.split('.').pop()?.toLowerCase() || 'jpg'
+  return /^[a-z0-9]{2,5}$/.test(candidate) ? candidate : 'jpg'
 }
 
 export async function POST(request: Request) {
   try {
-    const supabaseServer = await createServerSupabaseClient()
-    if (!supabaseServer) {
-      return NextResponse.json({ error: 'Database client not initialized' }, { status: 500 })
-    }
-
-    const { data: { user: caller } } = await supabaseServer.auth.getUser()
-    if (!caller) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const gate = await requireAnyV2Permission(UPLOAD_PERMISSIONS)
+    if (!gate.ok) return gate.response
 
     const formData = await request.formData()
-    const file = formData.get('file') as File | null
-    const bucketName = (formData.get('bucket') as string) || 'violation-photos'
-    const customPath = (formData.get('path') as string) || ''
+    const file = formData.get('file')
 
-    if (!file) {
+    if (!(file instanceof File)) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
 
-    const adminClient = getAdminClient()
-
-    // 1. Ensure bucket exists or create it
-    try {
-      const { data: bucket, error: getBucketErr } = await adminClient.storage.getBucket(bucketName)
-      if (getBucketErr || !bucket) {
-        await adminClient.storage.createBucket(bucketName, {
-          public: true,
-          fileSizeLimit: 10485760 // 10MB
-        })
-      }
-    } catch (bErr) {
-      console.warn('Bucket verification or creation note:', bErr)
+    if (!file.type.startsWith('image/')) {
+      return NextResponse.json(
+        { error: 'يسمح برفع ملفات الصور فقط' },
+        { status: 400 }
+      )
     }
 
-    // 2. Prepare file buffer & path
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const fileExt = file.name.split('.').pop() || 'jpg'
-    const filePath = customPath || `${caller.id}/${Date.now()}_photo.${fileExt}`
+    if (file.size <= 0 || file.size > MAX_FILE_BYTES) {
+      return NextResponse.json(
+        { error: 'حجم الصورة غير صالح أو يتجاوز 10 ميجابايت' },
+        { status: 400 }
+      )
+    }
 
-    // 3. Upload file using Admin Service Role to bypass storage RLS
-    const { data: uploadData, error: uploadErr } = await adminClient.storage
-      .from(bucketName)
+    const requestedBucket = formData.get('bucket')
+    if (
+      requestedBucket !== null &&
+      String(requestedBucket) !== ALLOWED_BUCKET
+    ) {
+      return NextResponse.json(
+        { error: 'Bucket غير مسموح به' },
+        { status: 400 }
+      )
+    }
+
+    const admin = getAdminSupabaseClient()
+
+    const { data: bucket, error: bucketError } =
+      await admin.storage.getBucket(ALLOWED_BUCKET)
+
+    if (bucketError || !bucket) {
+      const { error: createBucketError } =
+        await admin.storage.createBucket(ALLOWED_BUCKET, {
+          public: true,
+          fileSizeLimit: MAX_FILE_BYTES,
+        })
+
+      if (createBucketError) {
+        console.error(
+          '[upload] bucket creation failed:',
+          createBucketError.message
+        )
+        return NextResponse.json(
+          { error: 'تعذر تجهيز مساحة رفع الصور' },
+          { status: 500 }
+        )
+      }
+    }
+
+    const extension = safeExtension(file.name)
+    const filePath =
+      `${gate.user.profileId}/${Date.now()}-${crypto.randomUUID()}.${extension}`
+
+    const buffer = Buffer.from(await file.arrayBuffer())
+
+    const { error: uploadError } = await admin.storage
+      .from(ALLOWED_BUCKET)
       .upload(filePath, buffer, {
         contentType: file.type || 'image/jpeg',
-        upsert: true
+        upsert: false,
       })
 
-    if (uploadErr) {
-      console.error('Storage upload error:', uploadErr)
-      return NextResponse.json({ error: uploadErr.message }, { status: 500 })
+    if (uploadError) {
+      console.error('[upload] storage upload failed:', uploadError.message)
+      return NextResponse.json(
+        { error: 'تعذر رفع الصورة' },
+        { status: 500 }
+      )
     }
 
-    // 4. Retrieve public URL
-    const { data: { publicUrl } } = adminClient.storage
-      .from(bucketName)
-      .getPublicUrl(filePath)
+    const {
+      data: { publicUrl },
+    } = admin.storage.from(ALLOWED_BUCKET).getPublicUrl(filePath)
 
-    return NextResponse.json({ success: true, publicUrl, filePath })
-  } catch (err: any) {
-    console.error('Upload route exception:', err)
-    return NextResponse.json({ error: err.message || 'Upload failed' }, { status: 500 })
+    return NextResponse.json({
+      success: true,
+      publicUrl,
+      filePath,
+    })
+  } catch (error) {
+    console.error('[upload] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'Upload failed' },
+      { status: 500 }
+    )
   }
 }
