@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/CascadingOrganizationSelect'
 
 type Organization = CascadingOrganizationOption & {
+  organization_type_code: string
+  organization_type_name_ar: string
   health_admin: string | null
   is_active: boolean | null
   can_issue_missions: boolean
@@ -25,25 +27,28 @@ type Organization = CascadingOrganizationOption & {
   can_view_sector_facilities: boolean
 }
 
+type OrganizationTypeOption = {
+  code: string
+  nameAr: string
+  descriptionAr: string | null
+}
+
+type OrganizationTypeRelation = {
+  parentTypeCode: string
+  childTypeCode: string
+}
+
 type OrganizationsResponse = {
   success?: boolean
   data?: Organization[]
+  organizationTypes?: OrganizationTypeOption[]
+  typeRelations?: OrganizationTypeRelation[]
   error?: string
 }
 
 interface OrganizationManagementPanelProps {
   canCreate: boolean
   canEdit: boolean
-}
-
-const LEVEL_LABELS: Record<number, string> = {
-  1: 'الوزارة',
-  2: 'قطاع',
-  3: 'إدارة مركزية',
-  4: 'إدارة عامة',
-  5: 'مديرية صحية',
-  6: 'إدارة صحية',
-  7: 'وحدة / جهة فرعية',
 }
 
 function descendantsOf(
@@ -76,21 +81,53 @@ function descendantsOf(
   return Array.from(result)
 }
 
+function SimpleStat({
+  icon,
+  value,
+  label,
+}: {
+  icon: ReactNode
+  value: number
+  label: string
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
+        {icon}
+      </div>
+      <div>
+        <p className="text-xl font-black leading-none text-slate-900">
+          {value.toLocaleString('en-US')}
+        </p>
+        <p className="mt-1 text-[11px] text-slate-500">{label}</p>
+      </div>
+    </div>
+  )
+}
+
 export function OrganizationManagementPanel({
   canCreate,
   canEdit,
 }: OrganizationManagementPanelProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [organizationTypes, setOrganizationTypes] = useState<
+    OrganizationTypeOption[]
+  >([])
+  const [typeRelations, setTypeRelations] = useState<
+    OrganizationTypeRelation[]
+  >([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [levelFilter, setLevelFilter] = useState<number | 'all'>('all')
+  const [typeFilter, setTypeFilter] = useState<string>('all')
   const [editing, setEditing] = useState<Organization | null>(null)
   const [creating, setCreating] = useState(false)
 
   const [name, setName] = useState('')
   const [parentId, setParentId] = useState<string | null>(null)
+  const [organizationTypeCode, setOrganizationTypeCode] = useState('')
+  const [governorate, setGovernorate] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -108,6 +145,8 @@ export function OrganizationManagementPanel({
       }
 
       setOrganizations(payload.data ?? [])
+      setOrganizationTypes(payload.organizationTypes ?? [])
+      setTypeRelations(payload.typeRelations ?? [])
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -131,11 +170,22 @@ export function OrganizationManagementPanel({
     [organizations]
   )
 
+  const typeByCode = useMemo(
+    () =>
+      new Map(
+        organizationTypes.map((type) => [type.code, type])
+      ),
+    [organizationTypes]
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ar')
 
     return organizations.filter((organization) => {
-      if (levelFilter !== 'all' && organization.level !== levelFilter) {
+      if (
+        typeFilter !== 'all' &&
+        organization.organization_type_code !== typeFilter
+      ) {
         return false
       }
 
@@ -143,20 +193,28 @@ export function OrganizationManagementPanel({
 
       return [
         organization.name,
+        organization.organization_type_name_ar,
         organization.governorate || '',
         organization.health_admin || '',
       ].some((value) => value.toLocaleLowerCase('ar').includes(q))
     })
-  }, [organizations, search, levelFilter])
+  }, [organizations, search, typeFilter])
 
-  const sectorCount = organizations.filter((item) => item.level === 2).length
-  const directorateCount = organizations.filter((item) => item.level === 5).length
+  const sectorCount = organizations.filter(
+    (item) => item.organization_type_code === 'sector'
+  ).length
+
+  const directorateCount = organizations.filter(
+    (item) => item.organization_type_code === 'health_directorate'
+  ).length
 
   function openEdit(organization: Organization) {
     setEditing(organization)
     setCreating(false)
     setName(organization.name)
-    setParentId(organization.level === 5 ? null : organization.parent_id)
+    setParentId(organization.parent_id)
+    setOrganizationTypeCode(organization.organization_type_code)
+    setGovernorate(organization.governorate || '')
     setError(null)
   }
 
@@ -165,34 +223,106 @@ export function OrganizationManagementPanel({
     setCreating(true)
     setName('')
     setParentId(null)
+    setOrganizationTypeCode('')
+    setGovernorate('')
     setError(null)
   }
 
   function closeEditor() {
     setEditing(null)
     setCreating(false)
+    setName('')
+    setParentId(null)
+    setOrganizationTypeCode('')
+    setGovernorate('')
     setError(null)
   }
-
-  const parentOptions = useMemo(() => {
-    if (editing) {
-      const parentLevel = editing.level - 1
-      return organizations.filter(
-        (organization) => organization.level <= parentLevel
-      )
-    }
-
-    if (creating) {
-      return organizations.filter((organization) => organization.level < 7)
-    }
-
-    return organizations
-  }, [organizations, editing, creating])
 
   const disabledParentIds = useMemo(() => {
     if (!editing) return []
     return [editing.id, ...descendantsOf(editing.id, organizations)]
   }, [editing, organizations])
+
+  const selectedParent = parentId
+    ? organizationById.get(parentId) ?? null
+    : null
+
+  const allowedTypeCodes = useMemo(() => {
+    if (!selectedParent) return new Set<string>()
+
+    const result = new Set(
+      typeRelations
+        .filter(
+          (relation) =>
+            relation.parentTypeCode ===
+            selectedParent.organization_type_code
+        )
+        .map((relation) => relation.childTypeCode)
+    )
+
+    if (
+      editing &&
+      parentId === editing.parent_id &&
+      editing.organization_type_code
+    ) {
+      result.add(editing.organization_type_code)
+    }
+
+    return result
+  }, [selectedParent, typeRelations, editing, parentId])
+
+  const availableTypes = useMemo(
+    () =>
+      organizationTypes.filter((type) =>
+        allowedTypeCodes.has(type.code)
+      ),
+    [organizationTypes, allowedTypeCodes]
+  )
+
+  const currentRelationIsLegacy = Boolean(
+    editing &&
+      selectedParent &&
+      !typeRelations.some(
+        (relation) =>
+          relation.parentTypeCode ===
+            selectedParent.organization_type_code &&
+          relation.childTypeCode === editing.organization_type_code
+      )
+  )
+
+  function handleParentChange(nextParentId: string | null) {
+    setParentId(nextParentId)
+
+    if (!nextParentId) {
+      setOrganizationTypeCode('')
+      return
+    }
+
+    const nextParent = organizationById.get(nextParentId)
+    if (!nextParent) {
+      setOrganizationTypeCode('')
+      return
+    }
+
+    const nextAllowed = typeRelations
+      .filter(
+        (relation) =>
+          relation.parentTypeCode ===
+          nextParent.organization_type_code
+      )
+      .map((relation) => relation.childTypeCode)
+
+    const canKeepCurrent =
+      editing &&
+      nextParentId === editing.parent_id &&
+      organizationTypeCode === editing.organization_type_code
+
+    if (!canKeepCurrent && !nextAllowed.includes(organizationTypeCode)) {
+      setOrganizationTypeCode(
+        nextAllowed.length === 1 ? nextAllowed[0] : ''
+      )
+    }
+  }
 
   async function save() {
     if (!name.trim()) {
@@ -200,25 +330,22 @@ export function OrganizationManagementPanel({
       return
     }
 
-    if (
-      !parentId &&
-      (creating || (editing && editing.level > 1 && editing.level !== 5))
-    ) {
-      setError('يجب اختيار الجهة الأم من الشجرة التنظيمية')
+    if (!parentId) {
+      setError('يجب اختيار الجهة الأم')
       return
     }
 
-    if (editing && parentId) {
-      const selectedParent = organizations.find(
-        (organization) => organization.id === parentId
-      )
+    if (!organizationTypeCode) {
+      setError('يجب اختيار نوع الجهة')
+      return
+    }
 
-      if (!selectedParent || selectedParent.level !== editing.level - 1) {
-        setError(
-          `الجهة الأم يجب أن تكون من مستوى ${LEVEL_LABELS[editing.level - 1] || editing.level - 1}`
-        )
-        return
-      }
+    if (
+      organizationTypeCode === 'health_directorate' &&
+      !governorate.trim()
+    ) {
+      setError('المحافظة مطلوبة لمديرية الشؤون الصحية')
+      return
     }
 
     setSaving(true)
@@ -227,9 +354,13 @@ export function OrganizationManagementPanel({
     try {
       const body: Record<string, unknown> = {
         name: name.trim(),
+        parent_id: parentId,
+        organization_type_code: organizationTypeCode,
       }
 
-      if (parentId) body.parent_id = parentId
+      if (organizationTypeCode === 'health_directorate') {
+        body.governorate = governorate.trim()
+      }
 
       if (editing) body.id = editing.id
 
@@ -261,41 +392,41 @@ export function OrganizationManagementPanel({
 
   if (loading) {
     return (
-      <div className="flex min-h-72 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white text-sm text-slate-500">
-        <Loader2 className="h-5 w-5 animate-spin" />
+      <div className="flex min-h-72 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-500">
+        <Loader2 className="h-4 w-4 animate-spin" />
         جارٍ تحميل الهيكل التنظيمي...
       </div>
     )
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {error && !editing && !creating && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
           {error}
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-3 lg:max-w-4xl">
+      <section className="flex flex-wrap gap-2.5">
         <SimpleStat
-          icon={<Network className="h-5 w-5" />}
+          icon={<Network className="h-4 w-4" />}
           value={organizations.length}
-          label="جهة داخل نطاقك"
+          label="جهة تنظيمية"
         />
         <SimpleStat
-          icon={<Building2 className="h-5 w-5" />}
+          icon={<Building2 className="h-4 w-4" />}
           value={sectorCount}
           label="قطاع"
         />
         <SimpleStat
-          icon={<MapPin className="h-5 w-5" />}
+          icon={<MapPin className="h-4 w-4" />}
           value={directorateCount}
-          label="مديرية صحية"
+          label="مديرية شؤون صحية"
         />
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-col gap-2 border-b border-slate-100 p-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-1 flex-col gap-2 sm:flex-row">
             <label className="relative flex-1">
               <span className="sr-only">البحث في الجهات</span>
@@ -304,27 +435,23 @@ export function OrganizationManagementPanel({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="ابحث باسم الجهة أو المحافظة..."
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white pr-10 pl-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white pr-9 pl-3 text-xs outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
             </label>
 
             <select
-              value={levelFilter}
-              onChange={(event) =>
-                setLevelFilter(
-                  event.target.value === 'all'
-                    ? 'all'
-                    : Number(event.target.value)
-                )
-              }
-              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-teal-500"
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-teal-500"
             >
               <option value="all">كل أنواع الجهات</option>
-              {Object.entries(LEVEL_LABELS).map(([level, label]) => (
-                <option key={level} value={level}>
-                  {label}
-                </option>
-              ))}
+              {organizationTypes
+                .filter((type) => type.code !== 'ministry')
+                .map((type) => (
+                  <option key={type.code} value={type.code}>
+                    {type.nameAr}
+                  </option>
+                ))}
             </select>
           </div>
 
@@ -332,7 +459,7 @@ export function OrganizationManagementPanel({
             <button
               type="button"
               onClick={openCreate}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white hover:bg-teal-800"
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white hover:bg-teal-800"
             >
               <Plus className="h-4 w-4" />
               إضافة جهة
@@ -341,15 +468,15 @@ export function OrganizationManagementPanel({
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[850px] border-collapse text-right">
+          <table className="w-full min-w-[860px] border-collapse text-right">
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/60 text-xs font-bold text-slate-500">
-                <th className="px-5 py-3.5">الجهة</th>
-                <th className="px-5 py-3.5">النوع</th>
-                <th className="px-5 py-3.5">الجهة الأم</th>
-                <th className="px-5 py-3.5">المحافظة / النطاق</th>
-                <th className="px-5 py-3.5">الحالة</th>
-                <th className="px-5 py-3.5">الإجراءات</th>
+              <tr className="border-b border-slate-100 bg-slate-50/60 text-[10px] font-bold text-slate-500">
+                <th className="px-4 py-2.5">الجهة</th>
+                <th className="px-4 py-2.5">النوع</th>
+                <th className="px-4 py-2.5">الجهة الأم</th>
+                <th className="px-4 py-2.5">المحافظة / النطاق</th>
+                <th className="px-4 py-2.5">الحالة</th>
+                <th className="px-4 py-2.5">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -360,46 +487,47 @@ export function OrganizationManagementPanel({
 
                 return (
                   <tr key={organization.id} className="hover:bg-slate-50/60">
-                    <td className="px-5 py-4">
-                      <p className="font-bold text-slate-900">
+                    <td className="px-4 py-3">
+                      <p className="text-xs font-bold text-slate-900">
                         {organization.name}
                       </p>
                     </td>
-                    <td className="px-5 py-4">
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
-                        {LEVEL_LABELS[organization.level] ||
-                          `مستوى ${organization.level}`}
+                    <td className="px-4 py-3">
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
+                        {organization.organization_type_name_ar}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-sm text-slate-600">
-                      {organization.level === 5
+                    <td className="px-4 py-3 text-xs text-slate-600">
+                      {organization.organization_type_code ===
+                      'health_directorate'
                         ? 'وزارة الصحة والسكان'
                         : parent?.name || 'جهة رئيسية'}
                     </td>
-                    <td className="px-5 py-4 text-sm text-slate-600">
+                    <td className="px-4 py-3 text-xs text-slate-600">
                       {organization.governorate ||
                         organization.health_admin ||
                         'نطاق مركزي'}
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="px-4 py-3">
                       {organization.is_active !== false ? (
-                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
                           نشطة
                         </span>
                       ) : (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
                           موقوفة
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-4">
-                      {canEdit && organization.level > 1 ? (
+                    <td className="px-4 py-3">
+                      {canEdit &&
+                      organization.organization_type_code !== 'ministry' ? (
                         <button
                           type="button"
                           onClick={() => openEdit(organization)}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:border-teal-300 hover:text-teal-800"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-slate-700 hover:border-teal-300 hover:text-teal-800"
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil className="h-3.5 w-3.5" />
                           تعديل
                         </button>
                       ) : (
@@ -427,8 +555,9 @@ export function OrganizationManagementPanel({
                       {organization.name}
                     </h2>
                     <p className="mt-1 text-xs text-slate-500">
-                      {LEVEL_LABELS[organization.level]} •{' '}
-                      {organization.level === 5
+                      {organization.organization_type_name_ar} •{' '}
+                      {organization.organization_type_code ===
+                      'health_directorate'
                         ? 'وزارة الصحة والسكان'
                         : parent?.name || 'جهة رئيسية'}
                     </p>
@@ -440,16 +569,17 @@ export function OrganizationManagementPanel({
                   )}
                 </div>
 
-                {canEdit && organization.level > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => openEdit(organization)}
-                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    تعديل الجهة
-                  </button>
-                )}
+                {canEdit &&
+                  organization.organization_type_code !== 'ministry' && (
+                    <button
+                      type="button"
+                      onClick={() => openEdit(organization)}
+                      className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      تعديل الجهة
+                    </button>
+                  )}
               </article>
             )
           })}
@@ -457,8 +587,10 @@ export function OrganizationManagementPanel({
 
         {filtered.length === 0 && (
           <div className="flex min-h-52 flex-col items-center justify-center px-5 py-10 text-center">
-            <Building2 className="mb-3 h-9 w-9 text-slate-300" />
-            <p className="text-sm font-bold text-slate-700">لا توجد جهات مطابقة</p>
+            <Building2 className="mb-3 h-8 w-8 text-slate-300" />
+            <p className="text-xs font-bold text-slate-700">
+              لا توجد جهات مطابقة
+            </p>
           </div>
         )}
       </section>
@@ -470,85 +602,120 @@ export function OrganizationManagementPanel({
           aria-modal="true"
           aria-labelledby="organization-editor-title"
         >
-          <div className="max-h-[92vh] w-full overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-xl sm:rounded-2xl">
+          <div className="max-h-[92vh] w-full overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-2xl sm:rounded-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
               <div>
-                <p className="text-xs font-bold text-teal-700">
+                <p className="text-[10px] font-bold text-teal-700">
                   {editing ? 'تعديل جهة' : 'إضافة جهة'}
                 </p>
                 <h2
                   id="organization-editor-title"
-                  className="mt-1 text-lg font-extrabold text-slate-900"
+                  className="mt-1 text-base font-extrabold text-slate-900"
                 >
-                  {editing ? editing.name : 'جهة جديدة'}
+                  {editing ? editing.name : 'جهة تنظيمية جديدة'}
                 </h2>
               </div>
               <button
                 type="button"
                 onClick={closeEditor}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"
                 aria-label="إغلاق"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="max-h-[calc(92vh-140px)] space-y-4 overflow-y-auto p-5">
+            <div className="max-h-[calc(92vh-135px)] space-y-4 overflow-y-auto p-5">
               {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
                   {error}
                 </div>
               )}
 
               <label className="block">
-                <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                <span className="mb-1 block text-[11px] font-bold text-slate-600">
                   اسم الجهة
                 </span>
                 <input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  placeholder="مثال: الإدارة العامة للطب العلاجي"
                 />
               </label>
 
-              {editing?.level === 5 ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-[11px] font-bold text-slate-500">
-                    التبعية التنظيمية
-                  </p>
-                  <p className="mt-1 text-sm font-bold text-slate-800">
-                    وزارة الصحة والسكان — المسار الإقليمي للمديريات
-                  </p>
-                </div>
-              ) : (
-                <CascadingOrganizationSelect
-                  organizations={parentOptions}
-                  value={parentId}
-                  onChange={setParentId}
-                  label="الجهة الأم"
-                  disabledIds={disabledParentIds}
-                  helperText={
-                    editing
-                      ? `اختر التبعية بالتدرج حتى مستوى ${LEVEL_LABELS[editing.level - 1] || editing.level - 1}.`
-                      : 'اختر الجهة الأم بالتدرج؛ مستوى الجهة الجديدة يُحدد تلقائيًا بناءً عليها.'
-                  }
-                />
+              <CascadingOrganizationSelect
+                organizations={organizations}
+                value={parentId}
+                onChange={handleParentChange}
+                label="الجهة الأم"
+                disabledIds={disabledParentIds}
+                helperText="اختر الجهة التي تتبع لها الوحدة إداريًا، ثم اختر نوع الجهة من الأنواع المسموحة تحتها."
+              />
+
+              {parentId && (
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-bold text-slate-600">
+                    نوع الجهة
+                  </span>
+                  <select
+                    value={organizationTypeCode}
+                    onChange={(event) =>
+                      setOrganizationTypeCode(event.target.value)
+                    }
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-500"
+                  >
+                    <option value="">اختر نوع الجهة</option>
+                    {availableTypes.map((type) => (
+                      <option key={type.code} value={type.code}>
+                        {type.nameAr}
+                      </option>
+                    ))}
+                  </select>
+
+                  {organizationTypeCode && (
+                    <p className="mt-1.5 text-[10px] leading-4 text-slate-400">
+                      {typeByCode.get(organizationTypeCode)?.descriptionAr ||
+                        'تصنيف إداري داخل الهيكل التنظيمي.'}
+                    </p>
+                  )}
+                </label>
               )}
 
-              {editing && (
-                <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
-                  نوع الجهة: <strong>{LEVEL_LABELS[editing.level]}</strong>
+              {currentRelationIsLegacy && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] leading-5 text-amber-800">
+                  التبعية الحالية واردة من الهيكل القديم. يمكن حفظ الاسم كما
+                  هو، أو اختيار تبعية ونوع جديدين لتصحيحها وفق الهيكل
+                  التنظيمي الجديد.
                 </div>
               )}
 
+              {organizationTypeCode === 'health_directorate' && (
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-bold text-slate-600">
+                    المحافظة
+                  </span>
+                  <input
+                    value={governorate}
+                    onChange={(event) => setGovernorate(event.target.value)}
+                    className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-teal-500"
+                    placeholder="مثال: الدقهلية"
+                  />
+                </label>
+              )}
 
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-[10px] leading-5 text-slate-500">
+                المنشآت الصحية مثل المستشفيات والوحدات والمراكز والعيادات
+                لا تُضاف من الهيكل التنظيمي؛ تُدار من شاشة المنشآت الصحية
+                مع تحديد تبعيتها المناسبة.
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3">
               <button
                 type="button"
                 onClick={closeEditor}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600"
+                className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600"
               >
                 إلغاء
               </button>
@@ -556,7 +723,7 @@ export function OrganizationManagementPanel({
                 type="button"
                 disabled={saving}
                 onClick={() => void save()}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-700 px-5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50"
+                className="inline-flex h-9 items-center gap-2 rounded-lg bg-teal-700 px-5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"
               >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 حفظ
@@ -565,30 +732,6 @@ export function OrganizationManagementPanel({
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function SimpleStat({
-  icon,
-  value,
-  label,
-}: {
-  icon: ReactNode
-  value: number
-  label: string
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
-        {icon}
-      </div>
-      <div>
-        <p className="text-xl font-black leading-none text-slate-900">
-          {value.toLocaleString('en-US')}
-        </p>
-        <p className="mt-1 text-[11px] text-slate-500">{label}</p>
-      </div>
     </div>
   )
 }
