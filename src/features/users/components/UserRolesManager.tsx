@@ -5,7 +5,6 @@ import { Loader2, Plus, UserCog, X } from 'lucide-react'
 
 type Role = {
   id: string
-  code: string
   name_ar: string
   description_ar: string | null
   is_system: boolean
