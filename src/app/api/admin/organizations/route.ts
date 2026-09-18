@@ -320,6 +320,7 @@ function toOrganizationFacts(
         sectorId: org.sector_id,
         governorate: org.governorate,
         level: Number(org.level),
+        organizationTypeCode: org.organization_type_code,
       },
     ])
   )
@@ -428,7 +429,7 @@ export async function GET() {
     const { data, error } = await admin
       .from('organizations')
       .select(
-        'id, name, level, level_label, parent_id, sector_id, governorate, health_admin, code, is_active, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities'
+        'id, name, level, level_label, organization_type_code, parent_id, sector_id, governorate, health_admin, code, is_active, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities'
       )
       .order('level')
       .order('name')
@@ -446,12 +447,18 @@ export async function GET() {
 
     const organizations: OrganizationRow[] = (data ?? []).map((row) => ({
       ...row,
-      organization_type_code: inferOrganizationTypeCode({
-        levelLabel: String(row.level_label || ''),
-        name: String(row.name || ''),
-        healthAdmin:
-          typeof row.health_admin === 'string' ? row.health_admin : null,
-      }),
+      organization_type_code:
+        typeof row.organization_type_code === 'string' &&
+        row.organization_type_code
+          ? row.organization_type_code
+          : inferOrganizationTypeCode({
+              levelLabel: String(row.level_label || ''),
+              name: String(row.name || ''),
+              healthAdmin:
+                typeof row.health_admin === 'string'
+                  ? row.health_admin
+                  : null,
+            }),
     })) as OrganizationRow[]
 
     let allowed: OrganizationRow[]
