@@ -12,30 +12,30 @@ FOR UPDATE
 TO authenticated
 USING (
   primary_inspector_id = (
-    SELECT current_user.user_id
-    FROM public.get_current_user_data() current_user
+    SELECT ctx.user_id
+    FROM public.get_current_user_data() ctx
   )
   OR assigned_user_id = (
-    SELECT current_user.user_id
-    FROM public.get_current_user_data() current_user
+    SELECT ctx.user_id
+    FROM public.get_current_user_data() ctx
   )
   OR created_by = (
-    SELECT current_user.user_id
-    FROM public.get_current_user_data() current_user
+    SELECT ctx.user_id
+    FROM public.get_current_user_data() ctx
   )
 )
 WITH CHECK (
   primary_inspector_id = (
-    SELECT current_user.user_id
-    FROM public.get_current_user_data() current_user
+    SELECT ctx.user_id
+    FROM public.get_current_user_data() ctx
   )
   OR assigned_user_id = (
-    SELECT current_user.user_id
-    FROM public.get_current_user_data() current_user
+    SELECT ctx.user_id
+    FROM public.get_current_user_data() ctx
   )
   OR created_by = (
-    SELECT current_user.user_id
-    FROM public.get_current_user_data() current_user
+    SELECT ctx.user_id
+    FROM public.get_current_user_data() ctx
   )
 );
 
