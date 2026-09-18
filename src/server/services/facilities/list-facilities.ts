@@ -87,7 +87,7 @@ async function loadFilterOptions(input: {
     admin
       .from('organizations')
       .select('governorate')
-      .eq('level', 5)
+      .eq('organization_type_code', 'health_directorate')
       .eq('is_active', true)
       .not('governorate', 'is', null),
     admin
@@ -118,7 +118,7 @@ async function loadFilterOptions(input: {
   let healthAdminQuery = admin
     .from('organizations')
     .select('name, health_admin, governorate')
-    .eq('level', 6)
+    .eq('organization_type_code', 'health_administration')
     .eq('is_active', true)
 
   if (input.governorate) {
