@@ -288,45 +288,82 @@ async function authorizeOrganization(input: {
   })
 }
 
-// GET: return only organizations inside the caller's effective organizations.view scope.
+// GET: return organizations inside the caller's effective organizations.view scope.
 export async function GET() {
-  try {
-    const gate = await requireV2Permission('organizations.view')
-    if (!gate.ok) return gate.response
+  const gate = await requireV2Permission('organizations.view')
+  if (!gate.ok) return gate.response
 
+  try {
     const admin = getAdminSupabaseClient()
-    const [
-      { data, error },
-      taxonomy,
-    ] = await Promise.all([
-      admin
-        .from('organizations')
-        .select('*')
-        .order('level')
-        .order('name'),
-      loadOrganizationTaxonomy(),
-    ])
+    const { data, error } = await admin
+      .from('organizations')
+      .select(
+        'id, name, level, level_label, organization_type_code, parent_id, sector_id, governorate, health_admin, code, is_active, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities'
+      )
+      .order('level')
+      .order('name')
 
     if (error) {
-      console.error('[organizations:GET] query failed:', error.message)
-      return NextResponse.json({ error: 'تعذر تحميل الهيكل التنظيمي' }, { status: 500 })
+      console.error('[organizations:GET] organizations query failed:', error)
+      return NextResponse.json(
+        {
+          error: 'تعذر تحميل بيانات الهيكل التنظيمي',
+          code: 'ORGANIZATIONS_QUERY_FAILED',
+        },
+        { status: 500 }
+      )
     }
 
     const organizations = (data ?? []) as OrganizationRow[]
-    const facts = toOrganizationFacts(organizations)
 
-    const allowed = organizations.filter((organization) =>
-      evaluateV2ResourceScope({
-        user: gate.user,
-        snapshot: gate.access,
-        permissionKey: 'organizations.view',
-        resource: toResource(organization),
-        organizationFacts: facts,
-      }).allowed
-    )
+    if (organizations.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        organizationTypes: FALLBACK_ORGANIZATION_TYPES.map((item) => ({
+          code: item.code,
+          nameAr: item.display_name_ar,
+          descriptionAr: item.description_ar,
+        })),
+        typeRelations: FALLBACK_ORGANIZATION_RELATIONS.map((relation) => ({
+          parentTypeCode: relation.parent_type_code,
+          childTypeCode: relation.child_type_code,
+        })),
+      })
+    }
+
+    let allowed: OrganizationRow[]
+
+    try {
+      const facts = toOrganizationFacts(organizations)
+      allowed = organizations.filter((organization) =>
+        evaluateV2ResourceScope({
+          user: gate.user,
+          snapshot: gate.access,
+          permissionKey: 'organizations.view',
+          resource: toResource(organization),
+          organizationFacts: facts,
+        }).allowed
+      )
+    } catch (scopeError) {
+      console.error(
+        '[organizations:GET] scope evaluation failed:',
+        scopeError
+      )
+      return NextResponse.json(
+        {
+          error: 'تعذر تحديد نطاق عرض الهيكل التنظيمي',
+          code: 'ORGANIZATIONS_SCOPE_FAILED',
+        },
+        { status: 500 }
+      )
+    }
 
     const typeNameByCode = new Map(
-      taxonomy.types.map((item) => [item.code, item.display_name_ar])
+      FALLBACK_ORGANIZATION_TYPES.map((item) => [
+        item.code,
+        item.display_name_ar,
+      ])
     )
 
     return NextResponse.json({
@@ -337,19 +374,25 @@ export async function GET() {
           typeNameByCode.get(organization.organization_type_code) ||
           'جهة تنظيمية',
       })),
-      organizationTypes: taxonomy.types.map((item) => ({
+      organizationTypes: FALLBACK_ORGANIZATION_TYPES.map((item) => ({
         code: item.code,
         nameAr: item.display_name_ar,
         descriptionAr: item.description_ar,
       })),
-      typeRelations: taxonomy.relations.map((relation) => ({
+      typeRelations: FALLBACK_ORGANIZATION_RELATIONS.map((relation) => ({
         parentTypeCode: relation.parent_type_code,
         childTypeCode: relation.child_type_code,
       })),
     })
   } catch (error) {
     console.error('[organizations:GET] unexpected error:', error)
-    return NextResponse.json({ error: 'خطأ غير متوقع' }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: 'تعذر تحميل الهيكل التنظيمي',
+        code: 'ORGANIZATIONS_UNEXPECTED_ERROR',
+      },
+      { status: 500 }
+    )
   }
 }
 
