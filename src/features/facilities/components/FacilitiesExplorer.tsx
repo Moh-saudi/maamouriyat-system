@@ -174,10 +174,18 @@ export function FacilitiesExplorer({
 
   const availableHealthAdmins = useMemo(
     () =>
-      data.healthAdministrations.filter(
-        (item) => !governorate || item.governorate === governorate
-      ),
-    [data.healthAdministrations, governorate]
+      [
+        ...new Set(
+          data.facilities
+            .filter(
+              (item) =>
+                !governorate || item.governorate === governorate
+            )
+            .map((item) => item.healthAdmin)
+            .filter(Boolean)
+        ),
+      ].sort((a, b) => a.localeCompare(b, 'ar')),
+    [data.facilities, governorate]
   )
 
   const manageableHealthAdmins = useMemo(
@@ -273,7 +281,7 @@ export function FacilitiesExplorer({
   useEffect(() => {
     if (
       healthAdmin &&
-      !availableHealthAdmins.some((item) => item.name === healthAdmin)
+      !availableHealthAdmins.includes(healthAdmin)
     ) {
       setHealthAdmin('')
     }
@@ -500,7 +508,10 @@ export function FacilitiesExplorer({
             <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setSearch(event.target.value)
+                setSelectedFacilityId(null)
+              }}
               placeholder="ابحث باسم المنشأة أو المكان..."
               className="h-9 w-full rounded-lg border border-slate-200 bg-white pr-9 pl-3 text-xs outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
             />
@@ -511,6 +522,7 @@ export function FacilitiesExplorer({
             onChange={(event) => {
               setGovernorate(event.target.value)
               setHealthAdmin('')
+              setSelectedFacilityId(null)
             }}
             className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-teal-500"
             aria-label="المحافظة"
@@ -525,21 +537,27 @@ export function FacilitiesExplorer({
 
           <select
             value={healthAdmin}
-            onChange={(event) => setHealthAdmin(event.target.value)}
+            onChange={(event) => {
+              setHealthAdmin(event.target.value)
+              setSelectedFacilityId(null)
+            }}
             className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-teal-500"
             aria-label="الإدارة الصحية"
           >
             <option value="">كل الإدارات الصحية</option>
             {availableHealthAdmins.map((item) => (
-              <option key={item.id} value={item.name}>
-                {item.name}
+              <option key={item} value={item}>
+                {item}
               </option>
             ))}
           </select>
 
           <select
             value={facilityType}
-            onChange={(event) => setFacilityType(event.target.value)}
+            onChange={(event) => {
+              setFacilityType(event.target.value)
+              setSelectedFacilityId(null)
+            }}
             className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-teal-500"
             aria-label="نوع المنشأة"
           >
@@ -553,11 +571,12 @@ export function FacilitiesExplorer({
 
           <select
             value={status}
-            onChange={(event) =>
+            onChange={(event) => {
               setStatus(
                 event.target.value as 'active' | 'inactive' | 'all'
               )
-            }
+              setSelectedFacilityId(null)
+            }}
             className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-teal-500"
             aria-label="الحالة"
           >
@@ -780,11 +799,13 @@ export function FacilitiesExplorer({
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] border-collapse text-right">
+                <table className="w-full min-w-[980px] border-collapse text-right">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/70 text-[10px] font-bold text-slate-500">
                       <th className="px-4 py-2.5">المنشأة</th>
                       <th className="px-4 py-2.5">النوع</th>
+                      <th className="px-4 py-2.5">المحافظة</th>
+                      <th className="px-4 py-2.5">الإدارة الصحية</th>
                       <th className="px-4 py-2.5 text-center">مرات المرور</th>
                       <th className="px-4 py-2.5">الحالة</th>
                       {management.canAudit && (
@@ -821,18 +842,24 @@ export function FacilitiesExplorer({
                             <p className="max-w-[300px] text-xs font-bold text-slate-900">
                               {facility.name}
                             </p>
-                            <p className="mt-1 max-w-[340px] truncate text-[10px] text-slate-400">
-                              {facility.governorate} ·{' '}
-                              {facility.healthAdmin}
-                              {facility.villageCity
-                                ? ` · ${facility.villageCity}`
-                                : ''}
-                            </p>
+                            {facility.villageCity && (
+                              <p className="mt-1 max-w-[300px] truncate text-[10px] text-slate-400">
+                                {facility.villageCity}
+                              </p>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">
                               {facility.facilityTypeLabel}
                             </span>
+                          </td>
+                          <td className="px-4 py-3 text-xs font-semibold text-slate-600">
+                            {facility.governorate}
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="max-w-[190px] truncate text-xs text-slate-600">
+                              {facility.healthAdmin}
+                            </p>
                           </td>
                           <td className="px-4 py-3 text-center">
                             <span
