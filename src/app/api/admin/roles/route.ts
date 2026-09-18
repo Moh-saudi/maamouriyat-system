@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server'
-import { checkV2ResourceAccess } from '@/server/authorization'
+import {
+  checkV2ResourceAccess,
+  evaluateV2ResourceScope,
+} from '@/server/authorization'
 import { canDelegateV2RoleGrants } from '@/server/authorization/delegation'
 import { requireV2Permission } from '@/server/authorization/http-guard'
 import {
@@ -8,6 +11,7 @@ import {
   type V2ScopeType,
 } from '@/server/authorization/types'
 import type { V2AuthenticatedUser } from '@/server/auth/types'
+import type { V2OrganizationFact } from '@/server/authorization/scope-types'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 type RoleRow = {
@@ -160,6 +164,104 @@ export async function GET() {
       )
     }
 
+    const canManageRoles =
+      gate.access.permissions['settings.manage_roles']?.granted === true
+    const canCreateGlobalRoles = hasNationalManageRoleScope(gate.access)
+
+    let manageableOrganizations: Array<{
+      id: string
+      name: string
+      code: string | null
+      level: number
+      level_label: string
+      parent_id: string | null
+      sector_id: string | null
+      governorate: string | null
+    }> = []
+
+    if (canManageRoles) {
+      const { data: organizationRows, error: organizationsError } = await admin
+        .from('organizations')
+        .select(
+          'id, name, code, level, level_label, parent_id, sector_id, governorate'
+        )
+        .eq('is_active', true)
+        .order('level')
+        .order('name')
+
+      if (organizationsError) {
+        console.error(
+          '[roles:GET] organizations query failed:',
+          organizationsError.message
+        )
+        return NextResponse.json(
+          { error: 'تعذر تحميل الشجرة التنظيمية المتاحة للأدوار' },
+          { status: 500 }
+        )
+      }
+
+      const orgRows = organizationRows ?? []
+      const organizationFacts = new Map<string, V2OrganizationFact>(
+        orgRows.map((organization) => [
+          String(organization.id),
+          {
+            id: String(organization.id),
+            parentId: organization.parent_id
+              ? String(organization.parent_id)
+              : null,
+            sectorId: organization.sector_id
+              ? String(organization.sector_id)
+              : null,
+            governorate:
+              typeof organization.governorate === 'string'
+                ? organization.governorate
+                : null,
+            level: Number(organization.level),
+          },
+        ])
+      )
+
+      manageableOrganizations = orgRows
+        .filter((organization) =>
+          evaluateV2ResourceScope({
+            user: gate.user,
+            snapshot: gate.access,
+            permissionKey: 'settings.manage_roles',
+            resource: {
+              organizationId: String(organization.id),
+              sectorId:
+                Number(organization.level) === 2
+                  ? String(organization.id)
+                  : organization.sector_id
+                    ? String(organization.sector_id)
+                    : null,
+              governorate:
+                typeof organization.governorate === 'string'
+                  ? organization.governorate
+                  : null,
+            },
+            organizationFacts,
+          }).allowed
+        )
+        .map((organization) => ({
+          id: String(organization.id),
+          name: String(organization.name),
+          code: organization.code ? String(organization.code) : null,
+          level: Number(organization.level),
+          level_label: String(organization.level_label),
+          parent_id: organization.parent_id
+            ? String(organization.parent_id)
+            : null,
+          sector_id: organization.sector_id
+            ? String(organization.sector_id)
+            : null,
+          governorate:
+            typeof organization.governorate === 'string'
+              ? organization.governorate
+              : null,
+        }))
+    }
+
     const delegationScopes: Record<string, V2ScopeType[]> = {}
 
     for (const permissionRow of permissions ?? []) {
@@ -186,9 +288,10 @@ export async function GET() {
       grants: grants ?? [],
       permissions: permissions ?? [],
       delegationScopes,
+      organizations: manageableOrganizations,
       capabilities: {
-        canManageRoles:
-          gate.access.permissions['settings.manage_roles']?.granted === true,
+        canManageRoles,
+        canCreateGlobalRoles,
         canManagePermissionRegistry:
           gate.access.permissions['settings.manage_permissions']?.granted ===
           true,
