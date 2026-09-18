@@ -12,7 +12,7 @@ type FacilityRow = {
   name: string
   facility_type: string
   organization_id: string
-  sector_id: string
+  sector_id: string | null
   governorate: string
   health_admin: string
   urban_rural: string | null
@@ -25,7 +25,7 @@ type FacilityRow = {
 type OrganizationRow = {
   id: string
   name: string
-  level: number
+  organization_type_code: string | null
   sector_id: string | null
   governorate: string | null
   health_admin: string | null
@@ -89,7 +89,7 @@ async function loadHealthAdministration(
   const { data, error } = await admin
     .from('organizations')
     .select(
-      'id, name, level, sector_id, governorate, health_admin, is_active'
+      'id, name, organization_type_code, sector_id, governorate, health_admin, is_active'
     )
     .eq('id', organizationId)
     .maybeSingle()
@@ -105,8 +105,7 @@ async function loadHealthAdministration(
   if (
     !row ||
     row.is_active !== true ||
-    row.level !== 6 ||
-    !row.sector_id ||
+    row.organization_type_code !== 'health_administration' ||
     !row.governorate
   ) {
     return null
