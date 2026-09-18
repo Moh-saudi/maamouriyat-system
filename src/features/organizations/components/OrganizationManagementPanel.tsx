@@ -1,15 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Building2,
-  ChevronDown,
-  ChevronLeft,
   Loader2,
+  MapPin,
+  Network,
   Pencil,
   Plus,
   Search,
-  ShieldCheck,
   X,
 } from 'lucide-react'
 import {
@@ -48,16 +47,6 @@ const LEVEL_LABELS: Record<number, string> = {
   7: 'وحدة / جهة فرعية',
 }
 
-const LEVEL_BADGE_CLASSES: Record<number, string> = {
-  1: 'border-rose-200 bg-rose-50 text-rose-700',
-  2: 'border-sky-200 bg-sky-50 text-sky-700',
-  3: 'border-indigo-200 bg-indigo-50 text-indigo-700',
-  4: 'border-violet-200 bg-violet-50 text-violet-700',
-  5: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  6: 'border-teal-200 bg-teal-50 text-teal-700',
-  7: 'border-slate-200 bg-slate-50 text-slate-600',
-}
-
 function descendantsOf(
   organizationId: string,
   organizations: readonly Organization[]
@@ -85,16 +74,7 @@ function descendantsOf(
     }
   }
 
-  return [...result]
-}
-
-function countChildren(
-  organizationId: string,
-  organizations: readonly Organization[]
-): number {
-  return organizations.filter(
-    (organization) => organization.parent_id === organizationId
-  ).length
+  return Array.from(result)
 }
 
 export function OrganizationManagementPanel({
@@ -152,16 +132,13 @@ export function OrganizationManagementPanel({
     void load()
   }, [load])
 
-  const counts = useMemo(() => {
-    const map = new Map<number, number>()
-    for (const organization of organizations) {
-      map.set(
-        organization.level,
-        (map.get(organization.level) ?? 0) + 1
-      )
-    }
-    return map
-  }, [organizations])
+  const organizationById = useMemo(
+    () =>
+      new Map(
+        organizations.map((organization) => [organization.id, organization])
+      ),
+    [organizations]
+  )
 
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ar')
@@ -182,10 +159,8 @@ export function OrganizationManagementPanel({
     })
   }, [organizations, search, levelFilter])
 
-  const organizationById = useMemo(
-    () => new Map(organizations.map((organization) => [organization.id, organization])),
-    [organizations]
-  )
+  const sectorCount = organizations.filter((item) => item.level === 2).length
+  const directorateCount = organizations.filter((item) => item.level === 5).length
 
   function openEdit(organization: Organization) {
     setEditing(organization)
@@ -239,10 +214,7 @@ export function OrganizationManagementPanel({
 
   const disabledParentIds = useMemo(() => {
     if (!editing) return []
-    return [
-      editing.id,
-      ...descendantsOf(editing.id, organizations),
-    ]
+    return [editing.id, ...descendantsOf(editing.id, organizations)]
   }, [editing, organizations])
 
   async function save() {
@@ -275,15 +247,11 @@ export function OrganizationManagementPanel({
       const response = await fetch('/api/admin/organizations', {
         method: editing ? 'PUT' : 'POST',
         credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
 
-      const payload = (await response.json()) as {
-        error?: string
-      }
+      const payload = (await response.json()) as { error?: string }
 
       if (!response.ok) {
         throw new Error(payload.error || 'تعذر حفظ بيانات الجهة')
@@ -306,7 +274,7 @@ export function OrganizationManagementPanel({
     return (
       <div className="flex min-h-72 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white text-sm text-slate-500">
         <Loader2 className="h-5 w-5 animate-spin" />
-        جارٍ تحميل الشجرة التنظيمية...
+        جارٍ تحميل الهيكل التنظيمي...
       </div>
     )
   }
@@ -319,31 +287,26 @@ export function OrganizationManagementPanel({
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
+      <section className="grid gap-3 sm:grid-cols-3 lg:max-w-4xl">
+        <SimpleStat
+          icon={<Network className="h-5 w-5" />}
           value={organizations.length}
-          label="إجمالي الجهات داخل نطاقك"
+          label="جهة داخل نطاقك"
+        />
+        <SimpleStat
           icon={<Building2 className="h-5 w-5" />}
+          value={sectorCount}
+          label="قطاع"
         />
-        <StatCard
-          value={counts.get(2) ?? 0}
-          label="قطاعات"
-          icon={<ShieldCheck className="h-5 w-5" />}
-        />
-        <StatCard
-          value={counts.get(5) ?? 0}
-          label="مديريات صحية"
-          icon={<Building2 className="h-5 w-5" />}
-        />
-        <StatCard
-          value={(counts.get(6) ?? 0) + (counts.get(7) ?? 0)}
-          label="إدارات ووحدات فرعية"
-          icon={<ChevronDown className="h-5 w-5" />}
+        <SimpleStat
+          icon={<MapPin className="h-5 w-5" />}
+          value={directorateCount}
+          label="مديرية صحية"
         />
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-100/70">
-        <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/60 p-4 lg:flex-row lg:items-center lg:justify-between">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-1 flex-col gap-2 sm:flex-row">
             <label className="relative flex-1">
               <span className="sr-only">البحث في الجهات</span>
@@ -351,7 +314,7 @@ export function OrganizationManagementPanel({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="ابحث بالاسم أو الكود أو المحافظة..."
+                placeholder="ابحث باسم الجهة أو الكود أو المحافظة..."
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white pr-10 pl-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
             </label>
@@ -367,7 +330,7 @@ export function OrganizationManagementPanel({
               }
               className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-teal-500"
             >
-              <option value="all">كل المستويات</option>
+              <option value="all">كل أنواع الجهات</option>
               {Object.entries(LEVEL_LABELS).map(([level, label]) => (
                 <option key={level} value={level}>
                   {label}
@@ -383,21 +346,20 @@ export function OrganizationManagementPanel({
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white hover:bg-teal-800"
             >
               <Plus className="h-4 w-4" />
-              إضافة جهة فرعية
+              إضافة جهة
             </button>
           )}
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1050px] border-collapse text-right">
+          <table className="w-full min-w-[850px] border-collapse text-right">
             <thead>
-              <tr className="border-b border-slate-200 text-xs font-bold text-slate-500">
+              <tr className="border-b border-slate-100 bg-slate-50/60 text-xs font-bold text-slate-500">
                 <th className="px-5 py-3.5">الجهة</th>
-                <th className="px-5 py-3.5">المستوى</th>
+                <th className="px-5 py-3.5">النوع</th>
                 <th className="px-5 py-3.5">الجهة الأم</th>
-                <th className="px-5 py-3.5">النطاق الجغرافي</th>
-                <th className="px-5 py-3.5">القدرات التنظيمية</th>
-                <th className="px-5 py-3.5">التوابع</th>
+                <th className="px-5 py-3.5">المحافظة / النطاق</th>
+                <th className="px-5 py-3.5">الحالة</th>
                 <th className="px-5 py-3.5">الإجراءات</th>
               </tr>
             </thead>
@@ -408,75 +370,42 @@ export function OrganizationManagementPanel({
                   : null
 
                 return (
-                  <tr key={organization.id} className="hover:bg-slate-50/70">
+                  <tr key={organization.id} className="hover:bg-slate-50/60">
                     <td className="px-5 py-4">
-                      <div className="font-bold text-slate-900">
+                      <p className="font-bold text-slate-900">
                         {organization.name}
-                      </div>
-                      <div className="mt-1 font-mono text-[10px] text-slate-400">
-                        {organization.code || '—'}
-                      </div>
+                      </p>
+                      {organization.code && (
+                        <p className="mt-1 font-mono text-[10px] text-slate-400">
+                          {organization.code}
+                        </p>
+                      )}
                     </td>
-
                     <td className="px-5 py-4">
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                          LEVEL_BADGE_CLASSES[organization.level] ||
-                          LEVEL_BADGE_CLASSES[7]
-                        }`}
-                      >
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
                         {LEVEL_LABELS[organization.level] ||
                           `مستوى ${organization.level}`}
                       </span>
                     </td>
-
                     <td className="px-5 py-4 text-sm text-slate-600">
                       {parent?.name || 'جهة رئيسية'}
                     </td>
-
+                    <td className="px-5 py-4 text-sm text-slate-600">
+                      {organization.governorate ||
+                        organization.health_admin ||
+                        'نطاق مركزي'}
+                    </td>
                     <td className="px-5 py-4">
-                      <div className="text-sm text-slate-700">
-                        {organization.governorate || 'نطاق مركزي / عام'}
-                      </div>
-                      {organization.health_admin && (
-                        <div className="mt-1 text-xs text-slate-400">
-                          {organization.health_admin}
-                        </div>
+                      {organization.is_active !== false ? (
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                          نشطة
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">
+                          موقوفة
+                        </span>
                       )}
                     </td>
-
-                    <td className="px-5 py-4">
-                      <div className="flex max-w-[310px] flex-wrap gap-1.5">
-                        {organization.can_issue_missions && (
-                          <CapabilityChip label="إصدار مأموريات" />
-                        )}
-                        {organization.can_approve_missions && (
-                          <CapabilityChip label="اعتماد مأموريات" />
-                        )}
-                        {organization.can_view_all_governorate && (
-                          <CapabilityChip label="كل المحافظة" />
-                        )}
-                        {organization.can_view_sector_facilities && (
-                          <CapabilityChip label="منشآت القطاع" />
-                        )}
-                        {!organization.can_issue_missions &&
-                          !organization.can_approve_missions &&
-                          !organization.can_view_all_governorate &&
-                          !organization.can_view_sector_facilities && (
-                            <span className="text-xs text-slate-400">
-                              لا توجد قدرات إضافية
-                            </span>
-                          )}
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4 text-sm font-bold text-slate-700">
-                      {countChildren(
-                        organization.id,
-                        organizations
-                      ).toLocaleString('ar-EG')}
-                    </td>
-
                     <td className="px-5 py-4">
                       {canEdit && organization.level > 1 ? (
                         <button
@@ -507,40 +436,20 @@ export function OrganizationManagementPanel({
             return (
               <article key={organization.id} className="space-y-3 p-4">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div>
                     <h2 className="text-sm font-bold text-slate-900">
                       {organization.name}
                     </h2>
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      تابع لـ {parent?.name || 'الجهة الرئيسية'}
+                    <p className="mt-1 text-xs text-slate-500">
+                      {LEVEL_LABELS[organization.level]} •{' '}
+                      {parent?.name || 'جهة رئيسية'}
                     </p>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-bold ${
-                      LEVEL_BADGE_CLASSES[organization.level] ||
-                      LEVEL_BADGE_CLASSES[7]
-                    }`}
-                  >
-                    {LEVEL_LABELS[organization.level]}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs">
-                  <div>
-                    <span className="block text-slate-400">المحافظة</span>
-                    <span className="mt-1 block font-semibold text-slate-700">
-                      {organization.governorate || 'مركزي'}
+                  {organization.is_active !== false && (
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                      نشطة
                     </span>
-                  </div>
-                  <div>
-                    <span className="block text-slate-400">التوابع المباشرة</span>
-                    <span className="mt-1 block font-semibold text-slate-700">
-                      {countChildren(
-                        organization.id,
-                        organizations
-                      ).toLocaleString('ar-EG')}
-                    </span>
-                  </div>
+                  )}
                 </div>
 
                 {canEdit && organization.level > 1 && (
@@ -550,7 +459,7 @@ export function OrganizationManagementPanel({
                     className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700"
                   >
                     <Pencil className="h-4 w-4" />
-                    تعديل بيانات وتبعية الجهة
+                    تعديل الجهة
                   </button>
                 )}
               </article>
@@ -561,39 +470,31 @@ export function OrganizationManagementPanel({
         {filtered.length === 0 && (
           <div className="flex min-h-52 flex-col items-center justify-center px-5 py-10 text-center">
             <Building2 className="mb-3 h-9 w-9 text-slate-300" />
-            <p className="text-sm font-bold text-slate-700">
-              لا توجد جهات مطابقة
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              غيّر البحث أو فلتر المستوى التنظيمي.
-            </p>
+            <p className="text-sm font-bold text-slate-700">لا توجد جهات مطابقة</p>
           </div>
         )}
       </section>
 
       {(editing || creating) && (
         <div
-          className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/40 backdrop-blur-[1px] sm:items-center sm:p-5"
+          className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/35 sm:items-center sm:p-5"
           role="dialog"
           aria-modal="true"
           aria-labelledby="organization-editor-title"
         >
-          <div className="max-h-[94vh] w-full overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-2xl sm:rounded-2xl">
+          <div className="max-h-[92vh] w-full overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-xl sm:rounded-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
               <div>
-                <p className="mb-1 text-xs font-bold text-teal-700">
-                  الشجرة التنظيمية
+                <p className="text-xs font-bold text-teal-700">
+                  {editing ? 'تعديل جهة' : 'إضافة جهة'}
                 </p>
                 <h2
                   id="organization-editor-title"
-                  className="text-lg font-bold text-slate-900"
+                  className="mt-1 text-lg font-extrabold text-slate-900"
                 >
-                  {editing
-                    ? `تعديل بيانات وتبعية: ${editing.name}`
-                    : 'إضافة جهة فرعية جديدة'}
+                  {editing ? editing.name : 'جهة جديدة'}
                 </h2>
               </div>
-
               <button
                 type="button"
                 onClick={closeEditor}
@@ -604,70 +505,61 @@ export function OrganizationManagementPanel({
               </button>
             </div>
 
-            <div className="max-h-[calc(94vh-145px)] space-y-4 overflow-y-auto p-5">
+            <div className="max-h-[calc(92vh-140px)] space-y-4 overflow-y-auto p-5">
               {error && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                   {error}
                 </div>
               )}
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label>
-                  <span className="mb-1.5 block text-xs font-bold text-slate-600">
-                    اسم الجهة
-                  </span>
-                  <input
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  />
-                </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                  اسم الجهة
+                </span>
+                <input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+              </label>
 
-                <label>
-                  <span className="mb-1.5 block text-xs font-bold text-slate-600">
-                    كود الجهة
-                  </span>
-                  <input
-                    dir="ltr"
-                    value={code}
-                    onChange={(event) => setCode(event.target.value)}
-                    className="h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                    placeholder="ORG-CODE"
-                  />
-                </label>
-              </div>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                  كود الجهة
+                </span>
+                <input
+                  dir="ltr"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  placeholder="ORG-CODE"
+                />
+              </label>
 
               <OrganizationTreeSelect
                 organizations={parentOptions}
                 value={parentId}
                 onChange={setParentId}
-                label="الجهة الأم / التبعية التنظيمية"
-                placeholder={
-                  creating
-                    ? 'اختر الجهة التي ستتبع لها الوحدة الجديدة'
-                    : 'اختر الجهة الأم الجديدة'
-                }
+                label="الجهة الأم"
+                placeholder="اختر الجهة الأم من الشجرة"
                 disabledIds={disabledParentIds}
                 required
               />
 
               {editing && (
-                <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-900">
-                  الوحدة في المستوى {editing.level}. لذلك تظهر فقط الجهات من
-                  المستوى {editing.level - 1} كجهات أم صالحة. يمنع النظام
-                  اختيار الوحدة نفسها أو أي فرع تابع لها.
+                <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                  نوع الجهة: <strong>{LEVEL_LABELS[editing.level]}</strong>
                 </div>
               )}
 
               {canManageCapabilities && (
-                <section className="rounded-2xl border border-slate-200 p-4">
-                  <h3 className="mb-3 text-sm font-bold text-slate-900">
-                    قدرات الجهة التنظيمية
-                  </h3>
-
-                  <div className="space-y-3">
+                <details className="rounded-xl border border-slate-200">
+                  <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700">
+                    إعدادات متقدمة
+                  </summary>
+                  <div className="space-y-2 border-t border-slate-100 p-4">
                     <CapabilityToggle
-                      label="إصدار وتكليف المأموريات"
+                      label="يمكن للجهة إصدار مأموريات"
                       checked={capabilities.can_issue_missions}
                       onChange={(checked) =>
                         setCapabilities((current) => ({
@@ -677,7 +569,7 @@ export function OrganizationManagementPanel({
                       }
                     />
                     <CapabilityToggle
-                      label="اعتماد المأموريات"
+                      label="يمكن للجهة اعتماد مأموريات"
                       checked={capabilities.can_approve_missions}
                       onChange={(checked) =>
                         setCapabilities((current) => ({
@@ -687,7 +579,7 @@ export function OrganizationManagementPanel({
                       }
                     />
                     <CapabilityToggle
-                      label="رؤية منشآت المحافظة كاملة"
+                      label="رؤية منشآت المحافظة"
                       checked={capabilities.can_view_all_governorate}
                       onChange={(checked) =>
                         setCapabilities((current) => ({
@@ -707,15 +599,15 @@ export function OrganizationManagementPanel({
                       }
                     />
                   </div>
-                </section>
+                </details>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-4">
               <button
                 type="button"
                 onClick={closeEditor}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 hover:bg-slate-50"
+                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600"
               >
                 إلغاء
               </button>
@@ -726,7 +618,7 @@ export function OrganizationManagementPanel({
                 className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-700 px-5 text-sm font-bold text-white hover:bg-teal-800 disabled:opacity-50"
               >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                حفظ التعديلات
+                حفظ
               </button>
             </div>
           </div>
@@ -736,33 +628,25 @@ export function OrganizationManagementPanel({
   )
 }
 
-function StatCard({
+function SimpleStat({
+  icon,
   value,
   label,
-  icon,
 }: {
+  icon: React.ReactNode
   value: number
   label: string
-  icon: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-100/60">
-      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
         {icon}
       </div>
-      <p className="text-2xl font-black text-slate-900">
+      <p className="text-3xl font-black text-slate-900">
         {value.toLocaleString('ar-EG')}
       </p>
-      <p className="mt-1 text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-1 text-sm text-slate-500">{label}</p>
     </div>
-  )
-}
-
-function CapabilityChip({ label }: { label: string }) {
-  return (
-    <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
-      {label}
-    </span>
   )
 }
 
@@ -776,8 +660,8 @@ function CapabilityToggle({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-3">
-      <span className="text-sm font-semibold text-slate-700">{label}</span>
+    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
+      <span className="text-sm font-medium text-slate-700">{label}</span>
       <input
         type="checkbox"
         checked={checked}
