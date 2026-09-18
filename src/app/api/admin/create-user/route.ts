@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { checkV2ResourceAccess } from '@/server/authorization'
+import { requireV2Permission } from '@/server/authorization/http-guard'
+import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 // ══════════════════════════════════════════════════════════════
 // POST /api/admin/create-user
@@ -17,35 +18,8 @@ type AuthAdminUser = {
 
 export async function POST(request: Request) {
   try {
-    // ── التحقق من هوية المستخدم الحالي
-    const supabaseServer = await createServerSupabaseClient()
-    if (!supabaseServer) {
-      return NextResponse.json({ error: 'خادم الاتصال بقاعدة البيانات غير مهيأ' }, { status: 500 })
-    }
-
-    const { data: { user: caller }, error: authError } = await supabaseServer.auth.getUser()
-    if (authError || !caller) {
-      return NextResponse.json({ error: 'غير مصرح بالوصول — يرجى تسجيل الدخول' }, { status: 401 })
-    }
-
-    // ── التحقق من صلاحية الإنشاء (المستويات القيادية 1 إلى 4)
-    const { data: callerProfile, error: profileError } = await supabaseServer
-      .from('users')
-      .select('id, level, org_level, sector_id, organization_id')
-      .eq('auth_id', caller.id)
-      .maybeSingle()
-
-    if (profileError || !callerProfile) {
-      return NextResponse.json({ error: 'تعذر التحقق من صلاحياتك' }, { status: 403 })
-    }
-
-    const callerLevel = Number(callerProfile.level ?? callerProfile.org_level ?? 7)
-    if (callerLevel > 4) {
-      return NextResponse.json(
-        { error: 'غير مصرح — إنشاء المستخدمين مقتصر على الإدارات القيادية (مستوى 1 إلى 4)' },
-        { status: 403 }
-      )
-    }
+    const gate = await requireV2Permission('users.create')
+    if (!gate.ok) return gate.response
 
     // ── قراءة البيانات من الطلب
     const body = await request.json()
@@ -75,9 +49,9 @@ export async function POST(request: Request) {
     }
 
     // ── التحقق من أن الجهة المحددة ضمن نطاق صلاحية المُشغِّل
-    const { data: targetOrg } = await supabaseServer
+    const { data: targetOrg } = await getAdminSupabaseClient()
       .from('organizations')
-      .select('id, level, sector_id, name')
+      .select('id, level, sector_id, governorate, name')
       .eq('id', targetOrgId)
       .maybeSingle()
 
@@ -85,41 +59,51 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'الجهة التنظيمية المحددة غير موجودة' }, { status: 400 })
     }
 
-    const callerSectorId = callerProfile.sector_id || callerProfile.organization_id
+    const targetSectorId =
+      targetOrg.level === 2 ? targetOrg.id : targetOrg.sector_id
 
-    // المستويات القيادية (2..4) لا تستطيع إنشاء مستخدمين في قطاع آخر
-    if (
-      callerLevel > 1 &&
-      callerSectorId &&
-      targetOrg.sector_id !== callerSectorId &&
-      targetOrg.id !== callerSectorId
-    ) {
+    const scopeDecision = await checkV2ResourceAccess({
+      user: gate.user,
+      snapshot: gate.access,
+      permissionKey: 'users.create',
+      resource: {
+        organizationId: targetOrg.id,
+        sectorId: targetSectorId,
+        governorate: targetOrg.governorate ?? null,
+      },
+    })
+
+    if (!scopeDecision.allowed) {
       return NextResponse.json(
-        { error: 'لا يمكنك إنشاء مستخدمين خارج نطاق قطاعك' },
+        { error: 'لا يمكنك إنشاء مستخدمين خارج نطاقك الإداري', code: 'SCOPE_DENIED' },
         { status: 403 }
       )
     }
 
     const userLevel = Number(level || org_level || targetOrg.level || 7)
 
-    // لا يجوز للمشرف إنشاء مستخدم بمستوى أعلى من مستواه
-    if (callerLevel > 1 && userLevel < callerLevel) {
+    if (!Number.isInteger(userLevel) || userLevel < 1 || userLevel > 7) {
       return NextResponse.json(
-        { error: 'لا يمكنك إنشاء مستخدم بمستوى إداري أعلى من مستواك الوظيفي' },
+        { error: 'المستوى التنظيمي للمستخدم غير صحيح' },
+        { status: 400 }
+      )
+    }
+
+    if (userLevel < gate.user.orgLevel) {
+      return NextResponse.json(
+        { error: 'لا يمكنك إنشاء مستخدم بمستوى إداري أعلى من مستواك' },
         { status: 403 }
       )
     }
 
-    // ── إعداد عميل الخدمة الإدارية
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-    if (!supabaseUrl || !supabaseServiceKey) {
-      return NextResponse.json({ error: 'مفتاح الخدمة الإدارية غير متوفر' }, { status: 500 })
+    if (userLevel < targetOrg.level) {
+      return NextResponse.json(
+        { error: 'مستوى المستخدم لا يمكن أن يكون أعلى من مستوى الجهة التابع لها' },
+        { status: 400 }
+      )
     }
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
+    const supabaseAdmin = getAdminSupabaseClient()
 
     const normalizedEmail = String(email).trim().toLowerCase()
     const tempPassword = '123456'
@@ -202,7 +186,7 @@ export async function POST(request: Request) {
       department:         department || targetOrg.name || null,
       level:              userLevel,
       org_level:          userLevel,
-      sector_id:          targetOrg.sector_id || targetOrg.id,
+      sector_id:          targetSectorId,
       can_inspect:        can_inspect ?? true,
       direct_manager_id:  direct_manager_id || null,
       is_active:          true,
@@ -227,10 +211,11 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       data: insertedProfile,
-      message: `تم إنشاء الحساب بنجاح. كلمة المرور المؤقتة: ${tempPassword} (يجب تغييرها عند أول تسجيل دخول)`,
+      requires_role_assignment: true,
+      message: 'تم إنشاء الحساب بنجاح. يجب تغيير كلمة المرور المؤقتة عند أول تسجيل دخول، ويلزم إسناد دور V2 للمستخدم قبل منحه صلاحيات النظام الجديد.',
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error('[create-user] unexpected error', error)
-    return NextResponse.json({ error: error.message || 'خطأ غير متوقع' }, { status: 500 })
+    return NextResponse.json({ error: 'خطأ غير متوقع' }, { status: 500 })
   }
 }
