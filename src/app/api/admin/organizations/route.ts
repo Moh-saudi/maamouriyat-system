@@ -340,6 +340,47 @@ async function loadOrganization(id: string): Promise<OrganizationRow | null> {
   return (data as OrganizationRow | null) ?? null
 }
 
+async function loadOrganizationUsage(
+  organizationId: string
+): Promise<ReturnType<typeof emptyOrganizationUsage>> {
+  const admin = getAdminSupabaseClient()
+  const { data, error } = await admin
+    .from('organization_usage_stats')
+    .select(
+      'organization_id, users_total, users_active, child_organizations_total, child_organizations_active, facilities_total, facilities_active, missions_created, missions_inspector, active_role_assignments, form_templates_total, violations_total, leadership_targets_total, mission_targets_total'
+    )
+    .eq('organization_id', organizationId)
+    .maybeSingle()
+
+  if (error || !data) {
+    if (error) {
+      console.warn(
+        '[organizations] usage lookup unavailable:',
+        error.message
+      )
+    }
+    return emptyOrganizationUsage()
+  }
+
+  const row = data as OrganizationUsageRow
+
+  return {
+    usersTotal: Number(row.users_total ?? 0),
+    usersActive: Number(row.users_active ?? 0),
+    childOrganizationsTotal: Number(row.child_organizations_total ?? 0),
+    childOrganizationsActive: Number(row.child_organizations_active ?? 0),
+    facilitiesTotal: Number(row.facilities_total ?? 0),
+    facilitiesActive: Number(row.facilities_active ?? 0),
+    missionsCreated: Number(row.missions_created ?? 0),
+    missionsInspector: Number(row.missions_inspector ?? 0),
+    activeRoleAssignments: Number(row.active_role_assignments ?? 0),
+    formTemplatesTotal: Number(row.form_templates_total ?? 0),
+    violationsTotal: Number(row.violations_total ?? 0),
+    leadershipTargetsTotal: Number(row.leadership_targets_total ?? 0),
+    missionTargetsTotal: Number(row.mission_targets_total ?? 0),
+  }
+}
+
 async function authorizeOrganization(input: {
   permissionKey: string
   user: Awaited<ReturnType<typeof requireV2Permission>> extends infer T
@@ -1043,7 +1084,103 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// DELETE: soft-disable an organization only with organizations.delete and matching scope.
+// PATCH: manage organization lifecycle without deleting historical data.
+export async function PATCH(request: NextRequest) {
+  try {
+    const gate = await requireV2Permission('organizations.edit')
+    if (!gate.ok) return gate.response
+
+    const body = (await request.json()) as Record<string, unknown>
+    const id = typeof body.id === 'string' ? body.id : ''
+    const action =
+      body.action === 'deactivate' ||
+      body.action === 'reactivate' ||
+      body.action === 'archive'
+        ? body.action
+        : ''
+    const reason =
+      typeof body.reason === 'string'
+        ? body.reason.trim().slice(0, 500)
+        : ''
+
+    if (!id || !action) {
+      return NextResponse.json(
+        { error: 'الجهة والإجراء مطلوبان' },
+        { status: 400 }
+      )
+    }
+
+    const current = await loadOrganization(id)
+    if (!current) {
+      return NextResponse.json(
+        { error: 'الجهة التنظيمية غير موجودة' },
+        { status: 404 }
+      )
+    }
+
+    const scopeDecision = await authorizeOrganization({
+      permissionKey: 'organizations.edit',
+      user: gate.user,
+      access: gate.access,
+      organization: current,
+    })
+
+    if (!scopeDecision.allowed) {
+      return NextResponse.json(
+        {
+          error: 'لا يمكن تغيير حالة جهة خارج نطاقك التنظيمي',
+          code: 'SCOPE_DENIED',
+        },
+        { status: 403 }
+      )
+    }
+
+    if (action !== 'reactivate') {
+      const usage = await loadOrganizationUsage(id)
+
+      if (usage.childOrganizationsActive > 0 || usage.usersActive > 0) {
+        return NextResponse.json(
+          {
+            error:
+              'لا يمكن إيقاف أو أرشفة الجهة قبل معالجة الجهات التابعة والحسابات النشطة',
+            code: 'ORGANIZATION_HAS_ACTIVE_DEPENDENCIES',
+            usage,
+          },
+          { status: 409 }
+        )
+      }
+    }
+
+    const admin = getAdminSupabaseClient()
+    const { error } = await admin.rpc('mutate_organization_lifecycle', {
+      p_organization_id: id,
+      p_action: action,
+      p_actor_user_id: gate.user.profileId,
+      p_reason: reason || null,
+    })
+
+    if (error) {
+      console.error(
+        '[organizations:PATCH] lifecycle mutation failed:',
+        error.message
+      )
+      return NextResponse.json(
+        { error: 'تعذر تغيير حالة الجهة' },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('[organizations:PATCH] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'حدث خطأ أثناء تغيير حالة الجهة' },
+      { status: 500 }
+    )
+  }
+}
+
+// DELETE: hard-delete only a completely unused organization.
 export async function DELETE(request: NextRequest) {
   try {
     const gate = await requireV2Permission('organizations.delete')
@@ -1051,12 +1188,25 @@ export async function DELETE(request: NextRequest) {
 
     const id = new URL(request.url).searchParams.get('id')
     if (!id) {
-      return NextResponse.json({ error: 'معرف الوحدة مطلوب' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'معرف الجهة مطلوب' },
+        { status: 400 }
+      )
     }
 
     const current = await loadOrganization(id)
     if (!current) {
-      return NextResponse.json({ error: 'الوحدة التنظيمية غير موجودة' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'الجهة التنظيمية غير موجودة' },
+        { status: 404 }
+      )
+    }
+
+    if (current.organization_type_code === 'ministry') {
+      return NextResponse.json(
+        { error: 'لا يمكن حذف جهة الوزارة الرئيسية' },
+        { status: 400 }
+      )
     }
 
     const scopeDecision = await authorizeOrganization({
@@ -1068,28 +1218,87 @@ export async function DELETE(request: NextRequest) {
 
     if (!scopeDecision.allowed) {
       return NextResponse.json(
-        { error: 'لا يمكن تعطيل جهة خارج نطاقك التنظيمي', code: 'SCOPE_DENIED' },
+        {
+          error: 'لا يمكن حذف جهة خارج نطاقك التنظيمي',
+          code: 'SCOPE_DENIED',
+        },
         { status: 403 }
       )
     }
 
+    const usage = await loadOrganizationUsage(id)
+    const visibleLinkedRecords =
+      usage.usersTotal +
+      usage.childOrganizationsTotal +
+      usage.facilitiesTotal +
+      usage.missionsCreated +
+      usage.missionsInspector +
+      usage.activeRoleAssignments +
+      usage.formTemplatesTotal +
+      usage.violationsTotal +
+      usage.leadershipTargetsTotal +
+      usage.missionTargetsTotal
+
+    if (visibleLinkedRecords > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'لا يمكن حذف الجهة نهائيًا لأنها مرتبطة بسجلات تاريخية. استخدم الأرشفة بدلًا من ذلك.',
+          code: 'ORGANIZATION_HAS_LINKED_RECORDS',
+          usage,
+        },
+        { status: 409 }
+      )
+    }
+
     const admin = getAdminSupabaseClient()
-    const { error } = await admin
+    const { error: deleteError } = await admin
       .from('organizations')
-      .update({ is_active: false })
+      .delete()
       .eq('id', id)
 
-    if (error) {
-      console.error('[organizations:DELETE] update failed:', error.message)
-      return NextResponse.json({ error: 'فشل تعطيل الوحدة' }, { status: 500 })
+    if (deleteError) {
+      console.warn(
+        '[organizations:DELETE] hard delete blocked:',
+        deleteError.message
+      )
+      return NextResponse.json(
+        {
+          error:
+            'لا يمكن حذف الجهة نهائيًا لوجود ارتباطات أخرى محفوظة في النظام. استخدم الأرشفة.',
+          code: 'ORGANIZATION_DELETE_BLOCKED',
+        },
+        { status: 409 }
+      )
+    }
+
+    const { error: auditError } = await admin
+      .from('access_admin_audit')
+      .insert({
+        actor_user_id: gate.user.profileId,
+        action: 'organization.hard_deleted',
+        details: {
+          organization_id: id,
+          organization_name: current.name,
+        },
+      })
+
+    if (auditError) {
+      console.warn(
+        '[organizations:DELETE] audit failed:',
+        auditError.message
+      )
     }
 
     return NextResponse.json({
       success: true,
-      message: 'تم تعطيل الوحدة التنظيمية بنجاح.',
+      message: 'تم حذف الجهة غير المستخدمة نهائيًا.',
     })
   } catch (error) {
     console.error('[organizations:DELETE] unexpected error:', error)
-    return NextResponse.json({ error: 'خطأ غير متوقع' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'حدث خطأ أثناء حذف الجهة' },
+      { status: 500 }
+    )
   }
 }
