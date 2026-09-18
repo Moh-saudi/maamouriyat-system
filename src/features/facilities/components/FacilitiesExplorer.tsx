@@ -79,16 +79,16 @@ function canManageFacility(
   if (!management.isInformationCenter) return false
 
   return management.anchors.some((anchor) => {
-    if (anchor.level === 1) return true
+    if (anchor.organizationTypeCode === 'ministry') return true
 
-    if (anchor.level === 5) {
+    if (anchor.organizationTypeCode === 'health_directorate') {
       return Boolean(
         anchor.governorate &&
           facility.governorate === anchor.governorate
       )
     }
 
-    if (anchor.level === 6) {
+    if (anchor.organizationTypeCode === 'health_administration') {
       return facility.organizationId === anchor.organizationId
     }
 
@@ -103,16 +103,16 @@ function canManageHealthAdministration(
   if (!management.isInformationCenter) return false
 
   return management.anchors.some((anchor) => {
-    if (anchor.level === 1) return true
+    if (anchor.organizationTypeCode === 'ministry') return true
 
-    if (anchor.level === 5) {
+    if (anchor.organizationTypeCode === 'health_directorate') {
       return Boolean(
         anchor.governorate &&
           organization.governorate === anchor.governorate
       )
     }
 
-    if (anchor.level === 6) {
+    if (anchor.organizationTypeCode === 'health_administration') {
       return organization.id === anchor.organizationId
     }
 
