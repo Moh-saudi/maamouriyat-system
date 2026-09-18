@@ -579,14 +579,16 @@ function SimpleStat({
   label: string
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
-      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-teal-50 text-teal-700">
+    <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-50 text-teal-700">
         {icon}
       </div>
-      <p className="text-3xl font-black text-slate-900">
-        {value.toLocaleString('ar-EG')}
-      </p>
-      <p className="mt-1 text-sm text-slate-500">{label}</p>
+      <div>
+        <p className="text-xl font-black leading-none text-slate-900">
+          {value.toLocaleString('en-US')}
+        </p>
+        <p className="mt-1 text-[11px] text-slate-500">{label}</p>
+      </div>
     </div>
   )
 }
