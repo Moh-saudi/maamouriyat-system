@@ -30,6 +30,15 @@ type OrganizationRow = {
   can_approve_missions: boolean
   can_view_all_governorate: boolean
   can_view_sector_facilities: boolean
+  created_at?: string | null
+  created_by_user_id?: string | null
+  updated_at?: string | null
+  updated_by_user_id?: string | null
+  lifecycle_status?: string | null
+  deactivated_at?: string | null
+  deactivated_by_user_id?: string | null
+  archived_at?: string | null
+  archived_by_user_id?: string | null
   [key: string]: unknown
 }
 
@@ -252,6 +261,41 @@ function inferOrganizationTypeCode(input: {
   return 'administration'
 }
 
+type OrganizationUsageRow = {
+  organization_id: string
+  users_total: number | string | null
+  users_active: number | string | null
+  child_organizations_total: number | string | null
+  child_organizations_active: number | string | null
+  facilities_total: number | string | null
+  facilities_active: number | string | null
+  missions_created: number | string | null
+  missions_inspector: number | string | null
+  active_role_assignments: number | string | null
+  form_templates_total: number | string | null
+  violations_total: number | string | null
+  leadership_targets_total: number | string | null
+  mission_targets_total: number | string | null
+}
+
+function emptyOrganizationUsage() {
+  return {
+    usersTotal: 0,
+    usersActive: 0,
+    childOrganizationsTotal: 0,
+    childOrganizationsActive: 0,
+    facilitiesTotal: 0,
+    facilitiesActive: 0,
+    missionsCreated: 0,
+    missionsInspector: 0,
+    activeRoleAssignments: 0,
+    formTemplatesTotal: 0,
+    violationsTotal: 0,
+    leadershipTargetsTotal: 0,
+    missionTargetsTotal: 0,
+  }
+}
+
 function toResource(org: Pick<OrganizationRow, 'id' | 'sector_id' | 'governorate'>): V2ResourceScopeContext {
   return {
     organizationId: org.id,
@@ -398,6 +442,103 @@ export async function GET() {
       )
     }
 
+    const allowedIds = allowed.map((organization) => organization.id)
+    const metadataById = new Map<string, Record<string, unknown>>()
+    const usageById = new Map<string, ReturnType<typeof emptyOrganizationUsage>>()
+    const actorIds = new Set<string>()
+
+    if (allowedIds.length > 0) {
+      const { data: metadataRows, error: metadataError } = await admin
+        .from('organizations')
+        .select(
+          'id, created_at, created_by_user_id, updated_at, updated_by_user_id, lifecycle_status, deactivated_at, deactivated_by_user_id, archived_at, archived_by_user_id'
+        )
+        .in('id', allowedIds)
+
+      if (metadataError) {
+        console.warn(
+          '[organizations:GET] lifecycle metadata unavailable:',
+          metadataError.message
+        )
+      } else {
+        for (const row of metadataRows ?? []) {
+          metadataById.set(String(row.id), row as Record<string, unknown>)
+
+          for (const value of [
+            row.created_by_user_id,
+            row.updated_by_user_id,
+            row.deactivated_by_user_id,
+            row.archived_by_user_id,
+          ]) {
+            if (value) actorIds.add(String(value))
+          }
+        }
+      }
+
+      const { data: usageRows, error: usageError } = await admin
+        .from('organization_usage_stats')
+        .select(
+          'organization_id, users_total, users_active, child_organizations_total, child_organizations_active, facilities_total, facilities_active, missions_created, missions_inspector, active_role_assignments, form_templates_total, violations_total, leadership_targets_total, mission_targets_total'
+        )
+        .in('organization_id', allowedIds)
+
+      if (usageError) {
+        console.warn(
+          '[organizations:GET] usage summary unavailable:',
+          usageError.message
+        )
+      } else {
+        for (const row of (usageRows ?? []) as OrganizationUsageRow[]) {
+          usageById.set(String(row.organization_id), {
+            usersTotal: Number(row.users_total ?? 0),
+            usersActive: Number(row.users_active ?? 0),
+            childOrganizationsTotal: Number(
+              row.child_organizations_total ?? 0
+            ),
+            childOrganizationsActive: Number(
+              row.child_organizations_active ?? 0
+            ),
+            facilitiesTotal: Number(row.facilities_total ?? 0),
+            facilitiesActive: Number(row.facilities_active ?? 0),
+            missionsCreated: Number(row.missions_created ?? 0),
+            missionsInspector: Number(row.missions_inspector ?? 0),
+            activeRoleAssignments: Number(
+              row.active_role_assignments ?? 0
+            ),
+            formTemplatesTotal: Number(row.form_templates_total ?? 0),
+            violationsTotal: Number(row.violations_total ?? 0),
+            leadershipTargetsTotal: Number(
+              row.leadership_targets_total ?? 0
+            ),
+            missionTargetsTotal: Number(row.mission_targets_total ?? 0),
+          })
+        }
+      }
+    }
+
+    const actorNameById = new Map<string, string>()
+
+    if (actorIds.size > 0) {
+      const { data: actors, error: actorsError } = await admin
+        .from('users')
+        .select('id, full_name')
+        .in('id', [...actorIds])
+
+      if (actorsError) {
+        console.warn(
+          '[organizations:GET] actor names unavailable:',
+          actorsError.message
+        )
+      } else {
+        for (const actor of actors ?? []) {
+          actorNameById.set(
+            String(actor.id),
+            String(actor.full_name || 'مستخدم')
+          )
+        }
+      }
+    }
+
     const typeNameByCode = new Map(
       FALLBACK_ORGANIZATION_TYPES.map((item) => [
         item.code,
@@ -407,12 +548,63 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      data: allowed.map((organization) => ({
-        ...organization,
-        organization_type_name_ar:
-          typeNameByCode.get(organization.organization_type_code) ||
-          'جهة تنظيمية',
-      })),
+      data: allowed.map((organization) => {
+        const metadata = metadataById.get(organization.id) ?? {}
+        const createdById = metadata.created_by_user_id
+          ? String(metadata.created_by_user_id)
+          : null
+        const updatedById = metadata.updated_by_user_id
+          ? String(metadata.updated_by_user_id)
+          : null
+        const deactivatedById = metadata.deactivated_by_user_id
+          ? String(metadata.deactivated_by_user_id)
+          : null
+        const archivedById = metadata.archived_by_user_id
+          ? String(metadata.archived_by_user_id)
+          : null
+
+        return {
+          ...organization,
+          organization_type_name_ar:
+            typeNameByCode.get(organization.organization_type_code) ||
+            'جهة تنظيمية',
+          lifecycle_status:
+            typeof metadata.lifecycle_status === 'string'
+              ? metadata.lifecycle_status
+              : organization.is_active === false
+                ? 'inactive'
+                : 'active',
+          created_at:
+            typeof metadata.created_at === 'string'
+              ? metadata.created_at
+              : null,
+          created_by_name: createdById
+            ? actorNameById.get(createdById) || null
+            : null,
+          updated_at:
+            typeof metadata.updated_at === 'string'
+              ? metadata.updated_at
+              : null,
+          updated_by_name: updatedById
+            ? actorNameById.get(updatedById) || null
+            : null,
+          deactivated_at:
+            typeof metadata.deactivated_at === 'string'
+              ? metadata.deactivated_at
+              : null,
+          deactivated_by_name: deactivatedById
+            ? actorNameById.get(deactivatedById) || null
+            : null,
+          archived_at:
+            typeof metadata.archived_at === 'string'
+              ? metadata.archived_at
+              : null,
+          archived_by_name: archivedById
+            ? actorNameById.get(archivedById) || null
+            : null,
+          usage: usageById.get(organization.id) ?? emptyOrganizationUsage(),
+        }
+      }),
       organizationTypes: FALLBACK_ORGANIZATION_TYPES.map((item) => ({
         code: item.code,
         nameAr: item.display_name_ar,
@@ -571,6 +763,8 @@ export async function POST(request: NextRequest) {
             ? body.governorate.trim() || null
             : null
           : parent.governorate,
+      created_by_user_id: gate.user.profileId,
+      lifecycle_status: 'active',
       health_admin:
         requestedType === 'health_administration'
           ? typeof body.health_admin === 'string' &&
@@ -601,6 +795,23 @@ export async function POST(request: NextRequest) {
     }
 
     const insertedOrg = inserted as OrganizationRow
+
+    const { error: auditError } = await admin
+      .from('organization_change_audit')
+      .insert({
+        organization_id: insertedOrg.id,
+        actor_user_id: gate.user.profileId,
+        action: 'create',
+        after_data: insertedOrg,
+      })
+
+    if (auditError) {
+      console.warn(
+        '[organizations:POST] create audit failed:',
+        auditError.message
+      )
+    }
+
     return NextResponse.json({
       success: true,
       data: insertedOrg,
@@ -749,7 +960,10 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    const updatePayload: Record<string, unknown> = {}
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+      updated_by_user_id: gate.user.profileId,
+    }
 
     if (typeof body.name === 'string') updatePayload.name = body.name.trim()
     if (typeof body.code === 'string') updatePayload.code = body.code.trim().toUpperCase()
@@ -800,6 +1014,24 @@ export async function PUT(request: NextRequest) {
     }
 
     const updatedOrg = updated
+
+    const { error: auditError } = await admin
+      .from('organization_change_audit')
+      .insert({
+        organization_id: updatedOrg.id,
+        actor_user_id: gate.user.profileId,
+        action: 'update',
+        before_data: current,
+        after_data: updatedOrg,
+      })
+
+    if (auditError) {
+      console.warn(
+        '[organizations:PUT] update audit failed:',
+        auditError.message
+      )
+    }
+
     return NextResponse.json({
       success: true,
       data: updatedOrg,
