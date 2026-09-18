@@ -123,11 +123,12 @@ export function CreateUserDialog({
         error?: string
       }
 
-      if (!response.ok || !payload.data?.id) {
+      const userId = payload.data?.id
+
+      if (!response.ok || !userId) {
         throw new Error(payload.error || 'تعذر إنشاء الحساب')
       }
 
-      const userId = payload.data.id
       setCreatedUserId(userId)
 
       if (canAssignRole) {
