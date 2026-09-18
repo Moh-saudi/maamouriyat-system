@@ -181,18 +181,19 @@ async function loadHealthAdministrations(): Promise<
     }))
 }
 
-export async function loadV2FacilityDirectory(): Promise<V2FacilityDirectoryData> {
-  const [
-    facilityRows,
-    visitStats,
-    latestAudit,
-    healthAdministrations,
-  ] = await Promise.all([
-    loadAllFacilities(),
-    loadVisitStats(),
-    loadLatestAuditSummaries(),
-    loadHealthAdministrations(),
-  ])
+export async function loadV2FacilityDirectory(input?: {
+  includeAuditSummary?: boolean
+}): Promise<V2FacilityDirectoryData> {
+  const [facilityRows, visitStats, healthAdministrations] =
+    await Promise.all([
+      loadAllFacilities(),
+      loadVisitStats(),
+      loadHealthAdministrations(),
+    ])
+
+  const latestAudit = input?.includeAuditSummary
+    ? await loadLatestAuditSummaries()
+    : new Map<string, LatestAuditRow>()
 
   const facilities: V2FacilityDirectoryItem[] = facilityRows.map((row) => {
     const stats = visitStats.get(String(row.id))
