@@ -14,6 +14,10 @@ import {
   CascadingOrganizationSelect,
   type CascadingOrganizationOption,
 } from '@/components/ui/CascadingOrganizationSelect'
+import {
+  ROLE_TEMPLATE_CATALOG,
+  type RoleTemplateDefinition,
+} from '@/config/role-templates'
 
 const SCOPE_LABELS: Record<string, string> = {
   self: 'المستخدم نفسه',
@@ -124,6 +128,7 @@ export function RoleManagementPanel() {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<RoleDraft>(emptyDraft)
   const [expandedRoleId, setExpandedRoleId] = useState<string | null>(null)
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -175,6 +180,7 @@ export function RoleManagementPanel() {
 
   function startCreate() {
     setDraft(emptyDraft())
+    setSelectedTemplateId('')
     setEditing(true)
     setError(null)
   }
@@ -182,6 +188,7 @@ export function RoleManagementPanel() {
   function startEdit(role: Role) {
     if (role.is_system || !data) return
     setDraft(createDraft(role, data.grants))
+    setSelectedTemplateId('')
     setEditing(true)
     setError(null)
   }
@@ -189,6 +196,7 @@ export function RoleManagementPanel() {
   function cancelEdit() {
     setEditing(false)
     setDraft(emptyDraft())
+    setSelectedTemplateId('')
     setError(null)
   }
 
@@ -222,6 +230,74 @@ export function RoleManagementPanel() {
       grants.set(permissionKey, scopeType)
       return { ...current, grants }
     })
+  }
+
+  function pickDelegableScope(
+    permissionKey: string,
+    preferredScopes: readonly string[]
+  ): string | null {
+    if (!data) return null
+
+    const allowedScopes = data.delegationScopes[permissionKey] ?? []
+
+    for (const scope of preferredScopes) {
+      if (allowedScopes.includes(scope)) return scope
+    }
+
+    return allowedScopes[0] ?? null
+  }
+
+  function applyRoleTemplate(template: RoleTemplateDefinition) {
+    if (!data) return
+
+    const grants = new Map<string, string>()
+
+    if (template.sourceSystemRoleCode) {
+      const sourceRole = data.roles.find(
+        (role) => role.code === template.sourceSystemRoleCode
+      )
+
+      if (sourceRole) {
+        for (const grant of data.grants.filter(
+          (item) => item.role_id === sourceRole.id
+        )) {
+          const allowedScopes =
+            data.delegationScopes[grant.permission_key] ?? []
+
+          const scope = allowedScopes.includes(grant.scope_type)
+            ? grant.scope_type
+            : allowedScopes[0]
+
+          if (scope) grants.set(grant.permission_key, scope)
+        }
+      }
+    } else {
+      for (const permissionKey of template.permissionKeys ?? []) {
+        const scope = pickDelegableScope(
+          permissionKey,
+          template.preferredScope ?? [
+            'organization_tree',
+            'organization',
+            'governorate',
+            'sector',
+            'national',
+            'assigned',
+            'self',
+          ]
+        )
+
+        if (scope) grants.set(permissionKey, scope)
+      }
+    }
+
+    setSelectedTemplateId(template.id)
+    setDraft((current) => ({
+      ...current,
+      nameAr: template.label,
+      descriptionAr: template.description,
+      grants,
+    }))
+    setError(null)
   }
 
   async function saveRole() {
@@ -333,6 +409,15 @@ export function RoleManagementPanel() {
 
   const activeRoles = data.roles.filter((role) => role.is_active)
 
+  const selectedPageLabels = Array.from(
+    new Set(
+      Array.from(draft.grants.keys())
+        .map((permissionKey) => permissionByKey.get(permissionKey)?.module)
+        .filter((module): module is string => Boolean(module))
+        .map((module) => MODULE_LABELS[module] || 'صفحة إضافية')
+    )
+  )
+
   return (
     <div className="space-y-4">
       {error && (
@@ -364,6 +449,59 @@ export function RoleManagementPanel() {
 
           <div className="grid gap-4 p-4 lg:grid-cols-2">
             <div className="space-y-3">
+              {!draft.roleId && (
+                <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                  <div className="mb-2">
+                    <p className="text-xs font-bold text-slate-700">
+                      ابدأ من نوع عمل معروف
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-4 text-slate-400">
+                      اختر قالبًا لملء الصفحات والصلاحيات المقترحة تلقائيًا، ثم عدّل ما تحتاجه.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {ROLE_TEMPLATE_CATALOG.map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => applyRoleTemplate(template)}
+                        className={`rounded-lg border px-3 py-2.5 text-right transition ${
+                          selectedTemplateId === template.id
+                            ? 'border-teal-300 bg-teal-50'
+                            : 'border-slate-200 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        <span className="block text-xs font-bold text-slate-800">
+                          {template.label}
+                        </span>
+                        <span className="mt-1 block text-[10px] leading-4 text-slate-500">
+                          {template.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {selectedPageLabels.length > 0 && (
+                <section className="rounded-xl border border-teal-100 bg-teal-50/50 p-3">
+                  <p className="mb-2 text-[11px] font-bold text-teal-800">
+                    الصفحات المقترحة لهذا النوع
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedPageLabels.map((pageLabel) => (
+                      <span
+                        key={pageLabel}
+                        className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold text-teal-800 ring-1 ring-teal-100"
+                      >
+                        {pageLabel}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <label className="block">
                 <span className="mb-1 block text-[11px] font-bold text-slate-600">
                   اسم نوع العمل
@@ -422,7 +560,7 @@ export function RoleManagementPanel() {
                 {permissionGroups.map(([module, permissions]) => (
                   <section key={module}>
                     <h3 className="mb-2 text-[11px] font-extrabold text-slate-500">
-                      {MODULE_LABELS[module] || module}
+                      {MODULE_LABELS[module] || 'مجموعة صلاحيات'}
                     </h3>
 
                     <div className="space-y-1.5">
@@ -608,13 +746,11 @@ export function RoleManagementPanel() {
                               className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600"
                             >
                               <strong className="font-bold text-slate-700">
-                                {permission?.display_name_ar ||
-                                  grant.permission_key}
+                                {permission?.display_name_ar || 'صلاحية داخلية'}
                               </strong>
                               <span className="text-slate-300">•</span>
                               <span>
-                                {SCOPE_LABELS[grant.scope_type] ||
-                                  grant.scope_type}
+                                {SCOPE_LABELS[grant.scope_type] || 'نطاق محدد'}
                               </span>
                             </span>
                           )
