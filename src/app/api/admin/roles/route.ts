@@ -62,7 +62,7 @@ async function authorizeRoleOwner(input: {
   const admin = getAdminSupabaseClient()
   const { data, error } = await admin
     .from('organizations')
-    .select('id, level, sector_id, governorate')
+    .select('id, level, organization_type_code, sector_id, governorate')
     .eq('id', input.ownerOrganizationId)
     .maybeSingle()
 
@@ -75,7 +75,7 @@ async function authorizeRoleOwner(input: {
     resource: {
       organizationId: String(data.id),
       sectorId:
-        Number(data.level) === 2
+        data.organization_type_code === 'sector'
           ? String(data.id)
           : data.sector_id
             ? String(data.sector_id)
@@ -177,13 +177,14 @@ export async function GET() {
       parent_id: string | null
       sector_id: string | null
       governorate: string | null
+      organization_type_code: string | null
     }> = []
 
     if (canManageRoles) {
       const { data: organizationRows, error: organizationsError } = await admin
         .from('organizations')
         .select(
-          'id, name, code, level, level_label, parent_id, sector_id, governorate'
+          'id, name, code, level, level_label, organization_type_code, parent_id, sector_id, governorate'
         )
         .eq('is_active', true)
         .order('level')
@@ -217,6 +218,10 @@ export async function GET() {
                 ? organization.governorate
                 : null,
             level: Number(organization.level),
+            organizationTypeCode:
+              typeof organization.organization_type_code === 'string'
+                ? organization.organization_type_code
+                : null,
           },
         ])
       )
@@ -230,7 +235,7 @@ export async function GET() {
             resource: {
               organizationId: String(organization.id),
               sectorId:
-                Number(organization.level) === 2
+                organization.organization_type_code === 'sector'
                   ? String(organization.id)
                   : organization.sector_id
                     ? String(organization.sector_id)
@@ -258,6 +263,10 @@ export async function GET() {
           governorate:
             typeof organization.governorate === 'string'
               ? organization.governorate
+              : null,
+          organization_type_code:
+            typeof organization.organization_type_code === 'string'
+              ? organization.organization_type_code
               : null,
         }))
     }
