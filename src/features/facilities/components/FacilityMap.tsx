@@ -280,13 +280,14 @@ export function FacilityMap({
   useEffect(() => {
     if (!leafletReady || !window.L || !mapRef.current) return
 
+    const map = mapRef.current
     const selected = selectedFacilityId
       ? facilities.find((item) => item.id === selectedFacilityId)
       : null
 
     if (!selected || !validCoordinates(selected)) return
 
-    mapRef.current.setView(
+    map.setView(
       [selected.latitude, selected.longitude],
       14,
       { animate: true }
@@ -298,12 +299,15 @@ export function FacilityMap({
   useEffect(() => {
     if (!leafletReady || !window.L || !mapRef.current) return
 
+    const L = window.L
+    const map = mapRef.current
+
     pickedMarkerRef.current?.remove()
     pickedMarkerRef.current = null
 
     if (!pickedLocation) return
 
-    pickedMarkerRef.current = window.L
+    pickedMarkerRef.current = L
       .circleMarker(
         [pickedLocation.latitude, pickedLocation.longitude],
         {
@@ -314,9 +318,9 @@ export function FacilityMap({
           fillOpacity: 1,
         }
       )
-      .addTo(mapRef.current)
+      .addTo(map)
 
-    mapRef.current.setView(
+    map.setView(
       [pickedLocation.latitude, pickedLocation.longitude],
       15,
       { animate: true }
