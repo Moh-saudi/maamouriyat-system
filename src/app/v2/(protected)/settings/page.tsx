@@ -1,6 +1,8 @@
 import { V2Placeholder } from '@/components/ui/V2Placeholder'
+import { requireV2PagePermission } from '@/server/authorization/page-guard'
 
-export default function V2SettingsPage() {
+export default async function V2SettingsPage() {
+  await requireV2PagePermission('settings.view')
   return (
     <V2Placeholder
       title="الإعدادات والنظام"
