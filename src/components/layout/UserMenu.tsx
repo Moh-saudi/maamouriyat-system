@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { User, Settings, LogOut, ChevronDown } from 'lucide-react'
 import { logoutAction } from '@/server/auth/actions'
+import { RoleAvatar } from '@/components/ui/RoleAvatar'
 
 export interface UserMenuProps {
   /** Placeholder or future authenticated name */
@@ -12,15 +13,15 @@ export interface UserMenuProps {
   jobTitle?: string
   /** Assigned organization / sector */
   organization?: string
-  /** Initials for avatar */
-  initials?: string
+  /** Primary V2 role used only to choose a visual avatar */
+  roleCode?: string | null
 }
 
 export function UserMenu({
   name = 'حساب المستخدم',
   jobTitle = 'منظومة المأموريات V2',
   organization = 'وزارة الصحة والسكان',
-  initials = 'م',
+  roleCode = null,
 }: UserMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -63,10 +64,7 @@ export function UserMenu({
         onClick={() => setIsOpen((prev) => !prev)}
         className="flex items-center gap-2 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-teal-600 transition-colors border border-transparent hover:border-slate-200"
       >
-        {/* Avatar Circle */}
-        <div className="w-8 h-8 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-          {initials}
-        </div>
+        <RoleAvatar roleCode={roleCode} size="sm" />
 
         {/* User Details (Desktop only) */}
         <div className="hidden sm:flex flex-col text-right leading-tight">
