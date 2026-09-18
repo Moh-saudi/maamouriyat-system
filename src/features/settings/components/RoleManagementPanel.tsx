@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   ShieldCheck,
   KeyRound,
@@ -729,7 +729,7 @@ function SummaryCard({
   value,
   label,
 }: {
-  icon: React.ReactNode
+  icon: ReactNode
   value: number
   label: string
 }) {
