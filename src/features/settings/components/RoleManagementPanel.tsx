@@ -245,6 +245,11 @@ export function RoleManagementPanel() {
         })
       )
 
+      const roleCode =
+        draft.roleId && draft.code
+          ? draft.code
+          : `custom_${Date.now().toString(36)}`
+
       const response = await fetch('/api/admin/roles', {
         method: 'POST',
         credentials: 'same-origin',
