@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 export type BreadcrumbItem = {
   label: string
@@ -23,24 +23,23 @@ export function PageHeader({
   className = '',
 }: PageHeaderProps) {
   return (
-    <header className={`w-full pb-5 mb-6 border-b border-slate-200/80 ${className}`}>
-      {/* Breadcrumbs (if provided) */}
+    <header className={`mb-6 w-full ${className}`}>
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav aria-label="Breadcrumb" className="mb-2">
-          <ol className="flex items-center gap-1.5 text-xs text-slate-500">
-            {breadcrumbs.map((crumb, idx) => {
-              const isLast = idx === breadcrumbs.length - 1
+          <ol className="flex items-center gap-1.5 text-xs text-slate-400">
+            {breadcrumbs.map((crumb, index) => {
+              const isLast = index === breadcrumbs.length - 1
               return (
                 <li key={crumb.label} className="flex items-center gap-1.5">
                   {crumb.href && !isLast ? (
                     <a
                       href={crumb.href}
-                      className="hover:text-teal-700 transition-colors"
+                      className="transition-colors hover:text-teal-700"
                     >
                       {crumb.label}
                     </a>
                   ) : (
-                    <span className={isLast ? 'font-semibold text-slate-800' : ''}>
+                    <span className={isLast ? 'font-semibold text-slate-600' : ''}>
                       {crumb.label}
                     </span>
                   )}
@@ -52,27 +51,23 @@ export function PageHeader({
         </nav>
       )}
 
-      {/* Main Header Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-black tracking-tight text-slate-950 sm:text-[28px]">
               {title}
             </h1>
             {badge}
           </div>
           {description && (
-            <p className="text-sm text-slate-500 leading-relaxed max-w-3xl">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
               {description}
             </p>
           )}
         </div>
 
-        {/* Actions slot */}
         {actions && (
-          <div className="flex items-center gap-2.5 shrink-0">
-            {actions}
-          </div>
+          <div className="flex shrink-0 items-center gap-2">{actions}</div>
         )}
       </div>
     </header>
