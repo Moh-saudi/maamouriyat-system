@@ -8,19 +8,11 @@ export type CascadingOrganizationOption = {
   code: string | null
   level: number
   level_label: string
+  organization_type_code?: string | null
+  organization_type_name_ar?: string | null
   parent_id: string | null
   sector_id: string | null
   governorate: string | null
-}
-
-const LEVEL_LABELS: Record<number, string> = {
-  1: 'الوزارة',
-  2: 'القطاع',
-  3: 'الإدارة المركزية',
-  4: 'الإدارة العامة',
-  5: 'مديرية الشؤون الصحية',
-  6: 'الإدارة الصحية / الجهة التابعة',
-  7: 'الوحدة التابعة',
 }
 
 function sortOptions(
@@ -29,8 +21,21 @@ function sortOptions(
   return [...options].sort((a, b) => a.name.localeCompare(b.name, 'ar'))
 }
 
-function levelLabel(level: number): string {
-  return LEVEL_LABELS[level] || `المستوى التنظيمي ${level}`
+function selectorLabel(
+  options: readonly CascadingOrganizationOption[],
+  depth: number
+): string {
+  const typeNames = [
+    ...new Set(
+      options
+        .map((item) => item.organization_type_name_ar?.trim() || '')
+        .filter(Boolean)
+    ),
+  ]
+
+  if (typeNames.length === 1) return typeNames[0]
+  if (depth === 0) return 'الجهة الرئيسية'
+  return 'الجهة التابعة'
 }
 
 interface CascadingOrganizationSelectProps {
@@ -59,16 +64,15 @@ export function CascadingOrganizationSelect({
     [organizations]
   )
 
-  const ministryRoots = useMemo(
-    () => sortOptions(organizations.filter((item) => item.level === 1)),
-    [organizations]
+  const roots = useMemo(
+    () =>
+      sortOptions(
+        organizations.filter(
+          (item) => !item.parent_id || !byId.has(item.parent_id)
+        )
+      ),
+    [organizations, byId]
   )
-
-  const ministryChildren = useMemo(() => {
-    const sectors = organizations.filter((item) => item.level === 2)
-    const directorates = organizations.filter((item) => item.level === 5)
-    return sortOptions([...sectors, ...directorates])
-  }, [organizations])
 
   const childrenByParent = useMemo(() => {
     const map = new Map<string, CascadingOrganizationOption[]>()
@@ -94,38 +98,19 @@ export function CascadingOrganizationSelect({
     if (!selected) return []
 
     const path: CascadingOrganizationOption[] = []
-
-    if (selected.level >= 5) {
-      const ministry = ministryRoots[0]
-      const regionalPath: CascadingOrganizationOption[] = []
-      let current: CascadingOrganizationOption | undefined = selected
-      const visited = new Set<string>()
-
-      while (current && !visited.has(current.id)) {
-        visited.add(current.id)
-        regionalPath.unshift(current)
-        if (current.level === 5) break
-        if (!current.parent_id) break
-        current = byId.get(current.parent_id)
-      }
-
-      return ministry
-        ? [ministry, ...regionalPath.filter((item) => item.level >= 5)]
-        : regionalPath
-    }
-
-    let current: CascadingOrganizationOption | undefined = selected
     const visited = new Set<string>()
+    let current: CascadingOrganizationOption | undefined = selected
 
     while (current && !visited.has(current.id)) {
       visited.add(current.id)
       path.unshift(current)
+
       if (!current.parent_id) break
       current = byId.get(current.parent_id)
     }
 
     return path
-  }, [value, byId, ministryRoots])
+  }, [value, byId])
 
   const disabled = useMemo(() => new Set(disabledIds), [disabledIds])
 
@@ -136,53 +121,27 @@ export function CascadingOrganizationSelect({
     label: string
   }> = []
 
-  if (ministryRoots.length > 0) {
+  if (roots.length > 0) {
     selectors.push({
-      key: 'ministry',
-      options: ministryRoots,
-      selectedId: selectedPath.find((item) => item.level === 1)?.id ?? '',
-      label: 'الوزارة',
+      key: 'root',
+      options: roots,
+      selectedId: selectedPath[0]?.id ?? '',
+      label: selectorLabel(roots, 0),
     })
   }
 
-  if (selectedPath.some((item) => item.level === 1) && ministryChildren.length > 0) {
-    const selectedBranch = selectedPath.find(
-      (item) => item.level === 2 || item.level === 5
-    )
+  for (let depth = 0; depth < selectedPath.length; depth += 1) {
+    const parent = selectedPath[depth]
+    const children = childrenByParent.get(parent.id) ?? []
+
+    if (children.length === 0) continue
 
     selectors.push({
-      key: 'ministry-child',
-      options: ministryChildren,
-      selectedId: selectedBranch?.id ?? '',
-      label: 'الجهة التابعة للوزارة',
+      key: `children-${parent.id}`,
+      options: children,
+      selectedId: selectedPath[depth + 1]?.id ?? '',
+      label: selectorLabel(children, depth + 1),
     })
-  }
-
-  const selectedBranch = selectedPath.find(
-    (item) => item.level === 2 || item.level === 5
-  )
-
-  if (selectedBranch) {
-    const nextLevels =
-      selectedBranch.level === 2 ? [3, 4] : [6, 7]
-
-    for (const level of nextLevels) {
-      const parent = selectedPath.find((item) => item.level === level - 1)
-      if (!parent) continue
-
-      const options = (childrenByParent.get(parent.id) ?? []).filter(
-        (item) => item.level === level
-      )
-
-      if (options.length === 0) continue
-
-      selectors.push({
-        key: `level-${level}`,
-        options,
-        selectedId: selectedPath.find((item) => item.level === level)?.id ?? '',
-        label: levelLabel(level),
-      })
-    }
   }
 
   function handleSelection(selectorIndex: number, selectedId: string) {
@@ -193,7 +152,7 @@ export function CascadingOrganizationSelect({
       }
 
       const previousSelector = selectors[selectorIndex - 1]
-      onChange(previousSelector?.selectedId || ministryRoots[0]?.id || null)
+      onChange(previousSelector?.selectedId || null)
       return
     }
 
@@ -251,6 +210,9 @@ export function CascadingOrganizationSelect({
       {selectedOrganization && (
         <div className="rounded-lg bg-teal-50/70 px-3 py-2 text-[11px] font-semibold text-teal-800">
           الجهة المختارة: {selectedOrganization.name}
+          {selectedOrganization.organization_type_name_ar
+            ? ` — ${selectedOrganization.organization_type_name_ar}`
+            : ''}
         </div>
       )}
 
