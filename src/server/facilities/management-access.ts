@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { hasV2Permission } from '@/server/authorization'
+import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import type { V2AuthenticatedUser } from '@/server/auth/types'
 import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
@@ -28,6 +29,82 @@ export type FacilityManagementResource = {
   governorate: string | null
 }
 
+const MINISTRY_FALLBACK_BLOCKED_TYPES = new Set([
+  'sector',
+  'central_administration',
+  'general_administration',
+])
+
+function resolveFacilityManagementAnchor(input: {
+  assignmentOrganizationId: string
+  facts: Awaited<ReturnType<typeof loadV2OrganizationFacts>>
+  activeOrganizationIds: ReadonlySet<string>
+}): FacilityManagementAnchor | null {
+  const { assignmentOrganizationId, facts, activeOrganizationIds } = input
+
+  let currentId: string | null = assignmentOrganizationId
+  let crossedCentralBranch = false
+  const visited = new Set<string>()
+
+  while (currentId) {
+    if (visited.has(currentId)) return null
+    visited.add(currentId)
+
+    const fact = facts.get(currentId)
+    if (!fact || !activeOrganizationIds.has(currentId)) return null
+
+    const organizationTypeCode = fact.organizationTypeCode
+
+    if (organizationTypeCode === 'health_administration') {
+      return {
+        organizationId: fact.id,
+        organizationTypeCode,
+        governorate: fact.governorate,
+      }
+    }
+
+    if (organizationTypeCode === 'health_directorate') {
+      if (!fact.governorate) return null
+
+      return {
+        organizationId: fact.id,
+        organizationTypeCode,
+        governorate: fact.governorate,
+      }
+    }
+
+    if (organizationTypeCode === 'ministry') {
+      // A role assigned directly to the ministry is always explicit. For a
+      // ministry-level Information Center represented by a simple child unit,
+      // allow the direct ancestry fallback only when the path did not pass
+      // through a central sector/administration branch first.
+      if (
+        currentId !== assignmentOrganizationId &&
+        crossedCentralBranch
+      ) {
+        return null
+      }
+
+      return {
+        organizationId: fact.id,
+        organizationTypeCode,
+        governorate: fact.governorate,
+      }
+    }
+
+    if (
+      organizationTypeCode &&
+      MINISTRY_FALLBACK_BLOCKED_TYPES.has(organizationTypeCode)
+    ) {
+      crossedCentralBranch = true
+    }
+
+    currentId = fact.parentId
+  }
+
+  return null
+}
+
 export async function getFacilityManagementCapabilities(input: {
   user: V2AuthenticatedUser
   access: V2AuthorizationSnapshot
@@ -47,7 +124,7 @@ export async function getFacilityManagementCapabilities(input: {
     }
   }
 
-  const anchorIds = [
+  const assignmentOrganizationIds = [
     ...new Set(
       informationCenterAssignments
         .map(
@@ -58,7 +135,7 @@ export async function getFacilityManagementCapabilities(input: {
     ),
   ]
 
-  if (anchorIds.length === 0) {
+  if (assignmentOrganizationIds.length === 0) {
     return {
       isInformationCenter: true,
       canCreate: false,
@@ -69,50 +146,42 @@ export async function getFacilityManagementCapabilities(input: {
     }
   }
 
-  const admin = getAdminSupabaseClient()
-  const { data, error } = await admin
-    .from('organizations')
-    .select('id, organization_type_code, governorate')
-    .in('id', anchorIds)
-    .eq('is_active', true)
+  const facts = await loadV2OrganizationFacts(assignmentOrganizationIds)
+  const factIds = [...facts.keys()]
 
-  if (error) {
+  const admin = getAdminSupabaseClient()
+  const { data: activeRows, error: activeRowsError } = await admin
+    .from('organizations')
+    .select('id, is_active')
+    .in('id', factIds)
+
+  if (activeRowsError) {
     throw new Error(
-      `[Facility Management] Failed to load information-center anchors: ${error.message}`
+      `[Facility Management] Failed to validate information-center ancestry: ${activeRowsError.message}`
     )
   }
 
-  // Facility data correction is intentionally supported only from the
-  // ministry, directorate, and health-administration branches. Central-sector
-  // hierarchy must not accidentally become an ownership boundary for regional
-  // facilities.
-  const anchors: FacilityManagementAnchor[] = (data ?? [])
-    .flatMap((row) => {
-      const organizationTypeCode =
-        typeof row.organization_type_code === 'string'
-          ? row.organization_type_code
-          : ''
+  const activeOrganizationIds = new Set(
+    (activeRows ?? [])
+      .filter((row) => row.is_active === true)
+      .map((row) => String(row.id))
+  )
 
-      if (
-        organizationTypeCode !== 'ministry' &&
-        organizationTypeCode !== 'health_directorate' &&
-        organizationTypeCode !== 'health_administration'
-      ) {
-        return []
-      }
+  const anchorsById = new Map<string, FacilityManagementAnchor>()
 
-      return [
-        {
-          organizationId: String(row.id),
-          organizationTypeCode,
-          governorate:
-            typeof row.governorate === 'string' && row.governorate.trim()
-              ? row.governorate.trim()
-              : null,
-        },
-      ]
+  for (const assignmentOrganizationId of assignmentOrganizationIds) {
+    const anchor = resolveFacilityManagementAnchor({
+      assignmentOrganizationId,
+      facts,
+      activeOrganizationIds,
     })
 
+    if (anchor) {
+      anchorsById.set(anchor.organizationId, anchor)
+    }
+  }
+
+  const anchors = [...anchorsById.values()]
   const hasEligibleAnchor = anchors.length > 0
 
   return {
