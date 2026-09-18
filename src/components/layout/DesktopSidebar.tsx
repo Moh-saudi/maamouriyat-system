@@ -38,7 +38,7 @@ export function DesktopSidebar({
         collapsed ? 'w-[76px]' : 'w-[76px] lg:w-[276px]'
       }`}
     >
-      <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-slate-100 px-3">
+      <div className="flex h-[60px] shrink-0 items-center justify-between border-b border-slate-100 px-3">
         <Link
           href={homeHref}
           className="flex min-w-0 items-center gap-3 rounded-xl p-1 focus-visible:outline-2 focus-visible:outline-teal-600"
