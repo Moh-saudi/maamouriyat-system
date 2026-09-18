@@ -21,24 +21,8 @@ export const ROLE_TEMPLATE_CATALOG: readonly RoleTemplateDefinition[] = [
     id: 'information_center',
     label: 'مسؤول مركز معلومات',
     description:
-      'إدارة حسابات المستخدمين والدعم التشغيلي للمنظومة داخل نطاق الجهة، بدون صلاحيات تفتيش ميداني.',
-    permissionKeys: [
-      'dashboard.view',
-      'organizations.view',
-      'users.view',
-      'users.create',
-      'users.edit',
-      'users.deactivate',
-      'users.reset_password',
-      'users.assign_role',
-    ],
-    preferredScope: [
-      'organization_tree',
-      'organization',
-      'governorate',
-      'sector',
-      'national',
-    ],
+      'إدارة الحسابات والدعم التشغيلي وتصحيح بيانات المنشآت داخل النطاق الإداري المسموح، بدون صلاحيات تفتيش ميداني.',
+    sourceSystemRoleCode: 'information_center',
   },
   {
     id: 'field_inspector',
