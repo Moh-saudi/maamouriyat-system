@@ -222,6 +222,36 @@ function isAllowedTypeRelation(input: {
   )
 }
 
+function inferOrganizationTypeCode(input: {
+  levelLabel: string
+  name: string
+  healthAdmin: string | null
+}): string {
+  if (input.levelLabel === 'ministry') return 'ministry'
+  if (input.levelLabel === 'sector') return 'sector'
+  if (input.levelLabel === 'central_admin') return 'central_administration'
+  if (input.levelLabel === 'general_admin') return 'general_administration'
+  if (input.levelLabel === 'directorate') return 'health_directorate'
+
+  if (input.levelLabel === 'health_admin') {
+    if (
+      input.healthAdmin?.trim() ||
+      input.name.startsWith('الإدارة الصحية') ||
+      input.name.startsWith('إدارة صحية') ||
+      input.name.startsWith('ادارة صحية')
+    ) {
+      return 'health_administration'
+    }
+
+    return 'administration'
+  }
+
+  if (input.levelLabel === 'department') return 'department'
+  if (input.levelLabel === 'section') return 'section'
+
+  return 'administration'
+}
+
 function toResource(org: Pick<OrganizationRow, 'id' | 'sector_id' | 'governorate'>): V2ResourceScopeContext {
   return {
     organizationId: org.id,
@@ -290,15 +320,32 @@ async function authorizeOrganization(input: {
 
 // GET: return organizations inside the caller's effective organizations.view scope.
 export async function GET() {
-  const gate = await requireV2Permission('organizations.view')
-  if (!gate.ok) return gate.response
-
   try {
+    let gate: Awaited<ReturnType<typeof requireV2Permission>>
+
+    try {
+      gate = await requireV2Permission('organizations.view')
+    } catch (guardError) {
+      console.error(
+        '[organizations:GET] permission guard failed:',
+        guardError
+      )
+      return NextResponse.json(
+        {
+          error: 'تعذر التحقق من صلاحية عرض الهيكل التنظيمي',
+          code: 'ORGANIZATIONS_GUARD_FAILED',
+        },
+        { status: 500 }
+      )
+    }
+
+    if (!gate.ok) return gate.response
+
     const admin = getAdminSupabaseClient()
     const { data, error } = await admin
       .from('organizations')
       .select(
-        'id, name, level, level_label, organization_type_code, parent_id, sector_id, governorate, health_admin, code, is_active, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities'
+        'id, name, level, level_label, parent_id, sector_id, governorate, health_admin, code, is_active, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities'
       )
       .order('level')
       .order('name')
@@ -314,23 +361,15 @@ export async function GET() {
       )
     }
 
-    const organizations = (data ?? []) as OrganizationRow[]
-
-    if (organizations.length === 0) {
-      return NextResponse.json({
-        success: true,
-        data: [],
-        organizationTypes: FALLBACK_ORGANIZATION_TYPES.map((item) => ({
-          code: item.code,
-          nameAr: item.display_name_ar,
-          descriptionAr: item.description_ar,
-        })),
-        typeRelations: FALLBACK_ORGANIZATION_RELATIONS.map((relation) => ({
-          parentTypeCode: relation.parent_type_code,
-          childTypeCode: relation.child_type_code,
-        })),
-      })
-    }
+    const organizations: OrganizationRow[] = (data ?? []).map((row) => ({
+      ...row,
+      organization_type_code: inferOrganizationTypeCode({
+        levelLabel: String(row.level_label || ''),
+        name: String(row.name || ''),
+        healthAdmin:
+          typeof row.health_admin === 'string' ? row.health_admin : null,
+      }),
+    })) as OrganizationRow[]
 
     let allowed: OrganizationRow[]
 
