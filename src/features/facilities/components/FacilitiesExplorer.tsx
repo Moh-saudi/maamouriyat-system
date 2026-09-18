@@ -279,12 +279,30 @@ export function FacilitiesExplorer({
     }
   }, [availableHealthAdmins, healthAdmin])
 
-  const handleSelectFacility = useCallback((facilityId: string) => {
-    setSelectedFacilityId(facilityId)
+  const handleSelectFacility = useCallback(
+    (facilityId: string) => {
+      setSelectedFacilityId(facilityId)
 
-    const row = document.getElementById(`facility-row-${facilityId}`)
-    row?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [])
+      const index = filteredFacilities.findIndex(
+        (item) => item.id === facilityId
+      )
+
+      if (index >= 0) {
+        setPage(Math.floor(index / PAGE_SIZE) + 1)
+      }
+
+      window.setTimeout(() => {
+        const row = document.getElementById(
+          `facility-row-${facilityId}`
+        )
+        row?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        })
+      }, 0)
+    },
+    [filteredFacilities]
+  )
 
   function openCreate() {
     const first = manageableHealthAdmins[0]
