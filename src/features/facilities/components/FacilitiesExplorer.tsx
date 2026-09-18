@@ -263,6 +263,15 @@ export function FacilitiesExplorer({
 
   useEffect(() => {
     if (
+      selectedFacilityId &&
+      !filteredFacilities.some((item) => item.id === selectedFacilityId)
+    ) {
+      setSelectedFacilityId(null)
+    }
+  }, [filteredFacilities, selectedFacilityId])
+
+  useEffect(() => {
+    if (
       healthAdmin &&
       !availableHealthAdmins.some((item) => item.name === healthAdmin)
     ) {
