@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Building2,
   Loader2,
@@ -633,7 +633,7 @@ function SimpleStat({
   value,
   label,
 }: {
-  icon: React.ReactNode
+  icon: ReactNode
   value: number
   label: string
 }) {
