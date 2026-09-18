@@ -7,7 +7,7 @@ export const V2_NAV_PERMISSION_BY_ID: Readonly<Record<string, string>> = {
   violations: 'violations.view',
   facilities: 'facilities.view',
   targets: 'targets.view',
-  checklists: 'checklists.view',
+  checklists: 'checklists.design',
   organizations: 'organizations.view',
   users: 'users.view',
   settings: 'settings.view',
