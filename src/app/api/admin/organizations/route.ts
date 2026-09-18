@@ -19,6 +19,7 @@ type OrganizationRow = {
   name: string
   level: number
   level_label: string
+  organization_type_code: string
   parent_id: string | null
   sector_id: string | null
   governorate: string | null
@@ -38,6 +39,82 @@ const CAPABILITY_FIELDS = [
   'can_view_all_governorate',
   'can_view_sector_facilities',
 ] as const
+
+
+type OrganizationTypeRow = {
+  code: string
+  display_name_ar: string
+  description_ar: string | null
+  sort_order: number
+  is_active: boolean
+}
+
+type OrganizationTypeRelationRow = {
+  parent_type_code: string
+  child_type_code: string
+  is_active: boolean
+}
+
+const LEGACY_LEVEL_LABEL_BY_TYPE: Record<string, string> = {
+  ministry: 'ministry',
+  sector: 'sector',
+  central_administration: 'central_admin',
+  general_administration: 'general_admin',
+  administration: 'administration',
+  department: 'department',
+  section: 'section',
+  health_directorate: 'directorate',
+  health_administration: 'health_admin',
+}
+
+async function loadOrganizationTaxonomy() {
+  const admin = getAdminSupabaseClient()
+  const [
+    { data: types, error: typesError },
+    { data: relations, error: relationsError },
+  ] = await Promise.all([
+    admin
+      .from('organization_types')
+      .select('code, display_name_ar, description_ar, sort_order, is_active')
+      .eq('is_active', true)
+      .order('sort_order')
+      .order('display_name_ar'),
+    admin
+      .from('organization_type_relations')
+      .select('parent_type_code, child_type_code, is_active')
+      .eq('is_active', true),
+  ])
+
+  if (typesError) {
+    throw new Error(
+      `Failed to load organization types: ${typesError.message}`
+    )
+  }
+
+  if (relationsError) {
+    throw new Error(
+      `Failed to load organization type relations: ${relationsError.message}`
+    )
+  }
+
+  return {
+    types: (types ?? []) as OrganizationTypeRow[],
+    relations: (relations ?? []) as OrganizationTypeRelationRow[],
+  }
+}
+
+function isAllowedTypeRelation(input: {
+  parentType: string
+  childType: string
+  relations: readonly OrganizationTypeRelationRow[]
+}): boolean {
+  return input.relations.some(
+    (relation) =>
+      relation.parent_type_code === input.parentType &&
+      relation.child_type_code === input.childType &&
+      relation.is_active === true
+  )
+}
 
 function toResource(org: Pick<OrganizationRow, 'id' | 'sector_id' | 'governorate'>): V2ResourceScopeContext {
   return {
@@ -112,11 +189,17 @@ export async function GET() {
     if (!gate.ok) return gate.response
 
     const admin = getAdminSupabaseClient()
-    const { data, error } = await admin
-      .from('organizations')
-      .select('*')
-      .order('level')
-      .order('name')
+    const [
+      { data, error },
+      taxonomy,
+    ] = await Promise.all([
+      admin
+        .from('organizations')
+        .select('*')
+        .order('level')
+        .order('name'),
+      loadOrganizationTaxonomy(),
+    ])
 
     if (error) {
       console.error('[organizations:GET] query failed:', error.message)
@@ -136,7 +219,28 @@ export async function GET() {
       }).allowed
     )
 
-    return NextResponse.json({ success: true, data: allowed })
+    const typeNameByCode = new Map(
+      taxonomy.types.map((item) => [item.code, item.display_name_ar])
+    )
+
+    return NextResponse.json({
+      success: true,
+      data: allowed.map((organization) => ({
+        ...organization,
+        organization_type_name_ar:
+          typeNameByCode.get(organization.organization_type_code) ||
+          'جهة تنظيمية',
+      })),
+      organizationTypes: taxonomy.types.map((item) => ({
+        code: item.code,
+        nameAr: item.display_name_ar,
+        descriptionAr: item.description_ar,
+      })),
+      typeRelations: taxonomy.relations.map((relation) => ({
+        parentTypeCode: relation.parent_type_code,
+        childTypeCode: relation.child_type_code,
+      })),
+    })
   } catch (error) {
     console.error('[organizations:GET] unexpected error:', error)
     return NextResponse.json({ error: 'خطأ غير متوقع' }, { status: 500 })
@@ -153,6 +257,10 @@ export async function POST(request: NextRequest) {
     const name = typeof body.name === 'string' ? body.name.trim() : ''
     const code = typeof body.code === 'string' ? body.code.trim() : ''
     const parentId = typeof body.parent_id === 'string' ? body.parent_id : ''
+    const requestedType =
+      typeof body.organization_type_code === 'string'
+        ? body.organization_type_code.trim()
+        : ''
 
     if (!name) {
       return NextResponse.json({ error: 'اسم الوحدة أو الإدارة الفرعية مطلوب' }, { status: 400 })
@@ -165,6 +273,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!requestedType) {
+      return NextResponse.json(
+        { error: 'يجب اختيار نوع الجهة' },
+        { status: 400 }
+      )
+    }
+
     if (hasCapabilityMutation(body) && !hasV2Permission(gate.access, 'organizations.manage_capabilities')) {
       return NextResponse.json(
         { error: 'ليس لديك صلاحية ضبط خصائص الجهة', code: 'CAPABILITY_PERMISSION_DENIED' },
@@ -173,7 +288,10 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = getAdminSupabaseClient()
-    const parent = await loadOrganization(parentId)
+    const [parent, taxonomy] = await Promise.all([
+      loadOrganization(parentId),
+      loadOrganizationTaxonomy(),
+    ])
 
     if (!parent) {
       return NextResponse.json({ error: 'الجهة الرئيسية المحددة غير موجودة في قاعدة البيانات' }, { status: 400 })
@@ -193,37 +311,62 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const resolvedLevel = Number(parent.level) + 1
+    const requestedTypeDefinition = taxonomy.types.find(
+      (item) => item.code === requestedType
+    )
 
-    if (resolvedLevel < 2 || resolvedLevel > 7) {
+    if (!requestedTypeDefinition) {
       return NextResponse.json(
-        { error: 'لا يمكن إنشاء مستوى تنظيمي أسفل هذه الجهة' },
+        { error: 'نوع الجهة المحدد غير متاح' },
         { status: 400 }
       )
     }
 
-    const validLevelLabels: Record<number, string> = {
-      1: 'ministry',
-      2: 'sector',
-      3: 'central_admin',
-      4: 'general_admin',
-      5: 'directorate',
-      6: 'health_admin',
-      7: 'unit',
+    if (
+      !isAllowedTypeRelation({
+        parentType: parent.organization_type_code,
+        childType: requestedType,
+        relations: taxonomy.relations,
+      })
+    ) {
+      return NextResponse.json(
+        {
+          error: `لا يمكن إضافة ${requestedTypeDefinition.display_name_ar} تحت هذه الجهة`,
+          code: 'ORGANIZATION_TYPE_RELATION_DENIED',
+        },
+        { status: 400 }
+      )
     }
 
-    const requestedLabel =
-      typeof body.level_label === 'string' ? body.level_label : ''
+    const resolvedLevel = Number(parent.level) + 1
+
+    if (resolvedLevel < 2 || resolvedLevel > 7) {
+      return NextResponse.json(
+        { error: 'تم الوصول إلى أقصى عمق تنظيمي مسموح' },
+        { status: 400 }
+      )
+    }
+
     const finalLevelLabel =
-      requestedLabel === validLevelLabels[resolvedLevel]
-        ? requestedLabel
-        : validLevelLabels[resolvedLevel]
+      LEGACY_LEVEL_LABEL_BY_TYPE[requestedType] || 'administration'
 
     const newOrganizationId = randomUUID()
     const resolvedSectorId =
-      resolvedLevel === 2
+      requestedType === 'sector'
         ? newOrganizationId
-        : parent.sector_id ?? (parent.level === 2 ? parent.id : null)
+        : parent.organization_type_code === 'sector'
+          ? parent.id
+          : parent.sector_id
+
+    if (
+      requestedType === 'health_directorate' &&
+      (typeof body.governorate !== 'string' || !body.governorate.trim())
+    ) {
+      return NextResponse.json(
+        { error: 'المحافظة مطلوبة عند إضافة مديرية شؤون صحية' },
+        { status: 400 }
+      )
+    }
 
     const payload: Record<string, unknown> = {
       id: newOrganizationId,
@@ -233,14 +376,22 @@ export async function POST(request: NextRequest) {
       sector_id: resolvedSectorId,
       level: resolvedLevel,
       level_label: finalLevelLabel,
+      organization_type_code: requestedType,
       governorate:
-        typeof body.governorate === 'string'
-          ? body.governorate
+        requestedType === 'health_directorate'
+          ? typeof body.governorate === 'string'
+            ? body.governorate.trim() || null
+            : null
           : parent.governorate,
       health_admin:
-        typeof body.health_admin === 'string'
-          ? body.health_admin
-          : parent.health_admin,
+        requestedType === 'health_administration'
+          ? typeof body.health_admin === 'string' &&
+            body.health_admin.trim()
+            ? body.health_admin.trim()
+            : name
+          : parent.organization_type_code === 'health_administration'
+            ? parent.health_admin || parent.name
+            : parent.health_admin,
       is_active: true,
     }
 
@@ -281,6 +432,10 @@ export async function PUT(request: NextRequest) {
 
     const body = (await request.json()) as Record<string, unknown>
     const id = typeof body.id === 'string' ? body.id : ''
+    const requestedType =
+      typeof body.organization_type_code === 'string'
+        ? body.organization_type_code.trim()
+        : ''
 
     if (!id) {
       return NextResponse.json({ error: 'معرف الوحدة مطلوب' }, { status: 400 })
@@ -313,12 +468,29 @@ export async function PUT(request: NextRequest) {
     }
 
     const requestedParentId =
-      typeof body.parent_id === 'string' ? body.parent_id : null
+      typeof body.parent_id === 'string' ? body.parent_id : current.parent_id
 
-    if (
-      requestedParentId &&
-      requestedParentId !== current.parent_id
-    ) {
+    const finalType = requestedType || current.organization_type_code
+
+    if (!requestedParentId && finalType !== 'ministry') {
+      return NextResponse.json(
+        { error: 'يجب اختيار الجهة الأم' },
+        { status: 400 }
+      )
+    }
+
+    const hierarchyChanged =
+      requestedParentId !== current.parent_id ||
+      finalType !== current.organization_type_code
+
+    if (hierarchyChanged) {
+      if (!requestedParentId) {
+        return NextResponse.json(
+          { error: 'لا يمكن تعديل تبعية الوزارة الرئيسية' },
+          { status: 400 }
+        )
+      }
+
       const newParent = await loadOrganization(requestedParentId)
 
       if (!newParent) {
@@ -338,29 +510,52 @@ export async function PUT(request: NextRequest) {
       if (!parentScopeDecision.allowed) {
         return NextResponse.json(
           {
-            error: 'لا يمكنك نقل الوحدة إلى جهة أم خارج نطاقك التنظيمي',
+            error: 'لا يمكنك نقل الجهة إلى جهة أم خارج نطاقك التنظيمي',
             code: 'PARENT_SCOPE_DENIED',
           },
           { status: 403 }
         )
       }
 
-      const { error: reparentError } = await getAdminSupabaseClient().rpc(
-        'reparent_v2_organization',
+      const taxonomy = await loadOrganizationTaxonomy()
+      const typeDefinition = taxonomy.types.find(
+        (item) => item.code === finalType
+      )
+
+      if (
+        !typeDefinition ||
+        !isAllowedTypeRelation({
+          parentType: newParent.organization_type_code,
+          childType: finalType,
+          relations: taxonomy.relations,
+        })
+      ) {
+        return NextResponse.json(
+          {
+            error: 'نوع الجهة غير مسموح تحت الجهة الأم المختارة',
+            code: 'ORGANIZATION_TYPE_RELATION_DENIED',
+          },
+          { status: 400 }
+        )
+      }
+
+      const { error: moveError } = await getAdminSupabaseClient().rpc(
+        'move_organization_by_type',
         {
           p_actor_user_id: gate.user.profileId,
           p_organization_id: current.id,
           p_new_parent_id: requestedParentId,
+          p_new_type_code: finalType,
         }
       )
 
-      if (reparentError) {
+      if (moveError) {
         console.error(
-          '[organizations:PUT] reparent failed:',
-          reparentError.message
+          '[organizations:PUT] type-aware move failed:',
+          moveError.message
         )
         return NextResponse.json(
-          { error: 'تعذر تغيير الجهة الأم: ' + reparentError.message },
+          { error: 'تعذر تحديث النوع أو التبعية: ' + moveError.message },
           { status: 400 }
         )
       }
