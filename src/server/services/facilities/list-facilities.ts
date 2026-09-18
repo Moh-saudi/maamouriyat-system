@@ -116,11 +116,10 @@ async function loadFilterOptions(input: {
   )
 
   let healthAdminQuery = admin
-    .from('facilities')
-    .select('health_admin')
+    .from('organizations')
+    .select('name, health_admin, governorate')
+    .eq('level', 6)
     .eq('is_active', true)
-    .not('health_admin', 'is', null)
-    .limit(10000)
 
   if (input.governorate) {
     healthAdminQuery = healthAdminQuery.eq('governorate', input.governorate)
@@ -136,9 +135,13 @@ async function loadFilterOptions(input: {
   }
 
   const healthAdmins = uniqueSorted(
-    (healthAdminRows ?? []).map((row) =>
-      typeof row.health_admin === 'string' ? row.health_admin : null
-    )
+    (healthAdminRows ?? []).map((row) => {
+      if (typeof row.health_admin === 'string' && row.health_admin.trim()) {
+        return row.health_admin
+      }
+
+      return typeof row.name === 'string' ? row.name : null
+    })
   )
 
   const facilityTypes = [
