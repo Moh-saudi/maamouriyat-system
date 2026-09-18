@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Loader2, Plus, X } from 'lucide-react'
 import {
-  OrganizationTreeSelect,
-  type OrganizationTreeOption,
-} from '@/components/ui/OrganizationTreeSelect'
+  CascadingOrganizationSelect,
+  type CascadingOrganizationOption,
+} from '@/components/ui/CascadingOrganizationSelect'
 
-type Organization = OrganizationTreeOption & {
+type Organization = CascadingOrganizationOption & {
   is_active?: boolean | null
 }
 
@@ -296,13 +296,12 @@ export function CreateUserDialog({
                       جارٍ تحميل الجهات...
                     </div>
                   ) : (
-                    <OrganizationTreeSelect
+                    <CascadingOrganizationSelect
                       organizations={activeOrganizations}
                       value={organizationId}
                       onChange={setOrganizationId}
                       label="الجهة التابع لها الموظف"
-                      placeholder="اختر الجهة من الشجرة التنظيمية"
-                      required
+                      helperText="اختر الوزارة أو القطاع أولًا، ثم تظهر لك الجهات التابعة مستوى بعد مستوى."
                     />
                   )}
                 </div>
