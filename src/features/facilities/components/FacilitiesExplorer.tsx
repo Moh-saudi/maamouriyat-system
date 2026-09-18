@@ -856,11 +856,15 @@ export function FacilitiesExplorer({
                                     setAuditFacility(facility)
                                   }
                                   title={
-                                    facility.updatedAt
-                                      ? `آخر تحديث للبيانات: ${new Date(
-                                          facility.updatedAt
-                                        ).toLocaleString('en-GB')}`
-                                      : 'عرض سجل التعديلات'
+                                    facility.lastAuditAt
+                                      ? `آخر تعديل: ${new Date(
+                                          facility.lastAuditAt
+                                        ).toLocaleString('en-GB')} بواسطة ${facility.lastAuditActorName || 'مستخدم'}`
+                                      : facility.updatedAt
+                                        ? `آخر تحديث سابق للسجل: ${new Date(
+                                            facility.updatedAt
+                                          ).toLocaleString('en-GB')}`
+                                        : 'عرض سجل التعديلات'
                                   }
                                   className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-teal-700"
                                 >
