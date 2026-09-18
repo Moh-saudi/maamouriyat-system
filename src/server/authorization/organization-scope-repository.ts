@@ -25,7 +25,7 @@ export async function loadV2OrganizationFacts(
 
     const { data, error } = await admin
       .from('organizations')
-      .select('id, parent_id, sector_id, governorate, level')
+      .select('id, parent_id, sector_id, governorate, level, organization_type_code')
       .in('id', ids)
 
     if (error) {
@@ -55,6 +55,10 @@ export async function loadV2OrganizationFacts(
             ? row.governorate.trim()
             : null,
         level: Number(row.level),
+        organizationTypeCode:
+          typeof row.organization_type_code === 'string'
+            ? row.organization_type_code
+            : null,
       })
 
       if (parentId && !facts.has(parentId)) {
@@ -121,7 +125,7 @@ export function getOrganizationSectorId(
   const fact = facts.get(organizationId)
   if (!fact) return null
 
-  if (fact.level === 2) return fact.id
+  if (fact.organizationTypeCode === 'sector') return fact.id
   return fact.sectorId
 }
 
