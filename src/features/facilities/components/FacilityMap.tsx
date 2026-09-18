@@ -38,6 +38,7 @@ type LeafletMap = {
     handler: (event: { latlng: LatLng }) => void
   ) => LeafletMap
   invalidateSize: () => void
+  remove: () => void
 }
 
 type LeafletNamespace = {
@@ -196,6 +197,16 @@ export function FacilityMap({
       markerLayerRef.current = L.layerGroup().addTo(map)
 
       window.setTimeout(() => map.invalidateSize(), 50)
+    }
+
+    return () => {
+      pickedMarkerRef.current?.remove()
+      pickedMarkerRef.current = null
+      markerLayerRef.current?.clearLayers()
+      markerLayerRef.current = null
+      markersRef.current.clear()
+      mapRef.current?.remove()
+      mapRef.current = null
     }
   }, [leafletReady])
 
