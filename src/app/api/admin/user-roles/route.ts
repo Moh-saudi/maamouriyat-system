@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server'
 import { checkV2ResourceAccess } from '@/server/authorization'
+import { canDelegateV2RoleGrants } from '@/server/authorization/delegation'
 import { requireV2Permission } from '@/server/authorization/http-guard'
+import {
+  isOrganizationWithinTree,
+  loadV2OrganizationFacts,
+} from '@/server/authorization/organization-scope-repository'
 import { loadUserAuthorizationResource } from '@/server/authorization/resources/user'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
@@ -10,6 +15,7 @@ type RoleRow = {
   code: string
   name_ar: string
   description_ar: string | null
+  owner_organization_id: string | null
   is_system: boolean
   is_active: boolean
   priority: number
@@ -95,7 +101,7 @@ export async function GET(request: Request) {
       await Promise.all([
         admin
           .from('roles')
-          .select('id, code, name_ar, description_ar, is_system, is_active, priority')
+          .select('id, code, name_ar, description_ar, owner_organization_id, is_system, is_active, priority')
           .eq('is_active', true)
           .order('priority'),
         admin
@@ -184,7 +190,7 @@ export async function POST(request: Request) {
     const admin = getAdminSupabaseClient()
     const { data: roleData, error: roleError } = await admin
       .from('roles')
-      .select('id, code, name_ar, description_ar, is_system, is_active, priority')
+      .select('id, code, name_ar, description_ar, owner_organization_id, is_system, is_active, priority')
       .eq('id', roleId)
       .maybeSingle()
 
@@ -208,15 +214,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Custom-role delegation is enabled later with grant-by-grant anti-escalation.
-    // During the current migration phase only reviewed system roles are assignable.
-    if (!role.is_system) {
-      return NextResponse.json(
-        { error: 'إسناد الأدوار المخصصة لم يُفعّل بعد' },
-        { status: 409 }
-      )
-    }
-
     const { data: grants, error: grantsError } = await admin
       .from('role_permission_grants')
       .select('role_id, permission_key, scope_type')
@@ -235,6 +232,59 @@ export async function POST(request: Request) {
         { error: 'لا يمكن إسناد دور بدون صلاحيات معرفة' },
         { status: 409 }
       )
+    }
+
+    if (
+      !canDelegateV2RoleGrants({
+        snapshot: gate.access,
+        grants: grantRows.map((grant) => ({
+          permissionKey: grant.permission_key,
+          scopeType: grant.scope_type as import('@/server/authorization/types').V2ScopeType,
+        })),
+      })
+    ) {
+      return NextResponse.json(
+        {
+          error: 'لا يمكنك إسناد دور يحتوي صلاحيات أو نطاقات أوسع من صلاحياتك',
+          code: 'PRIVILEGE_ESCALATION_BLOCKED',
+        },
+        { status: 403 }
+      )
+    }
+
+    if (
+      !role.is_system &&
+      role.owner_organization_id &&
+      target.profile.organization_id
+    ) {
+      try {
+        const facts = await loadV2OrganizationFacts([
+          role.owner_organization_id,
+          target.profile.organization_id,
+        ])
+
+        const insideOwnerTree = isOrganizationWithinTree({
+          resourceOrganizationId: target.profile.organization_id,
+          anchorOrganizationId: role.owner_organization_id,
+          facts,
+        })
+
+        if (!insideOwnerTree) {
+          return NextResponse.json(
+            {
+              error: 'المستخدم المستهدف خارج نطاق الجهة المالكة للدور المخصص',
+              code: 'ROLE_OWNER_SCOPE_DENIED',
+            },
+            { status: 403 }
+          )
+        }
+      } catch (scopeError) {
+        console.error('[user-roles:POST] custom role owner scope failed:', scopeError)
+        return NextResponse.json(
+          { error: 'تعذر التحقق من نطاق الدور المخصص' },
+          { status: 500 }
+        )
+      }
     }
 
     const allNational = grantRows.every(
