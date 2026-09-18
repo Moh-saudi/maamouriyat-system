@@ -76,6 +76,7 @@ type OrganizationRow = {
   governorate: string | null
   health_admin: string | null
   level: number
+  organization_type_code: string | null
 }
 
 type UserRow = {
@@ -122,6 +123,7 @@ function toOrganizationFacts(
         sectorId: organization.sector_id,
         governorate: organization.governorate,
         level: Number(organization.level),
+        organizationTypeCode: organization.organization_type_code,
       },
     ])
   )
@@ -178,7 +180,7 @@ async function loadOrganizations(): Promise<{
   const admin = getAdminSupabaseClient()
   const { data, error } = await admin
     .from('organizations')
-    .select('id, name, parent_id, sector_id, governorate, health_admin, level')
+    .select('id, name, parent_id, sector_id, governorate, health_admin, level, organization_type_code')
 
   if (error) {
     throw new Error(`Failed to load organizations: ${error.message}`)
@@ -302,12 +304,29 @@ async function resolveTargetScope(
   const organization = organizations.byId.get(scopeIdCandidate)
   if (!organization) return null
 
-  if (scopeLevel === 'sector' && organization.level !== 2) return null
-  if (scopeLevel === 'governorate' && organization.level !== 5) return null
-  if (scopeLevel === 'health_admin' && organization.level !== 6) return null
+  if (
+    scopeLevel === 'sector' &&
+    organization.organization_type_code !== 'sector'
+  ) {
+    return null
+  }
+
+  if (
+    scopeLevel === 'governorate' &&
+    organization.organization_type_code !== 'health_directorate'
+  ) {
+    return null
+  }
+
+  if (
+    scopeLevel === 'health_admin' &&
+    organization.organization_type_code !== 'health_administration'
+  ) {
+    return null
+  }
 
   const sectorId =
-    organization.level === 2
+    organization.organization_type_code === 'sector'
       ? organization.id
       : organization.sector_id
 
