@@ -711,10 +711,7 @@ export function OrganizationManagementPanel({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">
-                      {organization.organization_type_code ===
-                      'health_directorate'
-                        ? 'وزارة الصحة والسكان'
-                        : parent?.name || 'جهة رئيسية'}
+                      {parent?.name || 'جهة رئيسية'}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">
                       {organization.governorate ||
@@ -819,10 +816,7 @@ export function OrganizationManagementPanel({
                     </h2>
                     <p className="mt-1 text-xs text-slate-500">
                       {organization.organization_type_name_ar} •{' '}
-                      {organization.organization_type_code ===
-                      'health_directorate'
-                        ? 'وزارة الصحة والسكان'
-                        : parent?.name || 'جهة رئيسية'}
+                      {parent?.name || 'جهة رئيسية'}
                     </p>
                   </div>
                   <span
