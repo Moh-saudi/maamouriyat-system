@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { V2FacilityDirectoryItem } from '@/server/services/facilities/load-directory'
+import type { V2FacilityDirectoryItem } from '@/features/facilities/types'
 
 type LatLng = {
   lat: number
