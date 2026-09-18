@@ -56,8 +56,9 @@
 /* Compact V2 typography scale
    Keep the public/legacy app untouched; these overrides only apply under V2. */
 .v2-root {
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
+  font-variant-numeric: tabular-nums;
 }
 
 .v2-root .text-xs {
