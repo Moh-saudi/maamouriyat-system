@@ -255,11 +255,17 @@ export async function POST(request: Request) {
       )
     }
 
-    if (
-      !role.is_system &&
-      role.owner_organization_id &&
-      target.profile.organization_id
-    ) {
+    if (!role.is_system && role.owner_organization_id) {
+      if (!target.profile.organization_id) {
+        return NextResponse.json(
+          {
+            error: 'المستخدم المستهدف بلا جهة تنظيمية موثوقة لهذا الدور المخصص',
+            code: 'ROLE_OWNER_SCOPE_DENIED',
+          },
+          { status: 403 }
+        )
+      }
+
       try {
         const facts = await loadV2OrganizationFacts([
           role.owner_organization_id,
