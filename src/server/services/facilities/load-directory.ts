@@ -39,6 +39,12 @@ type HealthAdministrationRow = {
   health_admin: string | null
 }
 
+type LatestAuditRow = {
+  facility_id: string
+  created_at: string
+  actor_name: string | null
+}
+
 const FACILITY_TYPE_LABELS = new Map(
   STANDARD_FACILITY_TYPES.map((item) => [item.key, item.label])
 )
@@ -115,6 +121,36 @@ async function loadVisitStats(): Promise<Map<string, VisitStatRow>> {
   return result
 }
 
+async function loadLatestAuditSummaries(): Promise<
+  Map<string, LatestAuditRow>
+> {
+  const admin = getAdminSupabaseClient()
+  const result = new Map<string, LatestAuditRow>()
+
+  for (let offset = 0; offset < MAX_DIRECTORY_ROWS; offset += CHUNK_SIZE) {
+    const { data, error } = await admin
+      .from('facility_latest_change')
+      .select('facility_id, created_at, actor_name')
+      .range(offset, offset + CHUNK_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `[Facilities Directory] Failed to load latest audit summaries: ${error.message}`
+      )
+    }
+
+    const chunk = (data ?? []) as LatestAuditRow[]
+
+    for (const row of chunk) {
+      result.set(String(row.facility_id), row)
+    }
+
+    if (chunk.length < CHUNK_SIZE) break
+  }
+
+  return result
+}
+
 async function loadHealthAdministrations(): Promise<
   V2HealthAdministrationOption[]
 > {
@@ -146,14 +182,21 @@ async function loadHealthAdministrations(): Promise<
 }
 
 export async function loadV2FacilityDirectory(): Promise<V2FacilityDirectoryData> {
-  const [facilityRows, visitStats, healthAdministrations] = await Promise.all([
+  const [
+    facilityRows,
+    visitStats,
+    latestAudit,
+    healthAdministrations,
+  ] = await Promise.all([
     loadAllFacilities(),
     loadVisitStats(),
+    loadLatestAuditSummaries(),
     loadHealthAdministrations(),
   ])
 
   const facilities: V2FacilityDirectoryItem[] = facilityRows.map((row) => {
     const stats = visitStats.get(String(row.id))
+    const latestChange = latestAudit.get(String(row.id))
 
     return {
       id: String(row.id),
@@ -170,6 +213,8 @@ export async function loadV2FacilityDirectory(): Promise<V2FacilityDirectoryData
       visitCount: Number(stats?.completed_visits ?? 0),
       lastVisitAt: stats?.last_completed_visit_at ?? null,
       updatedAt: row.updated_at ?? null,
+      lastAuditAt: latestChange?.created_at ?? null,
+      lastAuditActorName: latestChange?.actor_name ?? null,
     }
   })
 
