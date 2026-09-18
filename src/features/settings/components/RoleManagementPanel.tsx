@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
+  OrganizationTreeSelect,
+  type OrganizationTreeOption,
+} from '@/components/ui/OrganizationTreeSelect'
+import {
   ShieldCheck,
   KeyRound,
   LockKeyhole,
@@ -71,8 +75,10 @@ type RolesPayload = {
   grants: Grant[]
   permissions: Permission[]
   delegationScopes: Record<string, string[]>
+  organizations: OrganizationTreeOption[]
   capabilities: {
     canManageRoles: boolean
+    canCreateGlobalRoles: boolean
     canManagePermissionRegistry: boolean
   }
   error?: string
@@ -88,6 +94,7 @@ type RoleDraft = {
   code: string
   nameAr: string
   descriptionAr: string
+  ownerOrganizationId: string | null
   grants: Map<string, string>
 }
 
@@ -97,6 +104,7 @@ function emptyDraft(): RoleDraft {
     code: '',
     nameAr: '',
     descriptionAr: '',
+    ownerOrganizationId: null,
     grants: new Map(),
   }
 }
@@ -107,6 +115,7 @@ function createDraft(role: Role, grants: Grant[]): RoleDraft {
     code: role.code,
     nameAr: role.name_ar,
     descriptionAr: role.description_ar || '',
+    ownerOrganizationId: role.owner_organization_id,
     grants: new Map(
       grants
         .filter((grant) => grant.role_id === role.id)
@@ -251,7 +260,7 @@ export function RoleManagementPanel() {
           code: draft.code,
           name_ar: draft.nameAr,
           description_ar: draft.descriptionAr,
-          owner_organization_id: null,
+          owner_organization_id: draft.ownerOrganizationId,
           grants: grants.map((grant) => ({
             permission_key: grant.permissionKey,
             scope_type: grant.scopeType,
@@ -606,6 +615,24 @@ export function RoleManagementPanel() {
                     placeholder="وصف مختصر لمسؤوليات الدور..."
                   />
                 </label>
+
+                <div className="sm:col-span-2">
+                  <OrganizationTreeSelect
+                    organizations={data.organizations}
+                    value={draft.ownerOrganizationId}
+                    onChange={(ownerOrganizationId) =>
+                      setDraft((current) => ({
+                        ...current,
+                        ownerOrganizationId,
+                      }))
+                    }
+                    label="الجهة المالكة للدور"
+                    placeholder="اختر الجهة المالكة من الشجرة التنظيمية"
+                    allowGlobal={data.capabilities.canCreateGlobalRoles}
+                    globalLabel="دور عام بلا جهة مالكة"
+                    required={!data.capabilities.canCreateGlobalRoles}
+                  />
+                </div>
               </div>
 
               <div className="mb-3 flex items-center justify-between">
