@@ -8,10 +8,14 @@ import { loadV2FacilityDirectory } from '@/server/services/facilities/load-direc
 export default async function V2FacilitiesPage() {
   const { user, access } = await requireV2PagePermission('facilities.view')
 
-  const [data, management] = await Promise.all([
-    loadV2FacilityDirectory(),
-    getFacilityManagementCapabilities({ user, access }),
-  ])
+  const management = await getFacilityManagementCapabilities({
+    user,
+    access,
+  })
+
+  const data = await loadV2FacilityDirectory({
+    includeAuditSummary: management.canAudit,
+  })
 
   return (
     <V2PageContainer fluid>
