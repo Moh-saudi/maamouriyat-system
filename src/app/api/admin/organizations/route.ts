@@ -153,15 +153,16 @@ export async function POST(request: NextRequest) {
     const name = typeof body.name === 'string' ? body.name.trim() : ''
     const code = typeof body.code === 'string' ? body.code.trim() : ''
     const parentId = typeof body.parent_id === 'string' ? body.parent_id : ''
-    const parentName = typeof body.parent_name === 'string' ? body.parent_name.trim() : ''
-    const sectorIdFromBody = typeof body.sector_id === 'string' ? body.sector_id : ''
 
     if (!name) {
       return NextResponse.json({ error: 'اسم الوحدة أو الإدارة الفرعية مطلوب' }, { status: 400 })
     }
 
-    if (!parentId && !parentName && !sectorIdFromBody) {
-      return NextResponse.json({ error: 'يجب تحديد الجهة أو الإدارة التابع لها' }, { status: 400 })
+    if (!parentId) {
+      return NextResponse.json(
+        { error: 'يجب اختيار الجهة الأم من الشجرة التنظيمية' },
+        { status: 400 }
+      )
     }
 
     if (hasCapabilityMutation(body) && !hasV2Permission(gate.access, 'organizations.manage_capabilities')) {
@@ -172,29 +173,7 @@ export async function POST(request: NextRequest) {
     }
 
     const admin = getAdminSupabaseClient()
-    let parent: OrganizationRow | null = null
-
-    if (parentId) {
-      parent = await loadOrganization(parentId)
-    }
-
-    if (!parent && parentName) {
-      const { data: exact, error: exactError } = await admin
-        .from('organizations')
-        .select('*')
-        .eq('name', parentName)
-        .maybeSingle()
-
-      if (exactError) {
-        console.error('[organizations:POST] parent lookup failed:', exactError.message)
-      }
-
-      parent = (exact as OrganizationRow | null) ?? null
-    }
-
-    if (!parent && sectorIdFromBody) {
-      parent = await loadOrganization(sectorIdFromBody)
-    }
+    const parent = await loadOrganization(parentId)
 
     if (!parent) {
       return NextResponse.json({ error: 'الجهة الرئيسية المحددة غير موجودة في قاعدة البيانات' }, { status: 400 })
@@ -214,14 +193,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const requestedLevel =
-      typeof body.level === 'number' ? body.level : Number(body.level)
-    const resolvedLevel = Number.isFinite(requestedLevel) && requestedLevel >= 1
-      ? requestedLevel
-      : Math.min(7, Number(parent.level) + 1)
+    const resolvedLevel = Number(parent.level) + 1
 
-    if (resolvedLevel < 1 || resolvedLevel > 7) {
-      return NextResponse.json({ error: 'المستوى التنظيمي غير صحيح' }, { status: 400 })
+    if (resolvedLevel < 2 || resolvedLevel > 7) {
+      return NextResponse.json(
+        { error: 'لا يمكن إنشاء مستوى تنظيمي أسفل هذه الجهة' },
+        { status: 400 }
+      )
     }
 
     const validLevelLabels: Record<number, string> = {
@@ -334,6 +312,60 @@ export async function PUT(request: NextRequest) {
       )
     }
 
+    const requestedParentId =
+      typeof body.parent_id === 'string' ? body.parent_id : null
+
+    if (
+      requestedParentId &&
+      requestedParentId !== current.parent_id
+    ) {
+      const newParent = await loadOrganization(requestedParentId)
+
+      if (!newParent) {
+        return NextResponse.json(
+          { error: 'الجهة الأم الجديدة غير موجودة' },
+          { status: 400 }
+        )
+      }
+
+      const parentScopeDecision = await authorizeOrganization({
+        permissionKey: 'organizations.edit',
+        user: gate.user,
+        access: gate.access,
+        organization: newParent,
+      })
+
+      if (!parentScopeDecision.allowed) {
+        return NextResponse.json(
+          {
+            error: 'لا يمكنك نقل الوحدة إلى جهة أم خارج نطاقك التنظيمي',
+            code: 'PARENT_SCOPE_DENIED',
+          },
+          { status: 403 }
+        )
+      }
+
+      const { error: reparentError } = await getAdminSupabaseClient().rpc(
+        'reparent_v2_organization',
+        {
+          p_actor_user_id: gate.user.profileId,
+          p_organization_id: current.id,
+          p_new_parent_id: requestedParentId,
+        }
+      )
+
+      if (reparentError) {
+        console.error(
+          '[organizations:PUT] reparent failed:',
+          reparentError.message
+        )
+        return NextResponse.json(
+          { error: 'تعذر تغيير الجهة الأم: ' + reparentError.message },
+          { status: 400 }
+        )
+      }
+    }
+
     const updatePayload: Record<string, unknown> = {}
 
     if (typeof body.name === 'string') updatePayload.name = body.name.trim()
@@ -346,24 +378,45 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    if (Object.keys(updatePayload).length === 0) {
-      return NextResponse.json({ error: 'لا توجد بيانات صالحة للتحديث' }, { status: 400 })
-    }
-
     const admin = getAdminSupabaseClient()
-    const { data: updated, error } = await admin
-      .from('organizations')
-      .update(updatePayload)
-      .eq('id', id)
-      .select('*')
-      .single()
+
+    let updated: OrganizationRow | null = null
+    let error: { message: string } | null = null
+
+    if (Object.keys(updatePayload).length > 0) {
+      const updateResult = await admin
+        .from('organizations')
+        .update(updatePayload)
+        .eq('id', id)
+        .select('*')
+        .single()
+
+      updated = updateResult.data as OrganizationRow | null
+      error = updateResult.error
+    } else {
+      const reloadResult = await admin
+        .from('organizations')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+      updated = reloadResult.data as OrganizationRow | null
+      error = reloadResult.error
+    }
 
     if (error) {
       console.error('[organizations:PUT] update failed:', error.message)
       return NextResponse.json({ error: 'فشل تحديث بيانات الوحدة' }, { status: 500 })
     }
 
-    const updatedOrg = updated as OrganizationRow
+    if (!updated) {
+      return NextResponse.json(
+        { error: 'تعذر إعادة تحميل الوحدة بعد التحديث' },
+        { status: 500 }
+      )
+    }
+
+    const updatedOrg = updated
     return NextResponse.json({
       success: true,
       data: updatedOrg,
