@@ -51,7 +51,7 @@ export function AppShell({
   }
 
   return (
-    <div className="flex min-h-screen w-full overflow-x-hidden bg-[#f6f8f8] text-slate-900 antialiased">
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#f6f8f8] text-slate-900 antialiased">
       {/* ── Desktop Sidebar & Tablet Navigation Rail ──────────────────────── */}
       <DesktopSidebar
         collapsed={sidebarCollapsed}
@@ -61,7 +61,13 @@ export function AppShell({
       />
 
       {/* ── Main Content Area ─────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+      <div
+        className={`flex min-h-screen min-w-0 flex-col transition-[margin] duration-200 ${
+          sidebarCollapsed
+            ? 'md:mr-[76px]'
+            : 'md:mr-[76px] lg:mr-[276px]'
+        }`}
+      >
         {/* Topbar with user profile wiring */}
         <Topbar user={user} items={items} homeHref={homeHref} />
 
