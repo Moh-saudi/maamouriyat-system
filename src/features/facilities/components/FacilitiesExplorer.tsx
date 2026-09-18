@@ -253,7 +253,7 @@ export function FacilitiesExplorer({
     }))
   }, [allFacilityTypeLabels])
 
-  const filteredFacilities = useMemo(() => {
+  const scopeFilteredFacilities = useMemo(() => {
     const q = deferredSearch.trim().toLocaleLowerCase('ar')
 
     return data.facilities.filter((item) => {
@@ -262,7 +262,6 @@ export function FacilitiesExplorer({
 
       if (governorate && item.governorate !== governorate) return false
       if (healthAdmin && item.healthAdmin !== healthAdmin) return false
-      if (facilityType && item.facilityTypeLabel !== facilityType) return false
 
       if (!q) return true
 
@@ -279,9 +278,42 @@ export function FacilitiesExplorer({
     deferredSearch,
     governorate,
     healthAdmin,
-    facilityType,
     status,
   ])
+
+  const visibleTypeCounts = useMemo(() => {
+    const counts = new Map<
+      string,
+      { label: string; total: number; active: number }
+    >()
+
+    for (const item of scopeFilteredFacilities) {
+      const current = counts.get(item.facilityTypeLabel) ?? {
+        label: item.facilityTypeLabel,
+        total: 0,
+        active: 0,
+      }
+
+      current.total += 1
+      if (item.isActive) current.active += 1
+      counts.set(item.facilityTypeLabel, current)
+    }
+
+    return [...counts.values()].sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total
+      return a.label.localeCompare(b.label, 'ar')
+    })
+  }, [scopeFilteredFacilities])
+
+  const filteredFacilities = useMemo(
+    () =>
+      facilityType
+        ? scopeFilteredFacilities.filter(
+            (item) => item.facilityTypeLabel === facilityType
+          )
+        : scopeFilteredFacilities,
+    [scopeFilteredFacilities, facilityType]
+  )
 
   const totalPages = Math.max(
     1,
@@ -551,7 +583,7 @@ export function FacilitiesExplorer({
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {data.facilityTypeCounts.map((item) => {
+          {visibleTypeCounts.map((item) => {
             const selected = facilityType === item.label
 
             return (
