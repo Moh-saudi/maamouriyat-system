@@ -1,6 +1,8 @@
 import { V2Placeholder } from '@/components/ui/V2Placeholder'
+import { requireV2PagePermission } from '@/server/authorization/page-guard'
 
-export default function V2TargetsPage() {
+export default async function V2TargetsPage() {
+  await requireV2PagePermission('targets.view')
   return (
     <V2Placeholder
       title="المستهدفات والخطط"
