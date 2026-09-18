@@ -451,36 +451,36 @@ export function RoleManagementPanel() {
             <div className="space-y-3">
               {!draft.roleId && (
                 <section className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                  <div className="mb-2">
-                    <p className="text-xs font-bold text-slate-700">
-                      ابدأ من نوع عمل معروف
-                    </p>
-                    <p className="mt-0.5 text-[10px] leading-4 text-slate-400">
-                      اختر قالبًا لملء الصفحات والصلاحيات المقترحة تلقائيًا، ثم عدّل ما تحتاجه.
-                    </p>
-                  </div>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-bold text-slate-600">
+                      اختر نوع عمل معروف
+                    </span>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(event) => {
+                        const template = ROLE_TEMPLATE_CATALOG.find(
+                          (item) => item.id === event.target.value
+                        )
 
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {ROLE_TEMPLATE_CATALOG.map((template) => (
-                      <button
-                        key={template.id}
-                        type="button"
-                        onClick={() => applyRoleTemplate(template)}
-                        className={`rounded-lg border px-3 py-2.5 text-right transition ${
-                          selectedTemplateId === template.id
-                            ? 'border-teal-300 bg-teal-50'
-                            : 'border-slate-200 bg-white hover:border-slate-300'
-                        }`}
-                      >
-                        <span className="block text-xs font-bold text-slate-800">
+                        if (template) {
+                          applyRoleTemplate(template)
+                        } else {
+                          setSelectedTemplateId('')
+                        }
+                      }}
+                      className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-teal-500"
+                    >
+                      <option value="">نوع مخصص — سأكتب الاسم والصلاحيات بنفسي</option>
+                      {ROLE_TEMPLATE_CATALOG.map((template) => (
+                        <option key={template.id} value={template.id}>
                           {template.label}
-                        </span>
-                        <span className="mt-1 block text-[10px] leading-4 text-slate-500">
-                          {template.description}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="mt-2 text-[10px] leading-4 text-slate-400">
+                    عند اختيار نوع معروف تظهر الصفحات والصلاحيات المقترحة تلقائيًا، ويمكن تعديلها قبل الحفظ.
+                  </p>
                 </section>
               )}
 
