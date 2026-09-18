@@ -53,12 +53,14 @@ export function MoreNavigationSheet({
               <Drawer.Heading className="text-base font-bold text-slate-900">
                 المزيد من أقسام المنظومة
               </Drawer.Heading>
-              <Drawer.CloseTrigger
+              <button
+                type="button"
                 aria-label="إغلاق القائمة"
+                onClick={() => onOpenChange(false)}
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
               >
                 <X className="w-5 h-5" aria-hidden="true" />
-              </Drawer.CloseTrigger>
+              </button>
             </Drawer.Header>
 
             {/* Scrollable Body */}
