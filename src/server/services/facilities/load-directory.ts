@@ -227,10 +227,28 @@ export async function loadV2FacilityDirectory(input?: {
     facilities.map((item) => item.governorate).filter(Boolean)
   ).size
 
+  const facilityTypeCounts = facilityTypes
+    .map((label) => {
+      const rows = facilities.filter(
+        (item) => item.facilityTypeLabel === label
+      )
+
+      return {
+        label,
+        total: rows.length,
+        active: rows.filter((item) => item.isActive).length,
+      }
+    })
+    .sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total
+      return a.label.localeCompare(b.label, 'ar')
+    })
+
   return {
     facilities,
     healthAdministrations,
     facilityTypes,
+    facilityTypeCounts,
     ministryTotal: facilities.length,
     activeTotal: facilities.filter((item) => item.isActive).length,
     governorateCount,
