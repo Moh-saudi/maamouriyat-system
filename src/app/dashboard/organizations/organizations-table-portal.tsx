@@ -420,6 +420,11 @@ export function OrganizationsTablePortal({
     const isGeneral = newUnit.levelIndex === 2
     const targetLevel = isSection ? 5 : isGeneral ? 4 : 3
     const targetLabel = isSection ? 'unit' : isGeneral ? 'general_admin' : 'central_admin'
+    const organizationTypeCode = isSection
+      ? 'department'
+      : isGeneral
+        ? 'general_administration'
+        : 'central_administration'
     const codePrefix = isSection ? 'SEC' : isGeneral ? 'GEN' : 'CEN'
 
     const isExistingInDb = localOrganizations.some(o => o.id === newUnit.id)
@@ -455,6 +460,7 @@ export function OrganizationsTablePortal({
           sector_id: activeSector.id,
           level: targetLevel,
           level_label: targetLabel,
+          organization_type_code: organizationTypeCode,
           can_issue_missions: true,
           can_approve_missions: false,
           can_view_all_governorate: false,
