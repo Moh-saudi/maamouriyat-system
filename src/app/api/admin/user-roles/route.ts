@@ -8,7 +8,10 @@ import {
 } from '@/server/authorization/organization-scope-repository'
 import { loadUserAuthorizationResource } from '@/server/authorization/resources/user'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
-import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
+import type {
+  V2AuthorizationSnapshot,
+  V2ScopeType,
+} from '@/server/authorization/types'
 
 type RoleRow = {
   id: string
@@ -239,7 +242,7 @@ export async function POST(request: Request) {
         snapshot: gate.access,
         grants: grantRows.map((grant) => ({
           permissionKey: grant.permission_key,
-          scopeType: grant.scope_type as import('@/server/authorization/types').V2ScopeType,
+          scopeType: grant.scope_type as V2ScopeType,
         })),
       })
     ) {
