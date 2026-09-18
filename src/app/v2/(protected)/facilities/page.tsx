@@ -21,19 +21,7 @@ export default async function V2FacilitiesPage() {
     <V2PageContainer fluid>
       <PageHeader
         title="المنشآت الصحية"
-        description="السجل الوزاري المشترك للمنشآت الصحية؛ البحث والخريطة يعملان على نفس البيانات دون تقييد المنشآت بقطاع المستخدم."
-        badge={
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-bold text-teal-700">
-              سجل وزاري مشترك
-            </span>
-            {management.isInformationCenter && (
-              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">
-                مركز معلومات
-              </span>
-            )}
-          </div>
-        }
+        description="استعراض بيانات المنشآت الصحية ومواقعها وحالتها وسجل المرور عليها."
       />
 
       <FacilitiesExplorer
