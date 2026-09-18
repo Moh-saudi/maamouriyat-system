@@ -300,7 +300,7 @@ export function CreateUserDialog({
                       value={organizationId}
                       onChange={setOrganizationId}
                       label="الجهة التابع لها الموظف"
-                      helperText="اختر الوزارة أو القطاع أولًا، ثم تظهر لك الجهات التابعة مستوى بعد مستوى."
+                      helperText="اختر المسار التنظيمي أولًا، ثم الجهة التابعة مستوى بعد مستوى."
                     />
                   )}
                 </div>
