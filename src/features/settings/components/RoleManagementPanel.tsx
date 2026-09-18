@@ -163,7 +163,7 @@ export function RoleManagementPanel() {
     void load()
   }, [load])
 
-  const permissionGroups = useMemo(() => {
+  const permissionGroups = useMemo<Array<[string, Permission[]]>>(() => {
     const groups = new Map<string, Permission[]>()
 
     for (const permission of data?.permissions ?? []) {
@@ -172,7 +172,7 @@ export function RoleManagementPanel() {
       groups.set(permission.module, current)
     }
 
-    return [...groups.entries()]
+    return Array.from(groups.entries())
   }, [data?.permissions])
 
   const grantCountByRole = useMemo(() => {
@@ -242,7 +242,7 @@ export function RoleManagementPanel() {
     setError(null)
 
     try {
-      const grants: DraftGrant[] = [...draft.grants.entries()].map(
+      const grants: DraftGrant[] = Array.from(draft.grants.entries()).map(
         ([permissionKey, scopeType]) => ({
           permissionKey,
           scopeType,
