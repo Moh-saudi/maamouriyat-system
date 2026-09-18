@@ -78,14 +78,21 @@ function escapeHtml(value: string): string {
     .replaceAll("'", '&#039;')
 }
 
+const EGYPT_BOUNDS = {
+  minLatitude: 21.4,
+  maxLatitude: 31.8,
+  minLongitude: 24.5,
+  maxLongitude: 37.3,
+}
+
 function validCoordinates(item: V2FacilityDirectoryItem): boolean {
   return (
     Number.isFinite(item.latitude) &&
     Number.isFinite(item.longitude) &&
-    item.latitude >= -90 &&
-    item.latitude <= 90 &&
-    item.longitude >= -180 &&
-    item.longitude <= 180
+    item.latitude >= EGYPT_BOUNDS.minLatitude &&
+    item.latitude <= EGYPT_BOUNDS.maxLatitude &&
+    item.longitude >= EGYPT_BOUNDS.minLongitude &&
+    item.longitude <= EGYPT_BOUNDS.maxLongitude
   )
 }
 
@@ -174,15 +181,13 @@ export function FacilityMap({
       const map = L.map(mapContainerRef.current, {
         zoomControl: false,
         attributionControl: true,
-      }).setView([27.7, 30.8], 6)
+      }).setView([26.8, 30.8], 6)
 
       L.tileLayer(
-        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
         {
-          attribution:
-            '&copy; OpenStreetMap contributors &copy; CARTO',
-          subdomains: 'abcd',
-          maxZoom: 20,
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 19,
         }
       ).addTo(map)
 
@@ -350,8 +355,15 @@ export function FacilityMap({
 
       <div className="pointer-events-none absolute right-3 top-3 z-[400] rounded-lg border border-white/80 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
         <p className="text-[10px] font-bold text-slate-700">
-          {facilities.length.toLocaleString('en-US')} منشأة على الخريطة
+          {facilities
+            .filter(validCoordinates)
+            .length.toLocaleString('en-US')} منشأة على الخريطة
         </p>
+        {facilities.some((item) => !validCoordinates(item)) && (
+          <p className="mt-1 text-[9px] font-semibold text-amber-700">
+            توجد إحداثيات تحتاج مراجعة ولم تُعرض على الخريطة
+          </p>
+        )}
         {pickingLocation && (
           <p className="mt-1 text-[9px] font-semibold text-amber-700">
             انقر على الخريطة لتحديد موقع المنشأة
