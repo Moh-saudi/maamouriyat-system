@@ -219,15 +219,14 @@ export function FacilityMap({
     const plotted = facilities.filter(validCoordinates)
 
     for (const facility of plotted) {
-      const selected = facility.id === selectedFacilityId
       const marker = L.circleMarker(
         [facility.latitude, facility.longitude],
         {
-          radius: selected ? 7 : 4,
-          weight: selected ? 3 : 1.5,
-          color: selected ? '#0f766e' : '#ffffff',
+          radius: 4,
+          weight: 1.5,
+          color: '#ffffff',
           fillColor: facility.isActive ? '#0f766e' : '#64748b',
-          fillOpacity: selected ? 1 : 0.82,
+          fillOpacity: 0.82,
         }
       )
 
@@ -255,7 +254,7 @@ export function FacilityMap({
       markersRef.current.set(facility.id, marker)
     }
 
-    if (plotted.length > 0 && !selectedFacilityId) {
+    if (plotted.length > 0) {
       const bounds = L.latLngBounds(
         plotted.map((item) => [item.latitude, item.longitude])
       )
@@ -264,12 +263,19 @@ export function FacilityMap({
         maxZoom: plotted.length === 1 ? 14 : 11,
       })
     }
-  }, [
-    leafletReady,
-    facilities,
-    selectedFacilityId,
-    onSelectFacility,
-  ])
+  }, [leafletReady, facilities, onSelectFacility])
+
+  useEffect(() => {
+    for (const [facilityId, marker] of markersRef.current.entries()) {
+      const selected = facilityId === selectedFacilityId
+      marker.setStyle({
+        radius: selected ? 7 : 4,
+        weight: selected ? 3 : 1.5,
+        color: selected ? '#0f766e' : '#ffffff',
+        fillOpacity: selected ? 1 : 0.82,
+      })
+    }
+  }, [selectedFacilityId])
 
   useEffect(() => {
     if (!leafletReady || !window.L || !mapRef.current) return
