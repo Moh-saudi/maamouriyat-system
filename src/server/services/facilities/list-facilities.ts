@@ -161,6 +161,15 @@ async function loadFilterOptions(input: {
   }
 }
 
+/**
+ * Ministry-wide facility directory.
+ *
+ * IMPORTANT:
+ * Facility organization_id / sector_id describe administrative affiliation and
+ * data provenance only. They are NOT an authorization boundary for inspection.
+ * A caller reaching this service has already passed the facilities.view page
+ * permission; the resulting directory is intentionally ministry-wide.
+ */
 export async function listV2Facilities(input: {
   page?: number
   pageSize?: number
