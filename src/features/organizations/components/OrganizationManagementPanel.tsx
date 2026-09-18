@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Building2,
   ChevronDown,
@@ -743,7 +743,7 @@ function StatCard({
 }: {
   value: number
   label: string
-  icon: React.ReactNode
+  icon: ReactNode
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-100/60">
