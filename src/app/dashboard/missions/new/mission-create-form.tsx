@@ -873,14 +873,6 @@ export function MissionCreateForm({
         targetFacId = govFac?.id || facilities[0]?.id || '00000000-0000-0000-0000-000000001000';
       }
 
-      // Generate real sequential serial number
-      const { data: serialData, error: serialError } = await supabase.rpc('generate_serial_number', {
-        dept_code: 'MIS',
-      })
-
-      const finalSerial = serialData || `MIS-${Date.now()}-${i + 1}`;
-      lastSerial = finalSerial;
-
       const missionNoteParts = [
         form.notes.trim(),
         teamSummary ? `فريق المأمورية: ${teamSummary}` : '',
@@ -896,7 +888,8 @@ export function MissionCreateForm({
       const resolvedSectorId = fac?.sector_id || userSectorId || defaultSectorId;
 
       const payload: any = {
-        serial_number: finalSerial,
+        // Generated atomically by trg_set_mission_serial in the database.
+        serial_number: null,
         facility_id: targetFacId,
         target_facility_id: targetFacId,
         target_governorate_id: form.targetGovernorateId || null,
@@ -921,28 +914,14 @@ export function MissionCreateForm({
         destination_type: form.destinationType || 'facility',
       }
 
-      let missionData = null
-      let insertError = null
-
-      const firstTry = await supabase.from('missions').insert(payload).select('id, serial_number').single()
-      missionData = firstTry.data
-      insertError = firstTry.error
-
-      // If a unique constraint violation occurs (HTTP 409 / code 23505 on serial_number), retry with collision-proof serial
-      if (insertError && (insertError.code === '23505' || insertError.message?.includes('serial_number') || insertError.message?.includes('duplicate key') || insertError.details?.includes('serial_number'))) {
-        console.warn('Serial number collision detected, retrying with unique timestamp serial...')
-        const uniqueFallbackSerial = `MIS-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Date.now().toString().slice(-6)}-${i + 1}`
-        payload.serial_number = uniqueFallbackSerial
-        lastSerial = uniqueFallbackSerial
-
-        const retry = await supabase.from('missions').insert(payload).select('id, serial_number').single()
-        if (!retry.error) {
-          missionData = retry.data
-          insertError = null
-        } else {
-          insertError = retry.error
-        }
-      }
+      const {
+        data: missionData,
+        error: insertError,
+      } = await supabase
+        .from('missions')
+        .insert(payload)
+        .select('id, serial_number')
+        .single()
 
       if (insertError) {
         console.error('Mission insert error details:', insertError)
@@ -951,7 +930,7 @@ export function MissionCreateForm({
         return
       }
 
-      const assignedSerial = missionData?.serial_number || payload.serial_number || finalSerial
+      const assignedSerial = missionData?.serial_number || 'غير متاح'
       lastSerial = assignedSerial
 
       // Insert team members into mission_team and mission_assignees
