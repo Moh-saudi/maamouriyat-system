@@ -600,7 +600,7 @@ export function RoleManagementPanel() {
                                 >
                                   {scopes.map((scope) => (
                                     <option key={scope} value={scope}>
-                                      {SCOPE_LABELS[scope] || scope}
+                                      {SCOPE_LABELS[scope] || 'نطاق مخصص'}
                                     </option>
                                   ))}
                                 </select>
