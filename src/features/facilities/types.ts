@@ -23,17 +23,10 @@ export type V2HealthAdministrationOption = {
   governorate: string
 }
 
-export type V2FacilityTypeCount = {
-  label: string
-  total: number
-  active: number
-}
-
 export type V2FacilityDirectoryData = {
   facilities: V2FacilityDirectoryItem[]
   healthAdministrations: V2HealthAdministrationOption[]
   facilityTypes: string[]
-  facilityTypeCounts: V2FacilityTypeCount[]
   ministryTotal: number
   activeTotal: number
   governorateCount: number
