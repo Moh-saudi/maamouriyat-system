@@ -163,10 +163,32 @@ export async function GET() {
       )
     }
 
+    const delegationScopes: Record<string, V2ScopeType[]> = {}
+
+    for (const permissionRow of permissions ?? []) {
+      const permissionKey = String(permissionRow.key)
+      const effective = gate.access.permissions[permissionKey]
+
+      if (!effective?.granted || effective.deniedByUserOverride) {
+        delegationScopes[permissionKey] = []
+        continue
+      }
+
+      if (effective.sources.some((source) => source.scopeType === 'national')) {
+        delegationScopes[permissionKey] = [...V2_SCOPE_TYPES]
+        continue
+      }
+
+      delegationScopes[permissionKey] = [
+        ...new Set(effective.sources.map((source) => source.scopeType)),
+      ]
+    }
+
     return NextResponse.json({
       roles: roles ?? [],
       grants: grants ?? [],
       permissions: permissions ?? [],
+      delegationScopes,
       capabilities: {
         canManageRoles:
           gate.access.permissions['settings.manage_roles']?.granted === true,
