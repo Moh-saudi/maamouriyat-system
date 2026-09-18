@@ -29,147 +29,134 @@ export function DesktopSidebar({
   homeHref = '/v2/dashboard',
 }: DesktopSidebarProps) {
   const pathname = usePathname()
-
-  // Group items according to NavGroupKey
   const groups: NavGroupKey[] = ['main', 'operations', 'admin']
 
   return (
     <aside
       aria-label="القائمة الجانبية الرئيسية"
-      className={`hidden md:flex flex-col shrink-0 h-screen sticky top-0 bg-white border-l border-slate-200/90 z-40 transition-[width] duration-200 ease-in-out select-none ${
-        collapsed ? 'w-20' : 'w-20 lg:w-72'
+      className={`sticky top-0 z-40 hidden h-screen shrink-0 flex-col border-l border-slate-200/80 bg-white transition-[width] duration-200 md:flex ${
+        collapsed ? 'w-[76px]' : 'w-[76px] lg:w-[276px]'
       }`}
     >
-      {/* ── Header: Logo & Branding ────────────────────────────────────── */}
-      <div className="h-16 flex items-center justify-between px-3.5 border-b border-slate-200/80 shrink-0">
+      <div className="flex h-[72px] shrink-0 items-center justify-between border-b border-slate-100 px-3">
         <Link
           href={homeHref}
-          className="flex items-center gap-3 overflow-hidden focus-visible:outline-teal-600 rounded-lg p-1"
+          className="flex min-w-0 items-center gap-3 rounded-xl p-1 focus-visible:outline-2 focus-visible:outline-teal-600"
         >
-          <div className="relative w-9 h-9 shrink-0 flex items-center justify-center rounded-lg bg-teal-50 border border-teal-200">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-teal-100 bg-teal-50/70">
             <Image
               src={BRANDING.logos.primary}
               alt={BRANDING.ministry}
-              width={28}
-              height={28}
+              width={30}
+              height={30}
               className="object-contain"
               priority
             />
           </div>
 
           {!collapsed && (
-            <div className="hidden lg:flex flex-col text-right truncate">
-              <span className="text-sm font-bold text-slate-900 leading-snug truncate">
+            <div className="hidden min-w-0 flex-col text-right lg:flex">
+              <span className="truncate text-sm font-extrabold text-slate-900">
                 {BRANDING.shortName}
               </span>
-              <span className="text-[11px] text-slate-400 truncate">
+              <span className="truncate text-[11px] text-slate-400">
                 {BRANDING.ministry}
               </span>
             </div>
           )}
         </Link>
 
-        {/* Collapse Toggle Button (Desktop Only >= 1024px) */}
         <button
           type="button"
           onClick={onToggleCollapse}
           aria-label={collapsed ? 'توسيع القائمة الجانبية' : 'طي القائمة الجانبية'}
-          title={collapsed ? 'توسيع' : 'طي'}
-          className="hidden lg:flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 focus-visible:outline-teal-600 transition-colors"
+          className="hidden h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 lg:flex"
         >
           {collapsed ? (
-            <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+            <ChevronLeft className="h-4 w-4" />
           ) : (
-            <ChevronRight className="w-4 h-4" aria-hidden="true" />
+            <ChevronRight className="h-4 w-4" />
           )}
         </button>
       </div>
 
-      {/* ── Scrollable Navigation Items ─────────────────────────────────── */}
-      <nav className="flex-1 overflow-y-auto px-2 lg:px-3 py-4 space-y-6 scrollbar-thin">
+      <nav className="flex-1 space-y-7 overflow-y-auto px-2 py-5 lg:px-3">
         {groups.map((groupKey) => {
           const groupItems = items.filter((item) => item.group === groupKey)
           if (groupItems.length === 0) return null
 
           return (
-            <div key={groupKey} className="space-y-1.5">
-              {/* Group Header (Visible only on expanded Desktop >= 1024px) */}
+            <section key={groupKey} className="space-y-2">
               {!collapsed && (
-                <p className="hidden lg:block px-3 text-[11px] font-bold text-slate-400 tracking-wide uppercase">
+                <p className="hidden px-3 text-[11px] font-bold text-slate-400 lg:block">
                   {V2_NAV_GROUPS[groupKey]}
                 </p>
               )}
 
-              {/* Group Nav Items */}
               <div className="space-y-1">
                 {groupItems.map((item) => {
                   const active = isRouteActive(pathname, item.href)
 
-                  const itemContent = (
+                  const link = (
                     <Link
                       href={item.href}
                       aria-current={active ? 'page' : undefined}
-                      className={`group flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-teal-600 ${
+                      className={`relative flex min-h-11 items-center gap-3 rounded-xl text-sm transition-colors focus-visible:outline-2 focus-visible:outline-teal-600 ${
                         collapsed
                           ? 'justify-center px-0'
-                          : 'justify-center lg:justify-start px-0 lg:px-3'
+                          : 'justify-center px-0 lg:justify-start lg:px-3'
                       } ${
                         active
-                          ? 'bg-teal-700 text-white font-semibold shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                          ? 'bg-teal-50 font-bold text-teal-800'
+                          : 'font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                       }`}
                     >
+                      {active && (
+                        <span className="absolute right-0 h-6 w-[3px] rounded-l-full bg-teal-600" />
+                      )}
                       <NavIcon
                         name={item.iconName}
-                        className={`w-5 h-5 shrink-0 transition-colors ${
-                          active ? 'text-white' : 'text-slate-500 group-hover:text-slate-700'
+                        className={`h-5 w-5 shrink-0 ${
+                          active ? 'text-teal-700' : 'text-slate-400'
                         }`}
                       />
                       {!collapsed && (
-                        <span className="hidden lg:inline truncate text-right">
+                        <span className="hidden truncate lg:inline">
                           {item.label}
                         </span>
                       )}
                     </Link>
                   )
 
-                  // In collapsed mode (or on tablet where sidebar is a rail), wrap in Tooltip
                   return (
-                    <div key={item.id} className="relative">
-                      {/* Mobile / Tablet Rail Tooltip */}
+                    <div key={item.id}>
                       <div className={collapsed ? 'block' : 'lg:hidden'}>
                         <Tooltip delay={150}>
-                          <Tooltip.Trigger>{itemContent}</Tooltip.Trigger>
-                          <Tooltip.Content className="text-xs bg-slate-900 text-white px-2.5 py-1 rounded shadow-md z-50">
+                          <Tooltip.Trigger>{link}</Tooltip.Trigger>
+                          <Tooltip.Content className="z-50 rounded-lg bg-slate-900 px-2.5 py-1 text-xs text-white">
                             {item.label}
                           </Tooltip.Content>
                         </Tooltip>
                       </div>
-
-                      {/* Expanded Desktop layout without tooltip */}
-                      {!collapsed && (
-                        <div className="hidden lg:block">{itemContent}</div>
-                      )}
+                      {!collapsed && <div className="hidden lg:block">{link}</div>}
                     </div>
                   )
                 })}
               </div>
-            </div>
+            </section>
           )
         })}
       </nav>
 
-      {/* ── Footer / Version ───────────────────────────────────────────── */}
-      <div className="p-3 border-t border-slate-200/80 shrink-0 text-center">
+      <div className="shrink-0 border-t border-slate-100 px-4 py-3">
         {!collapsed ? (
-          <div className="hidden lg:flex items-center justify-between text-[11px] text-slate-400 px-2">
+          <div className="hidden items-center justify-between text-[10px] text-slate-400 lg:flex">
             <span>{BRANDING.country}</span>
-            <span className="font-mono">v{BRANDING.version}</span>
+            <span className="font-mono">V2</span>
           </div>
-        ) : null}
-        <div className={collapsed ? 'block' : 'lg:hidden'}>
-          <span className="text-[10px] font-mono text-slate-400">V2</span>
-        </div>
+        ) : (
+          <div className="text-center text-[10px] font-mono text-slate-400">V2</div>
+        )}
       </div>
     </aside>
   )
