@@ -16,9 +16,9 @@ export type NavItem = {
 }
 
 export const V2_NAV_GROUPS: Record<NavGroupKey, string> = {
-  main: 'الرئيسية والمؤشرات',
+  main: 'الرئيسية',
   operations: 'العمل الميداني والرقابة',
-  admin: 'إدارة الهيكل والمنظومة',
+  admin: 'إدارة المنظومة',
 } as const
 
 export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
@@ -62,7 +62,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
   },
   {
     id: 'targets',
-    label: 'المستهدفات والخطط',
+    label: 'المستهدفات',
     href: '/v2/targets',
     iconName: 'Target',
     group: 'operations',
@@ -90,7 +90,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
   },
   {
     id: 'users',
-    label: 'المستخدمون والفرق',
+    label: 'المستخدمون',
     href: '/v2/users',
     iconName: 'Users',
     group: 'admin',
@@ -99,7 +99,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
   },
   {
     id: 'settings',
-    label: 'الإعدادات والنظام',
+    label: 'الإعدادات',
     href: '/v2/settings',
     iconName: 'Settings',
     group: 'admin',
