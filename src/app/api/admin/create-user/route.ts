@@ -51,16 +51,21 @@ export async function POST(request: Request) {
     // ── التحقق من أن الجهة المحددة ضمن نطاق صلاحية المُشغِّل
     const { data: targetOrg } = await getAdminSupabaseClient()
       .from('organizations')
-      .select('id, level, sector_id, governorate, name')
+      .select('id, level, organization_type_code, sector_id, governorate, name, is_active')
       .eq('id', targetOrgId)
       .maybeSingle()
 
-    if (!targetOrg) {
-      return NextResponse.json({ error: 'الجهة التنظيمية المحددة غير موجودة' }, { status: 400 })
+    if (!targetOrg || targetOrg.is_active !== true) {
+      return NextResponse.json(
+        { error: 'الجهة التنظيمية المحددة غير موجودة أو غير نشطة' },
+        { status: 400 }
+      )
     }
 
     const targetSectorId =
-      targetOrg.level === 2 ? targetOrg.id : targetOrg.sector_id
+      targetOrg.organization_type_code === 'sector'
+        ? targetOrg.id
+        : targetOrg.sector_id
 
     const scopeDecision = await checkV2ResourceAccess({
       user: gate.user,
