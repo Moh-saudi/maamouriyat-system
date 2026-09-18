@@ -114,7 +114,7 @@ export function CascadingOrganizationSelect({
   }, [value, byId])
 
   const [manualTrack, setManualTrack] = useState<OrganizationTrack | null>(null)
-  const track = value ? inferredTrack : manualTrack ?? 'central'
+  const track = manualTrack ?? inferredTrack
 
   const selectedPath = useMemo(() => {
     if (!value) return []
@@ -233,6 +233,13 @@ export function CascadingOrganizationSelect({
       const previousSelector = selectors[selectorIndex - 1]
       onChange(previousSelector?.selectedId || ministryRoots[0]?.id || null)
       return
+    }
+
+    const selectedOrganization = byId.get(selectedId)
+    if (selectedOrganization) {
+      setManualTrack(
+        selectedOrganization.level >= 5 ? 'directorates' : 'central'
+      )
     }
 
     onChange(selectedId)
