@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import {
   checkV2ResourceAccess,
@@ -240,10 +241,14 @@ export async function POST(request: NextRequest) {
         ? requestedLabel
         : validLevelLabels[resolvedLevel]
 
+    const newOrganizationId = randomUUID()
     const resolvedSectorId =
-      resolvedLevel === 2 ? parent.id : parent.sector_id ?? (parent.level === 2 ? parent.id : null)
+      resolvedLevel === 2
+        ? newOrganizationId
+        : parent.sector_id ?? (parent.level === 2 ? parent.id : null)
 
     const payload: Record<string, unknown> = {
+      id: newOrganizationId,
       name,
       code: code || `SUB-${Date.now().toString(36).toUpperCase()}`,
       parent_id: parent.id,
