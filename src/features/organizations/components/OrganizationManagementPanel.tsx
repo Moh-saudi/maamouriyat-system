@@ -615,6 +615,11 @@ export function OrganizationManagementPanel({
           value={directorateCount}
           label="مديرية شؤون صحية"
         />
+        <SimpleStat
+          icon={<Power className="h-4 w-4" />}
+          value={activeOrganizationCount}
+          label="جهة نشطة"
+        />
       </section>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -645,6 +650,17 @@ export function OrganizationManagementPanel({
                   </option>
                 ))}
             </select>
+
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-teal-500"
+            >
+              <option value="all">كل الحالات</option>
+              <option value="active">النشطة</option>
+              <option value="inactive">الموقوفة</option>
+              <option value="archived">المؤرشفة</option>
+            </select>
           </div>
 
           {canCreate && (
@@ -660,13 +676,15 @@ export function OrganizationManagementPanel({
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[860px] border-collapse text-right">
+          <table className="w-full min-w-[1180px] border-collapse text-right">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/60 text-[10px] font-bold text-slate-500">
                 <th className="px-4 py-2.5">الجهة</th>
                 <th className="px-4 py-2.5">النوع</th>
                 <th className="px-4 py-2.5">الجهة الأم</th>
                 <th className="px-4 py-2.5">المحافظة / النطاق</th>
+                <th className="px-4 py-2.5">الإضافة</th>
+                <th className="px-4 py-2.5">الاستخدام</th>
                 <th className="px-4 py-2.5">الحالة</th>
                 <th className="px-4 py-2.5">الإجراءات</th>
               </tr>
@@ -701,30 +719,80 @@ export function OrganizationManagementPanel({
                         'نطاق مركزي'}
                     </td>
                     <td className="px-4 py-3">
-                      {organization.is_active !== false ? (
-                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
-                          نشطة
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
-                          موقوفة
-                        </span>
-                      )}
+                      <p className="text-[10px] font-semibold text-slate-600">
+                        {formatDate(organization.created_at)}
+                      </p>
+                      <p className="mt-1 max-w-[150px] truncate text-[9px] text-slate-400">
+                        {organization.created_by_name || 'من السجلات السابقة'}
+                      </p>
                     </td>
                     <td className="px-4 py-3">
-                      {canEdit &&
-                      organization.organization_type_code !== 'ministry' ? (
+                      <div className="space-y-1 text-[10px] text-slate-500">
+                        <div className="flex items-center gap-1">
+                          <Users className="h-3 w-3" />
+                          <span>
+                            {organization.usage.usersActive.toLocaleString('en-US')} حساب نشط
+                          </span>
+                        </div>
+                        <div>
+                          {(
+                            organization.usage.missionsCreated +
+                            organization.usage.missionsInspector
+                          ).toLocaleString('en-US')}{' '}
+                          مأمورية ·{' '}
+                          {organization.usage.childOrganizationsTotal.toLocaleString(
+                            'en-US'
+                          )}{' '}
+                          جهة تابعة
+                        </div>
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                            hasRecordedActivity(organization)
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {hasRecordedActivity(organization)
+                            ? 'نشاط مسجل'
+                            : 'لا نشاط مسجل'}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                          organization.lifecycle_status === 'active'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : organization.lifecycle_status === 'archived'
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {lifecycleLabel(organization)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => openEdit(organization)}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-slate-700 hover:border-teal-300 hover:text-teal-800"
+                          onClick={() => setDetailsOrganization(organization)}
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-slate-700 hover:border-blue-300 hover:text-blue-700"
                         >
-                          <Pencil className="h-3.5 w-3.5" />
-                          تعديل
+                          <FileText className="h-3.5 w-3.5" />
+                          ملف الجهة
                         </button>
-                      ) : (
-                        <span className="text-xs text-slate-300">—</span>
-                      )}
+                        {canEdit &&
+                          organization.organization_type_code !== 'ministry' && (
+                            <button
+                              type="button"
+                              onClick={() => openEdit(organization)}
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-slate-700 hover:border-teal-300 hover:text-teal-800"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              تعديل
+                            </button>
+                          )}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -754,24 +822,55 @@ export function OrganizationManagementPanel({
                         : parent?.name || 'جهة رئيسية'}
                     </p>
                   </div>
-                  {organization.is_active !== false && (
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
-                      نشطة
-                    </span>
-                  )}
+                  <span
+                    className={`rounded-full px-2 py-1 text-[10px] font-bold ${
+                      organization.lifecycle_status === 'active'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : organization.lifecycle_status === 'archived'
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {lifecycleLabel(organization)}
+                  </span>
                 </div>
 
-                {canEdit &&
-                  organization.organization_type_code !== 'ministry' && (
-                    <button
-                      type="button"
-                      onClick={() => openEdit(organization)}
-                      className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      تعديل الجهة
-                    </button>
-                  )}
+                <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-3 text-[10px] text-slate-500">
+                  <div>
+                    <span className="block text-slate-400">أضيفت</span>
+                    <strong className="text-slate-700">
+                      {formatDate(organization.created_at)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="block text-slate-400">الحسابات النشطة</span>
+                    <strong className="text-slate-700">
+                      {organization.usage.usersActive.toLocaleString('en-US')}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDetailsOrganization(organization)}
+                    className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700"
+                  >
+                    <FileText className="h-4 w-4" />
+                    ملف الجهة
+                  </button>
+                  {canEdit &&
+                    organization.organization_type_code !== 'ministry' && (
+                      <button
+                        type="button"
+                        onClick={() => openEdit(organization)}
+                        className="inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        تعديل
+                      </button>
+                    )}
+                </div>
               </article>
             )
           })}
