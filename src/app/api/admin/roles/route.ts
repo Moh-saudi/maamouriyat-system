@@ -50,7 +50,7 @@ async function authorizeRoleOwner(input: {
   ownerOrganizationId: string | null
   user: V2AuthenticatedUser
   access: V2AuthorizationSnapshot
-})): Promise<boolean> {
+}): Promise<boolean> {
   if (!input.ownerOrganizationId) {
     return hasNationalManageRoleScope(input.access)
   }
