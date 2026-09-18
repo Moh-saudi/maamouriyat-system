@@ -34,7 +34,7 @@ export function DesktopSidebar({
   return (
     <aside
       aria-label="القائمة الجانبية الرئيسية"
-      className={`sticky top-0 z-40 hidden h-screen shrink-0 flex-col border-l border-slate-200/80 bg-white transition-[width] duration-200 md:flex ${
+      className={`fixed right-0 top-0 z-40 hidden h-dvh shrink-0 flex-col border-l border-slate-200/80 bg-white transition-[width] duration-200 md:flex ${
         collapsed ? 'w-[76px]' : 'w-[76px] lg:w-[276px]'
       }`}
     >
