@@ -90,7 +90,6 @@ export function OrganizationManagementPanel({
   const [creating, setCreating] = useState(false)
 
   const [name, setName] = useState('')
-  const [code, setCode] = useState('')
   const [parentId, setParentId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -144,7 +143,6 @@ export function OrganizationManagementPanel({
 
       return [
         organization.name,
-        organization.code || '',
         organization.governorate || '',
         organization.health_admin || '',
       ].some((value) => value.toLocaleLowerCase('ar').includes(q))
@@ -158,8 +156,7 @@ export function OrganizationManagementPanel({
     setEditing(organization)
     setCreating(false)
     setName(organization.name)
-    setCode(organization.code || '')
-    setParentId(organization.parent_id)
+    setParentId(organization.level === 5 ? null : organization.parent_id)
     setError(null)
   }
 
@@ -167,7 +164,6 @@ export function OrganizationManagementPanel({
     setEditing(null)
     setCreating(true)
     setName('')
-    setCode('')
     setParentId(null)
     setError(null)
   }
@@ -204,7 +200,10 @@ export function OrganizationManagementPanel({
       return
     }
 
-    if (!parentId && (creating || (editing && editing.level > 1))) {
+    if (
+      !parentId &&
+      (creating || (editing && editing.level > 1 && editing.level !== 5))
+    ) {
       setError('يجب اختيار الجهة الأم من الشجرة التنظيمية')
       return
     }
@@ -228,9 +227,9 @@ export function OrganizationManagementPanel({
     try {
       const body: Record<string, unknown> = {
         name: name.trim(),
-        code: code.trim() || undefined,
-        parent_id: parentId,
       }
+
+      if (parentId) body.parent_id = parentId
 
       if (editing) body.id = editing.id
 
@@ -304,7 +303,7 @@ export function OrganizationManagementPanel({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="ابحث باسم الجهة أو الكود أو المحافظة..."
+                placeholder="ابحث باسم الجهة أو المحافظة..."
                 className="h-11 w-full rounded-xl border border-slate-200 bg-white pr-10 pl-3 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
               />
             </label>
@@ -365,11 +364,6 @@ export function OrganizationManagementPanel({
                       <p className="font-bold text-slate-900">
                         {organization.name}
                       </p>
-                      {organization.code && (
-                        <p className="mt-1 font-mono text-[10px] text-slate-400">
-                          {organization.code}
-                        </p>
-                      )}
                     </td>
                     <td className="px-5 py-4">
                       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
@@ -378,7 +372,9 @@ export function OrganizationManagementPanel({
                       </span>
                     </td>
                     <td className="px-5 py-4 text-sm text-slate-600">
-                      {parent?.name || 'جهة رئيسية'}
+                      {organization.level === 5
+                        ? 'وزارة الصحة والسكان'
+                        : parent?.name || 'جهة رئيسية'}
                     </td>
                     <td className="px-5 py-4 text-sm text-slate-600">
                       {organization.governorate ||
@@ -432,7 +428,9 @@ export function OrganizationManagementPanel({
                     </h2>
                     <p className="mt-1 text-xs text-slate-500">
                       {LEVEL_LABELS[organization.level]} •{' '}
-                      {parent?.name || 'جهة رئيسية'}
+                      {organization.level === 5
+                        ? 'وزارة الصحة والسكان'
+                        : parent?.name || 'جهة رئيسية'}
                     </p>
                   </div>
                   {organization.is_active !== false && (
@@ -513,31 +511,29 @@ export function OrganizationManagementPanel({
                 />
               </label>
 
-              <label className="block">
-                <span className="mb-1.5 block text-xs font-bold text-slate-600">
-                  كود الجهة
-                </span>
-                <input
-                  dir="ltr"
-                  value={code}
-                  onChange={(event) => setCode(event.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  placeholder="ORG-CODE"
+              {editing?.level === 5 ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <p className="text-[11px] font-bold text-slate-500">
+                    التبعية التنظيمية
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-800">
+                    وزارة الصحة والسكان — المسار الإقليمي للمديريات
+                  </p>
+                </div>
+              ) : (
+                <CascadingOrganizationSelect
+                  organizations={parentOptions}
+                  value={parentId}
+                  onChange={setParentId}
+                  label="الجهة الأم"
+                  disabledIds={disabledParentIds}
+                  helperText={
+                    editing
+                      ? `اختر التبعية بالتدرج حتى مستوى ${LEVEL_LABELS[editing.level - 1] || editing.level - 1}.`
+                      : 'اختر الجهة الأم بالتدرج؛ مستوى الجهة الجديدة يُحدد تلقائيًا بناءً عليها.'
+                  }
                 />
-              </label>
-
-              <CascadingOrganizationSelect
-                organizations={parentOptions}
-                value={parentId}
-                onChange={setParentId}
-                label="الجهة الأم"
-                disabledIds={disabledParentIds}
-                helperText={
-                  editing
-                    ? `اختر التبعية بالتدرج حتى مستوى ${LEVEL_LABELS[editing.level - 1] || editing.level - 1}.`
-                    : 'اختر الجهة الأم بالتدرج؛ مستوى الجهة الجديدة يُحدد تلقائيًا بناءً عليها.'
-                }
-              />
+              )}
 
               {editing && (
                 <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
