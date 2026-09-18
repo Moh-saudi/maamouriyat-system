@@ -50,6 +50,7 @@ export function Topbar({
             width={28}
             height={28}
             className="object-contain"
+            style={{ width: 28, height: 28 }}
           />
         </Link>
 
