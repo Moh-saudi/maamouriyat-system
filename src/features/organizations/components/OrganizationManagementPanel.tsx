@@ -265,21 +265,24 @@ export function OrganizationManagementPanel({
     )
   }
 
-  function hasLinkedRecords(organization: Organization): boolean {
+  function linkedRecordCount(organization: Organization): number {
     const usage = organization.usage
     return (
       usage.usersTotal +
-        usage.childOrganizationsTotal +
-        usage.facilitiesTotal +
-        usage.missionsCreated +
-        usage.missionsInspector +
-        usage.activeRoleAssignments +
-        usage.formTemplatesTotal +
-        usage.violationsTotal +
-        usage.leadershipTargetsTotal +
-        usage.missionTargetsTotal >
-      0
+      usage.childOrganizationsTotal +
+      usage.facilitiesTotal +
+      usage.missionsCreated +
+      usage.missionsInspector +
+      usage.activeRoleAssignments +
+      usage.formTemplatesTotal +
+      usage.violationsTotal +
+      usage.leadershipTargetsTotal +
+      usage.missionTargetsTotal
     )
+  }
+
+  function hasLinkedRecords(organization: Organization): boolean {
+    return linkedRecordCount(organization) > 0
   }
 
   function lifecycleLabel(organization: Organization): string {
@@ -885,6 +888,284 @@ export function OrganizationManagementPanel({
           </div>
         )}
       </section>
+
+      {detailsOrganization && (
+        <div
+          className="fixed inset-0 z-[85] flex items-end justify-center bg-slate-950/35 sm:items-center sm:p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="organization-details-title"
+        >
+          <div className="max-h-[92vh] w-full overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-3xl sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold text-blue-700">
+                  ملف الجهة
+                </p>
+                <h2
+                  id="organization-details-title"
+                  className="mt-1 truncate text-base font-extrabold text-slate-900"
+                >
+                  {detailsOrganization.name}
+                </h2>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {detailsOrganization.organization_type_name_ar} ·{' '}
+                  {detailsOrganization.governorate ||
+                    detailsOrganization.health_admin ||
+                    'نطاق مركزي'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDetailsOrganization(null)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"
+                aria-label="إغلاق ملف الجهة"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[calc(92vh-150px)] overflow-y-auto p-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                  <p className="text-[10px] font-bold text-slate-400">
+                    تاريخ الإضافة
+                  </p>
+                  <p className="mt-1 text-sm font-extrabold text-slate-800">
+                    {formatDate(detailsOrganization.created_at)}
+                  </p>
+                  <p className="mt-1 truncate text-[10px] text-slate-500">
+                    بواسطة{' '}
+                    {detailsOrganization.created_by_name || 'غير مسجل'}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                  <p className="text-[10px] font-bold text-slate-400">
+                    آخر تعديل
+                  </p>
+                  <p className="mt-1 text-sm font-extrabold text-slate-800">
+                    {formatDate(detailsOrganization.updated_at)}
+                  </p>
+                  <p className="mt-1 truncate text-[10px] text-slate-500">
+                    بواسطة{' '}
+                    {detailsOrganization.updated_by_name || 'غير مسجل'}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                  <p className="text-[10px] font-bold text-slate-400">
+                    الحالة
+                  </p>
+                  <p className="mt-1 text-sm font-extrabold text-slate-800">
+                    {lifecycleLabel(detailsOrganization)}
+                  </p>
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    {hasRecordedActivity(detailsOrganization)
+                      ? 'يوجد نشاط مسجل على المنظومة'
+                      : 'لا يوجد نشاط تشغيلي مسجل'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-extrabold text-slate-800">
+                      السجلات والملفات المرتبطة
+                    </h3>
+                    <p className="mt-0.5 text-[10px] text-slate-400">
+                      ارتباطات مباشرة بهذه الجهة داخل المنظومة.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">
+                    {linkedRecordCount(detailsOrganization).toLocaleString(
+                      'en-US'
+                    )}{' '}
+                    ارتباط
+                  </span>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    {
+                      label: 'المستخدمون',
+                      value: detailsOrganization.usage.usersTotal,
+                      note: `${detailsOrganization.usage.usersActive.toLocaleString(
+                        'en-US'
+                      )} نشط`,
+                    },
+                    {
+                      label: 'الجهات التابعة',
+                      value:
+                        detailsOrganization.usage.childOrganizationsTotal,
+                      note: `${detailsOrganization.usage.childOrganizationsActive.toLocaleString(
+                        'en-US'
+                      )} نشطة`,
+                    },
+                    {
+                      label: 'المنشآت المرتبطة',
+                      value: detailsOrganization.usage.facilitiesTotal,
+                      note: `${detailsOrganization.usage.facilitiesActive.toLocaleString(
+                        'en-US'
+                      )} نشطة`,
+                    },
+                    {
+                      label: 'المأموريات',
+                      value:
+                        detailsOrganization.usage.missionsCreated +
+                        detailsOrganization.usage.missionsInspector,
+                      note: 'إنشاء أو تنفيذ',
+                    },
+                    {
+                      label: 'إسنادات أنواع العمل',
+                      value:
+                        detailsOrganization.usage.activeRoleAssignments,
+                      note: 'إسناد نشط',
+                    },
+                    {
+                      label: 'نماذج الفحص',
+                      value: detailsOrganization.usage.formTemplatesTotal,
+                      note: 'نموذج',
+                    },
+                    {
+                      label: 'المخالفات',
+                      value: detailsOrganization.usage.violationsTotal,
+                      note: 'سجل',
+                    },
+                    {
+                      label: 'المستهدفات',
+                      value:
+                        detailsOrganization.usage.leadershipTargetsTotal +
+                        detailsOrganization.usage.missionTargetsTotal,
+                      note: 'مستهدف',
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-xl border border-slate-200 bg-white p-3"
+                    >
+                      <p className="text-[10px] font-bold text-slate-400">
+                        {item.label}
+                      </p>
+                      <p className="mt-1 text-xl font-black text-slate-900">
+                        {item.value.toLocaleString('en-US')}
+                      </p>
+                      <p className="mt-1 text-[9px] text-slate-400">
+                        {item.note}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {detailsOrganization.lifecycle_status === 'inactive' && (
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
+                  أوقفت في{' '}
+                  {formatDate(detailsOrganization.deactivated_at)}
+                  {detailsOrganization.deactivated_by_name
+                    ? ` بواسطة ${detailsOrganization.deactivated_by_name}`
+                    : ''}
+                </div>
+              )}
+
+              {detailsOrganization.lifecycle_status === 'archived' && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
+                  أُرشفت في {formatDate(detailsOrganization.archived_at)}
+                  {detailsOrganization.archived_by_name
+                    ? ` بواسطة ${detailsOrganization.archived_by_name}`
+                    : ''}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3">
+              <div className="text-[10px] text-slate-400">
+                الحذف النهائي متاح فقط للجهة غير المستخدمة وغير المرتبطة
+                بسجلات.
+              </div>
+
+              {detailsOrganization.organization_type_code !== 'ministry' && (
+                <div className="flex flex-wrap gap-2">
+                  {canEdit &&
+                    detailsOrganization.lifecycle_status === 'active' && (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() =>
+                          void changeLifecycle(
+                            detailsOrganization,
+                            'deactivate'
+                          )
+                        }
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                      >
+                        <Power className="h-3.5 w-3.5" />
+                        إيقاف
+                      </button>
+                    )}
+
+                  {canEdit &&
+                    detailsOrganization.lifecycle_status !== 'active' && (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() =>
+                          void changeLifecycle(
+                            detailsOrganization,
+                            'reactivate'
+                          )
+                        }
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 text-[10px] font-bold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        إعادة تفعيل
+                      </button>
+                    )}
+
+                  {canEdit &&
+                    detailsOrganization.lifecycle_status !== 'archived' && (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() =>
+                          void changeLifecycle(
+                            detailsOrganization,
+                            'archive'
+                          )
+                        }
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-3 text-[10px] font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                      >
+                        <Archive className="h-3.5 w-3.5" />
+                        أرشفة
+                      </button>
+                    )}
+
+                  {canDelete && (
+                    <button
+                      type="button"
+                      disabled={saving || hasLinkedRecords(detailsOrganization)}
+                      onClick={() =>
+                        void hardDeleteOrganization(detailsOrganization)
+                      }
+                      title={
+                        hasLinkedRecords(detailsOrganization)
+                          ? 'لا يمكن الحذف لوجود سجلات مرتبطة'
+                          : 'حذف نهائي للجهة المضافة بالخطأ'
+                      }
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 text-[10px] font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      حذف نهائي
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {(editing || creating) && (
         <div
