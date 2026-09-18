@@ -4,7 +4,6 @@ import {
   hasV2Permission,
 } from '@/server/authorization'
 import { requireV2Permission } from '@/server/authorization/http-guard'
-import { isOrganizationWithinTree } from '@/server/authorization/organization-scope-repository'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import type {
   V2OrganizationFact,
@@ -152,14 +151,6 @@ function userResource(
     organizationId: user.organization_id,
     sectorId: user.sector_id ?? organization?.sector_id ?? null,
     governorate: organization?.governorate ?? null,
-  }
-}
-
-function facilityResource(facility: FacilityRow): V2ResourceScopeContext {
-  return {
-    organizationId: facility.organization_id,
-    sectorId: facility.sector_id,
-    governorate: facility.governorate,
   }
 }
 
@@ -341,42 +332,6 @@ async function resolveTargetScope(
       governorate: organization.governorate,
     },
   }
-}
-
-function facilityFitsDeclaredTargetScope(input: {
-  facility: FacilityRow
-  scope: TargetScopeResolution
-  organizationFacts: ReadonlyMap<string, V2OrganizationFact>
-}): boolean {
-  const { facility, scope, organizationFacts } = input
-
-  if (scope.scopeLevel === 'ministry' || scope.scopeLevel === 'user') {
-    return true
-  }
-
-  if (scope.scopeLevel === 'sector') {
-    return Boolean(scope.sectorId && facility.sector_id === scope.sectorId)
-  }
-
-  if (scope.scopeLevel === 'governorate') {
-    return Boolean(
-      facility.governorate &&
-        scope.resource.governorate &&
-        facility.governorate === scope.resource.governorate
-    )
-  }
-
-  if (scope.scopeLevel === 'health_admin') {
-    if (!facility.organization_id || !scope.scopeOrganizationId) return false
-
-    return isOrganizationWithinTree({
-      resourceOrganizationId: facility.organization_id,
-      anchorOrganizationId: scope.scopeOrganizationId,
-      facts: organizationFacts,
-    })
-  }
-
-  return false
 }
 
 async function loadTargetFacilities(
@@ -673,7 +628,7 @@ export async function GET(request: Request) {
           .select('id, name, facility_type, organization_id, sector_id, governorate, health_admin, is_active')
           .eq('is_active', true)
           .order('name')
-          .limit(2000),
+          .limit(5000),
       ])
 
       users = ((userRows ?? []) as UserRow[]).filter((candidate) => {
@@ -694,15 +649,10 @@ export async function GET(request: Request) {
         })
       })
 
-      facilities = ((facilityRows ?? []) as FacilityRow[]).filter((facility) =>
-        isAllowed({
-          user: gate.user,
-          access: gate.access,
-          permissionKey: 'targets.create',
-          resource: facilityResource(facility),
-          organizationFacts: organizations.facts,
-        })
-      )
+      // Facilities are a ministry-wide shared inspection pool.
+      // Organizational affiliation describes the facility; it is not an
+      // authorization boundary for selecting an inspection target.
+      facilities = (facilityRows ?? []) as FacilityRow[]
     }
 
     let callerGov: string | null = null
@@ -884,29 +834,6 @@ export async function POST(request: Request) {
         return NextResponse.json(
           { error: 'لا يمكن استهداف منشأة غير نشطة' },
           { status: 400 }
-        )
-      }
-
-      if (
-        !isAllowed({
-          user: gate.user,
-          access: gate.access,
-          permissionKey: 'targets.create',
-          resource: facilityResource(facility),
-          organizationFacts: organizations.facts,
-        }) ||
-        !facilityFitsDeclaredTargetScope({
-          facility,
-          scope,
-          organizationFacts: organizations.facts,
-        })
-      ) {
-        return NextResponse.json(
-          {
-            error: 'إحدى المنشآت المحددة خارج نطاق المستهدف أو خارج صلاحياتك',
-            code: 'FACILITY_SCOPE_DENIED',
-          },
-          { status: 403 }
         )
       }
     }
@@ -1126,39 +1053,11 @@ export async function PATCH(request: Request) {
         )
       }
 
-      const declaredScope: TargetScopeResolution = {
-        scopeLevel: current.scope_level,
-        scopeName: current.scope_name,
-        scopeOrganizationId: current.scope_organization_id,
-        assignedUserId: current.assigned_user_id,
-        assignedUserName: null,
-        sectorId: current.sector_id,
-        sectorName: null,
-        resource: targetResource(current),
-      }
-
       for (const facility of facilitiesById.values()) {
-        if (
-          facility.is_active !== true ||
-          !isAllowed({
-            user: gate.user,
-            access: gate.access,
-            permissionKey: 'targets.edit',
-            resource: facilityResource(facility),
-            organizationFacts: organizations.facts,
-          }) ||
-          !facilityFitsDeclaredTargetScope({
-            facility,
-            scope: declaredScope,
-            organizationFacts: organizations.facts,
-          })
-        ) {
+        if (facility.is_active !== true) {
           return NextResponse.json(
-            {
-              error: 'إحدى المنشآت المحددة خارج نطاق المستهدف أو خارج صلاحياتك',
-              code: 'FACILITY_SCOPE_DENIED',
-            },
-            { status: 403 }
+            { error: 'لا يمكن استهداف منشأة غير نشطة' },
+            { status: 400 }
           )
         }
       }
