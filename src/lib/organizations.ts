@@ -10,6 +10,7 @@ export type Organization = {
   name: string
   level: number
   level_label: string
+  organization_type_code: string
   parent_id: string | null
   sector_id: string | null
   governorate: string | null
@@ -47,7 +48,7 @@ async function fetchAll(): Promise<Organization[]> {
 
   const { data, error } = await supabase
     .from('organizations')
-    .select('id,name,level,level_label,parent_id,sector_id,governorate,health_admin,code,is_active')
+    .select('id,name,level,level_label,organization_type_code,parent_id,sector_id,governorate,health_admin,code,is_active')
     .eq('is_active', true)
     .order('level')
     .order('name')
@@ -74,25 +75,23 @@ export async function getSectors(): Promise<Organization[]> {
   return getOrganizationsByLevel(2)
 }
 
-/** جلب المديريات (مستوى 5) */
-export async function getDirectorates(sectorId?: string): Promise<Organization[]> {
+/** جلب مديريات الشؤون الصحية حسب نوع الجهة الحقيقي. */
+export async function getDirectorates(): Promise<Organization[]> {
   const all = await fetchAll()
   return all.filter(
-    (o) => o.level === 5 && (sectorId ? o.sector_id === sectorId : true)
+    (o) => o.organization_type_code === 'health_directorate'
   )
 }
 
-/** جلب الإدارات الصحية (مستوى 6) حسب المحافظة والقطاع */
+/** جلب الإدارات الصحية الجغرافية، وليس كل جهة تقع في نفس العمق. */
 export async function getHealthAdmins(params: {
   governorate?: string
-  sectorId?: string
 }): Promise<Organization[]> {
   const all = await fetchAll()
   return all.filter(
     (o) =>
-      o.level === 6 &&
-      (params.governorate ? o.governorate === params.governorate : true) &&
-      (params.sectorId ? o.sector_id === params.sectorId : true)
+      o.organization_type_code === 'health_administration' &&
+      (params.governorate ? o.governorate === params.governorate : true)
   )
 }
 
