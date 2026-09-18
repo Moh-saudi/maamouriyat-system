@@ -1,98 +1,34 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { createServerSupabaseClient } from '@/lib/supabase/server'
-
-function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://upxmlpiemqdfbhyipihh.supabase.co'
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 
-                             process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 
-                             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-                             ''
-  if (!supabaseUrl || !supabaseServiceKey) {
-    throw new Error('Supabase configuration is missing on the server.')
-  }
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  })
-}
+import { requireV2Permission } from '@/server/authorization/http-guard'
+import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 // 1. GET: Fetch form templates, sections, and criteria scoped by Sector & Role
 export async function GET() {
   try {
-    const adminClient = getAdminClient()
+    const gate = await requireV2Permission('checklists.design')
+    if (!gate.ok) return gate.response
 
-    // 1. Resolve User Context if authenticated
-    let userContext = {
-      level: 1,
-      roleTitle: 'مدير النظام (ديوان الوزارة)',
-      orgName: 'وزارة الصحة والسكان',
-      sectorId: null as string | null,
-      sectorName: 'كافة قطاعات الوزارة',
-      canEdit: true,
-      canCustomize: true
+    const adminClient = getAdminSupabaseClient()
+
+    let sectorName = 'كافة قطاعات الوزارة'
+    if (gate.user.sectorId) {
+      const { data: sectorOrg } = await adminClient
+        .from('organizations')
+        .select('name')
+        .eq('id', gate.user.sectorId)
+        .maybeSingle()
+
+      if (sectorOrg?.name) sectorName = sectorOrg.name
     }
 
-    try {
-      const supabaseServer = await createServerSupabaseClient()
-      if (supabaseServer) {
-        const { data: { user } } = await supabaseServer.auth.getUser()
-        if (user) {
-          const { data: userProfile } = await adminClient
-            .from('users')
-            .select(`
-              id, full_name, org_level, organization_id, sector_id,
-              organizations:organization_id (id, name, level)
-            `)
-            .eq('auth_id', user.id)
-            .maybeSingle()
-
-          if (userProfile) {
-            const level = userProfile.org_level ?? 1
-            const org = userProfile.organizations as any
-
-            let roleTitle = 'مستخدم النظام'
-            if (level === 1) roleTitle = 'المشرف العام (ديوان عام الوزارة)'
-            else if (level === 2) roleTitle = `رئيس القطاع المركزي (${org?.name || 'القطاع'})`
-            else if (level === 3) roleTitle = 'رئيس الإدارة المركزية'
-            else if (level === 4) roleTitle = 'مدير عام الإدارة العامة'
-            else if (level === 5) roleTitle = `مدير مديرية الشئون الصحية (${org?.name || 'المديرية'})`
-            else if (level === 6) roleTitle = `مدير الإدارة الصحية (${org?.name || 'الإدارة'})`
-            else roleTitle = 'مفتش / عضو فريق المرور الميداني'
-
-            let sectorName = 'كافة قطاعات الوزارة'
-            let sectorId: string | null = null
-
-            if (level === 1) {
-              // Level 1: Superadmin oversees all ministry sectors
-              sectorName = 'كافة قطاعات الوزارة'
-              sectorId = null
-            } else if (userProfile.sector_id) {
-              sectorId = userProfile.sector_id
-              const { data: secOrg } = await adminClient
-                .from('organizations')
-                .select('name')
-                .eq('id', userProfile.sector_id)
-                .maybeSingle()
-              if (secOrg) sectorName = secOrg.name
-            }
-
-            userContext = {
-              level,
-              roleTitle,
-              orgName: org?.name || 'وزارة الصحة والسكان',
-              sectorId,
-              sectorName,
-              canEdit: level <= 2, // Level 1 Superadmin or Level 2 Sector Head can modify base template
-              canCustomize: level <= 5 // Directorate can add localized criteria
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[Checklists GET] Could not resolve session user, defaulting to admin context')
+    const userContext = {
+      level: gate.user.orgLevel,
+      roleTitle: gate.user.jobTitle || 'مسؤول تصميم نماذج التقييم',
+      orgName: gate.user.organizationName,
+      sectorId: gate.user.sectorId,
+      sectorName,
+      canEdit: true,
+      canCustomize: true,
     }
 
     // 2. Fetch Sectors, Templates, Sections, and Criteria concurrently in parallel (Promise.all)
@@ -209,27 +145,20 @@ export async function GET() {
       totalSections: sections?.length || 0,
       totalCriteria: criteria?.length || 0
     })
-  } catch (err: any) {
-    console.error('[Checklists GET exception]', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (error) {
+    console.error('[Checklists GET exception]', error)
+    return NextResponse.json({ error: 'تعذر تحميل نماذج التقييم' }, { status: 500 })
   }
 }
 
 // 2. POST: Add a new custom criterion or section
 export async function POST(request: Request) {
   try {
-    const supabaseServer = await createServerSupabaseClient()
-    if (!supabaseServer) {
-      return NextResponse.json({ error: 'Database client not initialized' }, { status: 500 })
-    }
-
-    const { data: { user: caller } } = await supabaseServer.auth.getUser()
-    if (!caller) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const gate = await requireV2Permission('checklists.design')
+    if (!gate.ok) return gate.response
 
     const body = await request.json()
-    const adminClient = getAdminClient()
+    const adminClient = getAdminSupabaseClient()
 
     if (body.action === 'add_criterion') {
       const { section_id, template_id, criterion_text, score_max_value, score_type } = body
