@@ -55,6 +55,102 @@ type OrganizationTypeRelationRow = {
   is_active: boolean
 }
 
+const FALLBACK_ORGANIZATION_TYPES: OrganizationTypeRow[] = [
+  {
+    code: 'ministry',
+    display_name_ar: 'الوزارة',
+    description_ar: 'ديوان وزارة الصحة والسكان',
+    sort_order: 10,
+    is_active: true,
+  },
+  {
+    code: 'sector',
+    display_name_ar: 'قطاع',
+    description_ar: 'قطاع مركزي بديوان الوزارة',
+    sort_order: 20,
+    is_active: true,
+  },
+  {
+    code: 'central_administration',
+    display_name_ar: 'إدارة مركزية',
+    description_ar: 'إدارة مركزية بالديوان',
+    sort_order: 30,
+    is_active: true,
+  },
+  {
+    code: 'general_administration',
+    display_name_ar: 'إدارة عامة',
+    description_ar: 'إدارة عامة داخل الديوان أو المديرية',
+    sort_order: 40,
+    is_active: true,
+  },
+  {
+    code: 'administration',
+    display_name_ar: 'إدارة',
+    description_ar: 'إدارة إدارية أو فنية',
+    sort_order: 50,
+    is_active: true,
+  },
+  {
+    code: 'department',
+    display_name_ar: 'قسم',
+    description_ar: 'قسم إداري أو فني',
+    sort_order: 60,
+    is_active: true,
+  },
+  {
+    code: 'section',
+    display_name_ar: 'وحدة تنظيمية / شعبة',
+    description_ar: 'وحدة تنظيمية أصغر داخل الإدارة أو القسم',
+    sort_order: 70,
+    is_active: true,
+  },
+  {
+    code: 'health_directorate',
+    display_name_ar: 'مديرية الشؤون الصحية',
+    description_ar: 'ديوان مديرية الشؤون الصحية بالمحافظة',
+    sort_order: 80,
+    is_active: true,
+  },
+  {
+    code: 'health_administration',
+    display_name_ar: 'إدارة صحية',
+    description_ar: 'الإدارة الصحية الجغرافية التابعة للمديرية',
+    sort_order: 90,
+    is_active: true,
+  },
+]
+
+const FALLBACK_ORGANIZATION_RELATIONS: OrganizationTypeRelationRow[] = [
+  ['ministry', 'sector'],
+  ['ministry', 'central_administration'],
+  ['ministry', 'general_administration'],
+  ['ministry', 'health_directorate'],
+  ['sector', 'central_administration'],
+  ['sector', 'general_administration'],
+  ['sector', 'administration'],
+  ['central_administration', 'general_administration'],
+  ['central_administration', 'administration'],
+  ['general_administration', 'administration'],
+  ['general_administration', 'department'],
+  ['general_administration', 'section'],
+  ['administration', 'department'],
+  ['administration', 'section'],
+  ['department', 'section'],
+  ['health_directorate', 'general_administration'],
+  ['health_directorate', 'administration'],
+  ['health_directorate', 'department'],
+  ['health_directorate', 'section'],
+  ['health_directorate', 'health_administration'],
+  ['health_administration', 'administration'],
+  ['health_administration', 'department'],
+  ['health_administration', 'section'],
+].map(([parent_type_code, child_type_code]) => ({
+  parent_type_code,
+  child_type_code,
+  is_active: true,
+}))
+
 const LEGACY_LEVEL_LABEL_BY_TYPE: Record<string, string> = {
   ministry: 'ministry',
   sector: 'sector',
@@ -85,21 +181,31 @@ async function loadOrganizationTaxonomy() {
       .eq('is_active', true),
   ])
 
-  if (typesError) {
-    throw new Error(
-      `Failed to load organization types: ${typesError.message}`
-    )
+  if (typesError || relationsError) {
+    console.warn('[organizations] taxonomy query fallback:', {
+      typesError: typesError?.message ?? null,
+      relationsError: relationsError?.message ?? null,
+    })
+
+    return {
+      types: FALLBACK_ORGANIZATION_TYPES,
+      relations: FALLBACK_ORGANIZATION_RELATIONS,
+    }
   }
 
-  if (relationsError) {
-    throw new Error(
-      `Failed to load organization type relations: ${relationsError.message}`
-    )
+  const resolvedTypes = (types ?? []) as OrganizationTypeRow[]
+  const resolvedRelations = (relations ?? []) as OrganizationTypeRelationRow[]
+
+  if (resolvedTypes.length === 0 || resolvedRelations.length === 0) {
+    return {
+      types: FALLBACK_ORGANIZATION_TYPES,
+      relations: FALLBACK_ORGANIZATION_RELATIONS,
+    }
   }
 
   return {
-    types: (types ?? []) as OrganizationTypeRow[],
-    relations: (relations ?? []) as OrganizationTypeRelationRow[],
+    types: resolvedTypes,
+    relations: resolvedRelations,
   }
 }
 
