@@ -64,46 +64,25 @@ export function CascadingOrganizationSelect({
     [organizations]
   )
 
-  const ministryRoot = useMemo(
-    () =>
-      organizations.find(
-        (item) => item.organization_type_code === 'ministry'
-      ) ?? null,
-    [organizations]
-  )
-
   const roots = useMemo(
     () =>
       sortOptions(
-        organizations.filter((item) => {
-          if (
-            ministryRoot &&
-            item.organization_type_code === 'health_directorate'
-          ) {
-            return false
-          }
-
-          return !item.parent_id || !byId.has(item.parent_id)
-        })
+        organizations.filter(
+          (item) => !item.parent_id || !byId.has(item.parent_id)
+        )
       ),
-    [organizations, byId, ministryRoot]
+    [organizations, byId]
   )
 
   const childrenByParent = useMemo(() => {
     const map = new Map<string, CascadingOrganizationOption[]>()
 
     for (const organization of organizations) {
-      const effectiveParentId =
-        ministryRoot &&
-        organization.organization_type_code === 'health_directorate'
-          ? ministryRoot.id
-          : organization.parent_id
+      if (!organization.parent_id) continue
 
-      if (!effectiveParentId) continue
-
-      const children = map.get(effectiveParentId) ?? []
+      const children = map.get(organization.parent_id) ?? []
       children.push(organization)
-      map.set(effectiveParentId, children)
+      map.set(organization.parent_id, children)
     }
 
     for (const [key, children] of map.entries()) {
@@ -111,7 +90,7 @@ export function CascadingOrganizationSelect({
     }
 
     return map
-  }, [organizations, ministryRoot])
+  }, [organizations])
 
   const selectedPath = useMemo(() => {
     if (!value) return []
@@ -127,22 +106,12 @@ export function CascadingOrganizationSelect({
       visited.add(current.id)
       path.unshift(current)
 
-      if (
-        current.organization_type_code === 'health_directorate' &&
-        ministryRoot
-      ) {
-        if (current.id !== ministryRoot.id) {
-          path.unshift(ministryRoot)
-        }
-        break
-      }
-
       if (!current.parent_id) break
       current = byId.get(current.parent_id)
     }
 
     return path
-  }, [value, byId, ministryRoot])
+  }, [value, byId])
 
   const disabled = useMemo(() => new Set(disabledIds), [disabledIds])
 
