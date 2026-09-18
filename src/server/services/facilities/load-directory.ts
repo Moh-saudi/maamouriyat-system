@@ -2,41 +2,14 @@ import 'server-only'
 
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import { STANDARD_FACILITY_TYPES } from '@/lib/facility-types'
+import type {
+  V2FacilityDirectoryData,
+  V2FacilityDirectoryItem,
+  V2HealthAdministrationOption,
+} from '@/features/facilities/types'
 
 const CHUNK_SIZE = 1000
 const MAX_DIRECTORY_ROWS = 12000
-
-export type V2FacilityDirectoryItem = {
-  id: string
-  name: string
-  facilityTypeLabel: string
-  organizationId: string
-  governorate: string
-  healthAdmin: string
-  urbanRural: string | null
-  villageCity: string | null
-  latitude: number
-  longitude: number
-  isActive: boolean
-  visitCount: number
-  lastVisitAt: string | null
-  updatedAt: string | null
-}
-
-export type V2HealthAdministrationOption = {
-  id: string
-  name: string
-  governorate: string
-}
-
-export type V2FacilityDirectoryData = {
-  facilities: V2FacilityDirectoryItem[]
-  healthAdministrations: V2HealthAdministrationOption[]
-  facilityTypes: string[]
-  ministryTotal: number
-  activeTotal: number
-  governorateCount: number
-}
 
 type FacilityRow = {
   id: string
