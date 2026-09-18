@@ -216,34 +216,20 @@ export async function POST(request: Request) {
       normalizeResultInput(result, validItemIds, missionId)
     )
 
-    // NOTE: This preserves the legacy replace-all contract. A later domain-service
-    // phase should move delete+insert into a database transaction/RPC so partial
-    // failure cannot remove previously saved results.
-    const { error: deleteError } = await admin
-      .from('mission_results')
-      .delete()
-      .eq('mission_id', missionId)
+    const { error: replaceError } = await admin.rpc('replace_mission_results', {
+      p_mission_id: missionId,
+      p_results: payload,
+    })
 
-    if (deleteError) {
-      console.error('[mission-results:POST] delete failed:', deleteError.message)
+    if (replaceError) {
+      console.error(
+        '[mission-results:POST] atomic replace failed:',
+        replaceError.message
+      )
       return NextResponse.json(
-        { error: 'Failed to clear old results' },
+        { error: 'Failed to save results' },
         { status: 500 }
       )
-    }
-
-    if (payload.length > 0) {
-      const { error: insertError } = await admin
-        .from('mission_results')
-        .insert(payload)
-
-      if (insertError) {
-        console.error('[mission-results:POST] insert failed:', insertError.message)
-        return NextResponse.json(
-          { error: 'Failed to save results' },
-          { status: 500 }
-        )
-      }
     }
 
     return NextResponse.json({ success: true })
