@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 export type CascadingOrganizationOption = {
   id: string
@@ -22,8 +22,6 @@ const LEVEL_LABELS: Record<number, string> = {
   6: 'الإدارة الصحية / الجهة التابعة',
   7: 'الوحدة التابعة',
 }
-
-type OrganizationTrack = 'central' | 'directorates'
 
 function sortOptions(
   options: readonly CascadingOrganizationOption[]
@@ -51,7 +49,7 @@ export function CascadingOrganizationSelect({
   value,
   onChange,
   label = 'الجهة التنظيمية',
-  helperText = 'اختر المسار ثم الجهة بالتتابع، وستظهر الجهات التابعة فقط.',
+  helperText = 'اختر الجهة بالتتابع حسب تبعيتها الإدارية.',
   allowEmpty = false,
   emptyLabel = 'بدون جهة محددة',
   disabledIds = [],
@@ -66,15 +64,11 @@ export function CascadingOrganizationSelect({
     [organizations]
   )
 
-  const sectors = useMemo(
-    () => sortOptions(organizations.filter((item) => item.level === 2)),
-    [organizations]
-  )
-
-  const directorates = useMemo(
-    () => sortOptions(organizations.filter((item) => item.level === 5)),
-    [organizations]
-  )
+  const ministryChildren = useMemo(() => {
+    const sectors = organizations.filter((item) => item.level === 2)
+    const directorates = organizations.filter((item) => item.level === 5)
+    return sortOptions([...sectors, ...directorates])
+  }, [organizations])
 
   const childrenByParent = useMemo(() => {
     const map = new Map<string, CascadingOrganizationOption[]>()
@@ -93,29 +87,6 @@ export function CascadingOrganizationSelect({
     return map
   }, [organizations])
 
-  const inferredTrack = useMemo<OrganizationTrack>(() => {
-    if (!value) return 'central'
-
-    let current = byId.get(value)
-    const visited = new Set<string>()
-
-    while (current && !visited.has(current.id)) {
-      visited.add(current.id)
-
-      if (current.level === 5 || current.level === 6 || current.level === 7) {
-        return 'directorates'
-      }
-
-      if (!current.parent_id) break
-      current = byId.get(current.parent_id)
-    }
-
-    return 'central'
-  }, [value, byId])
-
-  const [manualTrack, setManualTrack] = useState<OrganizationTrack | null>(null)
-  const track = manualTrack ?? inferredTrack
-
   const selectedPath = useMemo(() => {
     if (!value) return []
 
@@ -123,21 +94,34 @@ export function CascadingOrganizationSelect({
     if (!selected) return []
 
     const path: CascadingOrganizationOption[] = []
-    const visited = new Set<string>()
+
+    if (selected.level >= 5) {
+      const ministry = ministryRoots[0]
+      const regionalPath: CascadingOrganizationOption[] = []
+      let current: CascadingOrganizationOption | undefined = selected
+      const visited = new Set<string>()
+
+      while (current && !visited.has(current.id)) {
+        visited.add(current.id)
+        regionalPath.unshift(current)
+        if (current.level === 5) break
+        if (!current.parent_id) break
+        current = byId.get(current.parent_id)
+      }
+
+      return ministry
+        ? [ministry, ...regionalPath.filter((item) => item.level >= 5)]
+        : regionalPath
+    }
+
     let current: CascadingOrganizationOption | undefined = selected
+    const visited = new Set<string>()
 
     while (current && !visited.has(current.id)) {
       visited.add(current.id)
       path.unshift(current)
-
-      if (current.level === 5) break
       if (!current.parent_id) break
       current = byId.get(current.parent_id)
-    }
-
-    if (selected.level >= 5) {
-      const ministry = ministryRoots[0]
-      return ministry ? [ministry, ...path.filter((item) => item.level >= 5)] : path
     }
 
     return path
@@ -161,66 +145,44 @@ export function CascadingOrganizationSelect({
     })
   }
 
-  if (track === 'central') {
-    if (sectors.length > 0) {
-      selectors.push({
-        key: 'sector',
-        options: sectors,
-        selectedId: selectedPath.find((item) => item.level === 2)?.id ?? '',
-        label: 'القطاع',
-      })
-    }
+  if (selectedPath.some((item) => item.level === 1) && ministryChildren.length > 0) {
+    const selectedBranch = selectedPath.find(
+      (item) => item.level === 2 || item.level === 5
+    )
 
-    for (const level of [3, 4]) {
-      const parent = selectedPath.find((item) => item.level === level - 1)
-      if (!parent) continue
-
-      const options = (childrenByParent.get(parent.id) ?? []).filter(
-        (item) => item.level === level
-      )
-
-      if (options.length === 0) continue
-
-      selectors.push({
-        key: `level-${level}`,
-        options,
-        selectedId: selectedPath.find((item) => item.level === level)?.id ?? '',
-        label: levelLabel(level),
-      })
-    }
-  } else {
-    if (directorates.length > 0) {
-      selectors.push({
-        key: 'directorate',
-        options: directorates,
-        selectedId: selectedPath.find((item) => item.level === 5)?.id ?? '',
-        label: 'مديرية الشؤون الصحية',
-      })
-    }
-
-    for (const level of [6, 7]) {
-      const parent = selectedPath.find((item) => item.level === level - 1)
-      if (!parent) continue
-
-      const options = (childrenByParent.get(parent.id) ?? []).filter(
-        (item) => item.level === level
-      )
-
-      if (options.length === 0) continue
-
-      selectors.push({
-        key: `level-${level}`,
-        options,
-        selectedId: selectedPath.find((item) => item.level === level)?.id ?? '',
-        label: levelLabel(level),
-      })
-    }
+    selectors.push({
+      key: 'ministry-child',
+      options: ministryChildren,
+      selectedId: selectedBranch?.id ?? '',
+      label: 'الجهة التابعة للوزارة',
+    })
   }
 
-  function handleTrackChange(nextTrack: OrganizationTrack) {
-    setManualTrack(nextTrack)
-    const ministry = ministryRoots[0]
-    onChange(ministry?.id ?? null)
+  const selectedBranch = selectedPath.find(
+    (item) => item.level === 2 || item.level === 5
+  )
+
+  if (selectedBranch) {
+    const nextLevels =
+      selectedBranch.level === 2 ? [3, 4] : [6, 7]
+
+    for (const level of nextLevels) {
+      const parent = selectedPath.find((item) => item.level === level - 1)
+      if (!parent) continue
+
+      const options = (childrenByParent.get(parent.id) ?? []).filter(
+        (item) => item.level === level
+      )
+
+      if (options.length === 0) continue
+
+      selectors.push({
+        key: `level-${level}`,
+        options,
+        selectedId: selectedPath.find((item) => item.level === level)?.id ?? '',
+        label: levelLabel(level),
+      })
+    }
   }
 
   function handleSelection(selectorIndex: number, selectedId: string) {
@@ -233,13 +195,6 @@ export function CascadingOrganizationSelect({
       const previousSelector = selectors[selectorIndex - 1]
       onChange(previousSelector?.selectedId || ministryRoots[0]?.id || null)
       return
-    }
-
-    const selectedOrganization = byId.get(selectedId)
-    if (selectedOrganization) {
-      setManualTrack(
-        selectedOrganization.level >= 5 ? 'directorates' : 'central'
-      )
     }
 
     onChange(selectedId)
@@ -265,33 +220,6 @@ export function CascadingOrganizationSelect({
             {emptyLabel}
           </span>
         </label>
-      )}
-
-      {ministryRoots.length > 0 && sectors.length > 0 && directorates.length > 0 && (
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => handleTrackChange('central')}
-            className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
-              track === 'central'
-                ? 'border-teal-300 bg-teal-50 text-teal-800'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            الهيكل المركزي
-          </button>
-          <button
-            type="button"
-            onClick={() => handleTrackChange('directorates')}
-            className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
-              track === 'directorates'
-                ? 'border-teal-300 bg-teal-50 text-teal-800'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            المديريات والإدارات الصحية
-          </button>
-        </div>
       )}
 
       <div className="grid gap-2 sm:grid-cols-2">
