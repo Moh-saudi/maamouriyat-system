@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
 import {
   checkV2ResourceAccess,
+  evaluateV2ResourceScope,
   hasV2Permission,
 } from '@/server/authorization'
 import {
   requireAnyV2Permission,
   requireV2Permission,
 } from '@/server/authorization/http-guard'
+import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 type SettlementRow = {
@@ -118,16 +120,42 @@ export async function GET() {
     }
 
     const settlements = (settlementRows ?? []) as SettlementRow[]
-    const visible: SettlementRow[] = []
+    const factIds = new Set<string>(
+      settlements.map((settlement) => settlement.scope_org_id)
+    )
 
-    for (const settlement of settlements) {
-      const allowed = await authorizeSettlement({
-        settlement,
-        permissionKey: 'finance.view',
-        gate,
-      })
-      if (allowed) visible.push(settlement)
+    if (gate.user.organizationId) factIds.add(gate.user.organizationId)
+
+    for (const role of gate.access.roles) {
+      if (role.assignmentOrganizationId) {
+        factIds.add(role.assignmentOrganizationId)
+      }
     }
+
+    const organizationFacts =
+      factIds.size > 0
+        ? await loadV2OrganizationFacts([...factIds])
+        : new Map()
+
+    const visible = settlements.filter((settlement) => {
+      const fact = organizationFacts.get(settlement.scope_org_id)
+      if (!fact) return false
+
+      return evaluateV2ResourceScope({
+        user: gate.user,
+        snapshot: gate.access,
+        permissionKey: 'finance.view',
+        organizationFacts,
+        resource: {
+          organizationId: settlement.scope_org_id,
+          sectorId:
+            fact.organizationTypeCode === 'sector'
+              ? fact.id
+              : fact.sectorId,
+          governorate: fact.governorate,
+        },
+      }).allowed
+    })
 
     const missionIds = [
       ...new Set(visible.map((settlement) => settlement.mission_id)),
