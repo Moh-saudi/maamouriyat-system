@@ -637,6 +637,27 @@ export function MissionWorkspacePanel({
         })}
       </section>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <span className="text-[9px] font-black text-slate-400">دليل الحالة:</span>
+        {(['upcoming', 'current', 'executed', 'ended', 'overdue'] as MissionOperationalState[]).map(
+          (key) => {
+            const item = MISSION_OPERATIONAL_STATE[key]
+            return (
+              <span
+                key={key}
+                className={
+                  'inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-bold ring-1 ' +
+                  item.badgeClassName
+                }
+              >
+                <span className={'h-2 w-2 rounded-full ' + item.dotClassName} />
+                {item.label}
+              </span>
+            )
+          }
+        )}
+      </div>
+
       <section className="rounded-2xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3 sm:p-4">
           <div className="relative min-w-64 flex-1">
