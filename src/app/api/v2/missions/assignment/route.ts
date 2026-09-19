@@ -249,6 +249,12 @@ async function loadAssignmentOptions(input: {
     { data: facilityRows, error: facilitiesError },
     { data: userRows, error: usersError },
     { data: templateRows, error: templatesError },
+    { data: visitRows, error: visitStatsError },
+    { data: targetRows, error: targetsError },
+    { data: targetLinkRows, error: targetLinksError },
+    { data: programRows, error: programsError },
+    { data: programLinkRows, error: programLinksError },
+    { data: libraryRows, error: libraryError },
   ] = await Promise.all([
     admin
       .from('facilities')
@@ -272,21 +278,66 @@ async function loadAssignmentOptions(input: {
     admin
       .from('form_templates')
       .select(
-        'id, name, version, description, created_by_org, applicable_sectors, applicable_levels, applicable_facility_types, is_base, is_active'
+        'id, name, version, description, created_by_org, created_by_user_id, visibility, applicable_sectors, applicable_levels, applicable_facility_types, is_base, is_active'
       )
       .eq('is_active', true)
       .order('is_base', { ascending: false })
       .order('name'),
+    admin
+      .from('facility_mission_visit_stats')
+      .select(
+        'facility_id, assignment_count, visit_count, distinct_primary_inspectors, last_visited_at, last_scheduled_date'
+      ),
+    admin
+      .from('mission_targets')
+      .select(
+        'id, title, period_label, start_date, end_date, target_missions, assigned_user_id, scope_name, target_type, status'
+      )
+      .eq('status', 'active')
+      .eq('target_type', 'specific_facilities')
+      .order('start_date', { ascending: false }),
+    admin
+      .from('mission_target_facilities')
+      .select('target_id, facility_id'),
+    admin
+      .from('facility_programs')
+      .select('id, code, name, description, program_type, is_active')
+      .eq('is_active', true)
+      .order('sort_order')
+      .order('name'),
+    admin
+      .from('facility_program_facilities')
+      .select('program_id, facility_id'),
+    admin
+      .from('user_template_library')
+      .select('template_id, source_type, is_default')
+      .eq('user_id', input.user.profileId),
   ])
 
-  if (facilitiesError || usersError || templatesError) {
+  const firstError =
+    facilitiesError ||
+    usersError ||
+    templatesError ||
+    visitStatsError ||
+    targetsError ||
+    targetLinksError ||
+    programsError ||
+    programLinksError ||
+    libraryError
+
+  if (firstError) {
     throw new Error(
       '[V2 Mission Assignment] Failed to load assignment options: ' +
-        (facilitiesError?.message ||
-          usersError?.message ||
-          templatesError?.message)
+        firstError.message
     )
   }
+
+  const visitByFacility = new Map(
+    ((visitRows ?? []) as FacilityVisitStatRow[]).map((row) => [
+      row.facility_id,
+      row,
+    ])
+  )
 
   const facilities = ((facilityRows ?? []) as FacilityRow[])
     .filter((facility) =>
@@ -300,17 +351,32 @@ async function loadAssignmentOptions(input: {
         governorate: facility.governorate,
       })
     )
-    .map((facility) => ({
-      id: facility.id,
-      name: facility.name,
-      facility_type: facility.facility_type,
-      organization_id: facility.organization_id,
-      organization_name:
-        organizationById.get(facility.organization_id)?.name ?? 'جهة غير مسماة',
-      governorate: facility.governorate,
-      health_admin: facility.health_admin,
-      village_city: facility.village_city,
-    }))
+    .map((facility) => {
+      const stats = visitByFacility.get(facility.id)
+      return {
+        id: facility.id,
+        name: facility.name,
+        facility_type: facility.facility_type,
+        organization_id: facility.organization_id,
+        organization_name:
+          organizationById.get(facility.organization_id)?.name ??
+          'جهة غير مسماة',
+        governorate: facility.governorate,
+        health_admin: facility.health_admin,
+        village_city: facility.village_city,
+        assignment_count: Number(stats?.assignment_count ?? 0),
+        visit_count: Number(stats?.visit_count ?? 0),
+        distinct_primary_inspectors: Number(
+          stats?.distinct_primary_inspectors ?? 0
+        ),
+        last_visited_at: stats?.last_visited_at ?? null,
+        last_scheduled_date: stats?.last_scheduled_date ?? null,
+      }
+    })
+
+  const accessibleFacilityIds = new Set(
+    facilities.map((facility) => facility.id)
+  )
 
   const inspectors = ((userRows ?? []) as UserRow[])
     .filter((candidate) => {
@@ -325,9 +391,7 @@ async function loadAssignmentOptions(input: {
         permissionKey: input.teamPermissionKey,
         organizationFacts,
         organizationId: candidate.organization_id,
-        sectorId:
-          candidate.sector_id ??
-          organization.sector_id,
+        sectorId: candidate.sector_id ?? organization.sector_id,
         governorate: organization.governorate,
       })
     })
@@ -337,24 +401,142 @@ async function loadAssignmentOptions(input: {
       job_title: candidate.job_title,
       organization_id: candidate.organization_id,
       organization_name: candidate.organization_id
-        ? organizationById.get(candidate.organization_id)?.name ?? 'جهة غير مسماة'
+        ? organizationById.get(candidate.organization_id)?.name ??
+          'جهة غير مسماة'
         : 'جهة غير محددة',
       org_level: candidate.org_level ?? candidate.level ?? 7,
     }))
 
-  const templates = ((templateRows ?? []) as TemplateRow[]).map((template) => ({
-    id: template.id,
-    name: template.name,
-    version: template.version,
-    description: template.description,
-    is_base: template.is_base === true,
-    applicable_facility_types: template.applicable_facility_types,
-  }))
+  const inspectorById = new Map(
+    inspectors.map((inspector) => [inspector.id, inspector])
+  )
+
+  const targetFacilityIds = new Map<string, string[]>()
+  for (const link of targetLinkRows ?? []) {
+    const facilityId = String(link.facility_id)
+    if (!accessibleFacilityIds.has(facilityId)) continue
+    const targetId = String(link.target_id)
+    const current = targetFacilityIds.get(targetId) ?? []
+    current.push(facilityId)
+    targetFacilityIds.set(targetId, current)
+  }
+
+  const targets = ((targetRows ?? []) as MissionTargetOptionRow[])
+    .map((target) => {
+      const facilityIds = [
+        ...new Set(targetFacilityIds.get(target.id) ?? []),
+      ]
+      const assigned = target.assigned_user_id
+        ? inspectorById.get(target.assigned_user_id)
+        : null
+
+      return {
+        id: target.id,
+        title: target.title,
+        period_label: target.period_label,
+        start_date: target.start_date,
+        end_date: target.end_date,
+        target_missions: target.target_missions,
+        assigned_user_id: target.assigned_user_id,
+        assigned_user_name: assigned?.full_name ?? null,
+        scope_name: target.scope_name,
+        facility_ids: facilityIds,
+        facility_count: facilityIds.length,
+        visited_count: facilityIds.filter(
+          (facilityId) =>
+            Number(visitByFacility.get(facilityId)?.visit_count ?? 0) > 0
+        ).length,
+      }
+    })
+    .filter((target) => target.facility_count > 0)
+
+  const programFacilityIds = new Map<string, string[]>()
+  for (const link of programLinkRows ?? []) {
+    const facilityId = String(link.facility_id)
+    if (!accessibleFacilityIds.has(facilityId)) continue
+    const programId = String(link.program_id)
+    const current = programFacilityIds.get(programId) ?? []
+    current.push(facilityId)
+    programFacilityIds.set(programId, current)
+  }
+
+  const programs = ((programRows ?? []) as FacilityProgramRow[]).map(
+    (program) => {
+      const facilityIds = [
+        ...new Set(programFacilityIds.get(program.id) ?? []),
+      ]
+
+      return {
+        id: program.id,
+        code: program.code,
+        name: program.name,
+        description: program.description,
+        program_type: program.program_type,
+        facility_ids: facilityIds,
+        facility_count: facilityIds.length,
+        visited_count: facilityIds.filter(
+          (facilityId) =>
+            Number(visitByFacility.get(facilityId)?.visit_count ?? 0) > 0
+        ).length,
+      }
+    }
+  )
+
+  const libraryIds = new Set(
+    (libraryRows ?? []).map((row) => String(row.template_id))
+  )
+
+  const templates = ((templateRows ?? []) as TemplateRow[])
+    .filter((template) => {
+      if (template.visibility === 'system') return true
+      if (
+        template.visibility === 'private' &&
+        template.created_by_user_id === input.user.profileId
+      ) {
+        return true
+      }
+
+      if (
+        template.visibility === 'organization' &&
+        template.created_by_org
+      ) {
+        const organization = organizationById.get(template.created_by_org)
+        if (!organization) return false
+
+        return resourceAllowed({
+          user: input.user,
+          access: input.access,
+          permissionKey: input.resourcePermissionKey,
+          organizationFacts,
+          organizationId: organization.id,
+          sectorId: organization.sector_id,
+          governorate: organization.governorate,
+        })
+      }
+
+      return false
+    })
+    .map((template) => ({
+      id: template.id,
+      name: template.name,
+      version: template.version,
+      description: template.description,
+      is_base: template.is_base === true,
+      visibility: template.visibility,
+      created_by_me:
+        template.created_by_user_id === input.user.profileId,
+      in_my_library:
+        libraryIds.has(template.id) ||
+        template.created_by_user_id === input.user.profileId,
+      applicable_facility_types: template.applicable_facility_types,
+    }))
 
   return {
     facilities,
     inspectors,
     templates,
+    targets,
+    programs,
   }
 }
 
