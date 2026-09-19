@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
-  BarChart3,
   Building2,
   CheckCircle2,
   ClipboardList,
