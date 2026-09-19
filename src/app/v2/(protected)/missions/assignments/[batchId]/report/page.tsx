@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import {
   evaluateV2ResourceScope,
+  hasV2Permission,
 } from '@/server/authorization'
 import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
 import { requireV2PagePermission } from '@/server/authorization/page-guard'
@@ -27,6 +28,7 @@ import {
   type MissionWorkspaceUserRow,
 } from '@/server/services/missions/workspace-data'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
+import { GroupedReportSubmissionPanel } from '@/features/missions/components/GroupedReportSubmissionPanel'
 
 type PageProps = {
   params: Promise<{ batchId: string }>
@@ -54,6 +56,8 @@ type BatchRow = {
   timing_adjustment_reason: string | null
   completed_by: string | null
   completed_at: string | null
+  report_submitted_to_finance_at: string | null
+  report_submitted_to_finance_by: string | null
   visit_purpose: string
   notes: string | null
   status: string
@@ -112,7 +116,7 @@ export default async function GroupedMissionReportPage({
   const { data: batchData, error: batchError } = await admin
     .from('mission_assignment_batches')
     .select(
-      'id, created_by, created_by_org, scheduled_date, expected_end_date, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, completed_by, completed_at, visit_purpose, notes, status, mission_count'
+      'id, created_by, created_by_org, scheduled_date, expected_end_date, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, completed_by, completed_at, report_submitted_to_finance_at, report_submitted_to_finance_by, visit_purpose, notes, status, mission_count'
     )
     .eq('id', batchId)
     .maybeSingle()
@@ -284,6 +288,20 @@ export default async function GroupedMissionReportPage({
   const completedBy = batch.completed_by
     ? users.get(batch.completed_by)
     : null
+
+  const canSubmitToFinance =
+    hasV2Permission(access, 'missions.execute') &&
+    (
+      missions.some(
+        (mission) =>
+          mission.primary_inspector_id === user.profileId
+      ) ||
+      teamRows.some(
+        (member) =>
+          member.user_id === user.profileId &&
+          member.is_primary === true
+      )
+    )
 
   return (
     <div className="space-y-4">
@@ -536,10 +554,16 @@ export default async function GroupedMissionReportPage({
         </div>
       </section>
 
+      <GroupedReportSubmissionPanel
+        batchId={batchId}
+        canSubmit={canSubmitToFinance}
+        submittedAt={batch.report_submitted_to_finance_at}
+      />
+
       <section className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-[10px] leading-5 text-blue-800">
         التقرير أصبح متاحًا لأن التنفيذ الفعلي للتكليف انتهى. الاستحقاقات
-        المالية تُحسب من مدة التكليف الفعلية المثبتة، وليس من عدد المنشآت
-        المدرجة بداخله.
+        المالية لا تُنشأ إلا بعد مراجعة التقرير وطباعته وتوقيعه ثم تأكيد
+        إرساله للشئون المالية.
       </section>
     </div>
   )
