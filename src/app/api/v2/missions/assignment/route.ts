@@ -622,6 +622,10 @@ export async function GET() {
         hasV2Permission(gate.access, 'missions.approve'),
       preparationMode:
         resourcePermissionKey === 'missions.prepare' ? 'secretariat' : 'issuer',
+      canUseTemplateLibrary: hasV2Permission(
+        gate.access,
+        'checklists.library'
+      ),
     })
   } catch (error) {
     console.error('[v2-mission-assignment:GET] unexpected error:', error)
