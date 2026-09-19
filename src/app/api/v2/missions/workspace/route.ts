@@ -9,7 +9,7 @@ import {
   hasV2Permission,
 } from '@/server/authorization'
 import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
-import { requireV2Permission } from '@/server/authorization/http-guard'
+import { requireAnyV2Permission } from '@/server/authorization/http-guard'
 import {
   loadAllWorkspaceMissions,
   loadWorkspaceFacilities,
@@ -166,7 +166,10 @@ function formatGroup(group: GroupAccumulator) {
 
 export async function GET(request: Request) {
   try {
-    const gate = await requireV2Permission('missions.view')
+    const gate = await requireAnyV2Permission([
+      'missions.view',
+      'missions.checklist_change',
+    ])
     if (!gate.ok) return gate.response
 
     // Preserve the narrowed authorized context for nested functions and
@@ -294,6 +297,7 @@ export async function GET(request: Request) {
       }).allowed
     }
 
+    const canView = hasV2Permission(authorizedAccess, 'missions.view')
     const canApprove = hasV2Permission(authorizedAccess, 'missions.approve')
     const canExecute = hasV2Permission(authorizedAccess, 'missions.execute')
     const canManageChecklists = hasV2Permission(
@@ -304,7 +308,13 @@ export async function GET(request: Request) {
     const groups = new Map<string, GroupAccumulator>()
 
     for (const mission of missions) {
-      if (!relationAllowed(mission, 'missions.view')) continue
+      const canViewResource =
+        canView && relationAllowed(mission, 'missions.view')
+      const canManageChecklistResource =
+        canManageChecklists &&
+        relationAllowed(mission, 'missions.checklist_change')
+
+      if (!canViewResource && !canManageChecklistResource) continue
 
       const facility = facilities.get(mission.facility_id)
       if (!facility) continue
