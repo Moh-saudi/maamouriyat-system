@@ -1009,7 +1009,7 @@ export async function POST(request: Request) {
       const { data: target, error: targetError } = await admin
         .from('mission_targets')
         .select(
-          'id, status, start_date, end_date, assigned_user_id, target_type'
+          'id, status, start_date, end_date, assigned_user_id, target_type, scope_level, scope_name, scope_organization_id, sector_id'
         )
         .eq('id', sourceTargetId)
         .eq('status', 'active')
@@ -1024,14 +1024,12 @@ export async function POST(request: Request) {
 
       if (
         !target ||
-        target.target_type !== 'specific_facilities' ||
         scheduledDate < String(target.start_date) ||
         scheduledDate > String(target.end_date)
       ) {
         return NextResponse.json(
           {
-            error:
-              'المستهدف غير نشط أو غير محدد المنشآت أو تاريخ المأمورية خارج فترته',
+            error: 'المستهدف غير نشط أو تاريخ المأمورية خارج فترته',
             code: 'TARGET_DATE_MISMATCH',
           },
           { status: 400 }
@@ -1050,6 +1048,78 @@ export async function POST(request: Request) {
           },
           { status: 400 }
         )
+      }
+
+      if (target.target_type === 'specific_facilities') {
+        const { data: targetLinks, error: targetLinksError } = await admin
+          .from('mission_target_facilities')
+          .select('facility_id')
+          .eq('target_id', sourceTargetId)
+
+        if (targetLinksError) {
+          return NextResponse.json(
+            { error: 'تعذر التحقق من منشآت المستهدف' },
+            { status: 500 }
+          )
+        }
+
+        const allowedFacilityIds = new Set(
+          (targetLinks ?? []).map((link) => String(link.facility_id))
+        )
+        const outside = facilityRows.find(
+          (facility) => !allowedFacilityIds.has(facility.id)
+        )
+
+        if (outside) {
+          return NextResponse.json(
+            {
+              error: `المنشأة "${outside.name}" ليست ضمن منشآت المستهدف المحدد`,
+              code: 'TARGET_FACILITY_DENIED',
+            },
+            { status: 400 }
+          )
+        }
+      } else {
+        const outside = facilityRows.find((facility) => {
+          if (target.scope_level === 'ministry') return false
+
+          if (target.scope_level === 'sector') {
+            const facilityOrganization = organizationById.get(
+              facility.organization_id
+            )
+            return !(
+              target.sector_id &&
+              (facility.sector_id === target.sector_id ||
+                facilityOrganization?.sector_id === target.sector_id ||
+                facility.organization_id === target.sector_id)
+            )
+          }
+
+          if (target.scope_level === 'governorate') {
+            return facility.governorate !== target.scope_name
+          }
+
+          if (target.scope_level === 'health_admin') {
+            return !(
+              facility.organization_id === target.scope_organization_id ||
+              facility.health_admin === target.scope_name
+            )
+          }
+
+          // For a user-level numerical target the assigned user is enforced
+          // above, while geographic eligibility stays governed by issuer RBAC.
+          return false
+        })
+
+        if (outside) {
+          return NextResponse.json(
+            {
+              error: `المنشأة "${outside.name}" خارج نطاق المستهدف التراكمي`,
+              code: 'TARGET_SCOPE_DENIED',
+            },
+            { status: 400 }
+          )
+        }
       }
     }
 
