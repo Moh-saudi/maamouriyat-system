@@ -1,3 +1,5 @@
+import Link from 'next/link'
+import { FolderKanban } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { V2PageContainer } from '@/components/ui/V2PageContainer'
 import { FacilitiesExplorer } from '@/features/facilities/components/FacilitiesExplorer'
@@ -5,6 +7,7 @@ import type {
   V2FacilityDirectoryData,
   V2FacilityManagementUi,
 } from '@/features/facilities/types'
+import { hasV2Permission } from '@/server/authorization'
 import { requireV2PagePermission } from '@/server/authorization/page-guard'
 import { getFacilityManagementCapabilities } from '@/server/facilities/management-access'
 import { loadV2FacilityDirectory } from '@/server/services/facilities/load-directory'
@@ -96,6 +99,17 @@ export default async function V2FacilitiesPage() {
       <PageHeader
         title="المنشآت الصحية"
         description="استعراض بيانات المنشآت الصحية ومواقعها وحالتها وسجل المرور عليها."
+        actions={
+          hasV2Permission(access, 'facility_programs.manage') ? (
+            <Link
+              href="/v2/facilities/programs"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100"
+            >
+              <FolderKanban className="h-3.5 w-3.5" />
+              برامج ومشروعات المنشآت
+            </Link>
+          ) : undefined
+        }
       />
 
       <FacilitiesExplorer
