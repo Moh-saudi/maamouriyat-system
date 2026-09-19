@@ -8,6 +8,7 @@ import { requireV2Permission } from '@/server/authorization/http-guard'
 import {
   loadWorkspaceFacilities,
   loadWorkspaceMissionsForGroup,
+  loadWorkspaceOrganizations,
   loadWorkspaceTeamRows,
   loadWorkspaceUsers,
   normalizeMissionWorkspaceStatus,
@@ -114,7 +115,16 @@ export async function GET(request: Request) {
       }
     }
 
-    const users = await loadWorkspaceUsers([...userIds])
+    const organizationIds = new Set<string>()
+    for (const facility of facilities.values()) {
+      organizationIds.add(facility.organization_id)
+      if (facility.sector_id) organizationIds.add(facility.sector_id)
+    }
+
+    const [users, organizations] = await Promise.all([
+      loadWorkspaceUsers([...userIds]),
+      loadWorkspaceOrganizations([...organizationIds]),
+    ])
     const canApprove = hasV2Permission(authorizedAccess, 'missions.approve')
     const canExecute = hasV2Permission(authorizedAccess, 'missions.execute')
 
@@ -190,6 +200,12 @@ export async function GET(request: Request) {
                 governorate: facility.governorate,
                 health_admin: facility.health_admin,
                 village_city: facility.village_city,
+                organization_name:
+                  organizations.get(facility.organization_id)?.name ??
+                  'جهة غير مسماة',
+                sector_name: facility.sector_id
+                  ? organizations.get(facility.sector_id)?.name ?? null
+                  : null,
               }
             : null,
           creator: creator
