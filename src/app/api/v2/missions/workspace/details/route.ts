@@ -37,8 +37,8 @@ export async function GET(request: Request) {
     // Preserve the narrowed authorized context for nested functions and
     // callbacks. TypeScript does not reliably retain the discriminated-union
     // narrowing of `gate` across those closure boundaries.
-    const authorizedUser = authorizedUser
-    const authorizedAccess = authorizedAccess
+    const authorizedUser = gate.user
+    const authorizedAccess = gate.access
 
     const url = new URL(request.url)
     const groupKey = url.searchParams.get('group_key') || ''
