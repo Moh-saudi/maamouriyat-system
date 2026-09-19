@@ -5,7 +5,7 @@ import { V2_TERMINOLOGY } from './terminology'
 // Central Structural Navigation Definitions for V2 App Shell
 // ══════════════════════════════════════════════════════════════
 
-export type NavGroupKey = 'main' | 'operations' | 'admin' | 'support'
+export type NavGroupKey = 'main' | 'operations' | 'finance' | 'admin' | 'support'
 
 export type NavItem = {
   id: string
@@ -20,6 +20,7 @@ export type NavItem = {
 export const V2_NAV_GROUPS: Record<NavGroupKey, string> = {
   main: 'الرئيسية',
   operations: 'العمل الميداني والرقابة',
+  finance: 'الشئون المالية والتقارير',
   admin: 'إدارة المنظومة',
   support: 'المساعدة والتدريب',
 } as const
@@ -81,6 +82,24 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     mobilePriority: 6,
     description: 'القوائم المرجعية ومعايير التفتيش الفنية',
   },
+  {
+    id: 'finance',
+    label: 'الاستحقاقات المالية',
+    href: '/v2/finance',
+    iconName: 'WalletCards',
+    group: 'finance',
+    mobilePriority: 7,
+    description: 'مراجعة واعتماد وصرف بدلات ومكافآت المأموريات المنفذة',
+  },
+  {
+    id: 'reports',
+    label: 'التقارير',
+    href: '/v2/reports',
+    iconName: 'BarChart3',
+    group: 'finance',
+    mobilePriority: 8,
+    description: 'تقارير المأموريات والاستحقاقات المالية حسب الصلاحيات',
+  },
   // ── المجموعة الثالثة: الإدارة والنظام
   {
     id: 'organizations',
@@ -88,7 +107,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     href: '/v2/organizations',
     iconName: 'Network',
     group: 'admin',
-    mobilePriority: 7,
+    mobilePriority: 9,
     description: 'قطاعات وإدارات ومديريات الشئون الصحية',
   },
   {
@@ -97,7 +116,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     href: '/v2/users',
     iconName: 'Users',
     group: 'admin',
-    mobilePriority: 8,
+    mobilePriority: 10,
     description: 'إدارة حسابات القيادات والمفتشين الميدانيين',
   },
   {
@@ -106,7 +125,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     href: '/v2/settings',
     iconName: 'Settings',
     group: 'admin',
-    mobilePriority: 9,
+    mobilePriority: 11,
     description: 'إعدادات المنظومة وسجلات التدقيق والأمان',
   },
   {
@@ -115,7 +134,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     href: '/v2/help',
     iconName: 'HelpCircle',
     group: 'support',
-    mobilePriority: 10,
+    mobilePriority: 12,
     description: 'دليل مبسط حسب دورك وصلاحياتك داخل المنظومة',
   },
 ] as const
