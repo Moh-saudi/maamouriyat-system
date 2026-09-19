@@ -155,7 +155,11 @@ export function FacilitiesExplorer({
   const [governorate, setGovernorate] = useState('')
   const [healthAdmin, setHealthAdmin] = useState('')
   const [facilityType, setFacilityType] = useState('')
-  const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('active')
+  const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('all')
+  const [facilities, setFacilities] = useState<V2FacilityDirectoryItem[]>(
+    facilities
+  )
+  const [auditRevision, setAuditRevision] = useState(0)
   const [page, setPage] = useState(1)
   const [selectedFacilityId, setSelectedFacilityId] = useState<string | null>(
     null
@@ -170,19 +174,23 @@ export function FacilitiesExplorer({
   const [statusReason, setStatusReason] = useState('')
   const [statusError, setStatusError] = useState<string | null>(null)
 
+  useEffect(() => {
+    setFacilities(facilities)
+  }, [facilities])
+
   const governorates = useMemo(
     () =>
-      [...new Set(data.facilities.map((item) => item.governorate))]
+      [...new Set(facilities.map((item) => item.governorate))]
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, 'ar')),
-    [data.facilities]
+    [facilities]
   )
 
   const availableHealthAdmins = useMemo(
     () =>
       [
         ...new Set(
-          data.facilities
+          facilities
             .filter(
               (item) =>
                 !governorate || item.governorate === governorate
@@ -191,7 +199,7 @@ export function FacilitiesExplorer({
             .filter(Boolean)
         ),
       ].sort((a, b) => a.localeCompare(b, 'ar')),
-    [data.facilities, governorate]
+    [facilities, governorate]
   )
 
   const manageableHealthAdmins = useMemo(
@@ -223,10 +231,10 @@ export function FacilitiesExplorer({
       [
         ...new Set([
           ...STANDARD_FACILITY_TYPES.map((item) => item.label),
-          ...data.facilityTypes,
+          ...facilities.map((item) => item.facilityTypeLabel),
         ]),
       ].sort((a, b) => a.localeCompare(b, 'ar')),
-    [data.facilityTypes]
+    [facilities]
   )
 
   const groupedFacilityTypes = useMemo(() => {
@@ -262,7 +270,7 @@ export function FacilitiesExplorer({
   const scopeFilteredFacilities = useMemo(() => {
     const q = deferredSearch.trim().toLocaleLowerCase('ar')
 
-    return data.facilities.filter((item) => {
+    return facilities.filter((item) => {
       if (status === 'active' && !item.isActive) return false
       if (status === 'inactive' && item.isActive) return false
 
@@ -280,7 +288,7 @@ export function FacilitiesExplorer({
       ].some((value) => value.toLocaleLowerCase('ar').includes(q))
     })
   }, [
-    data.facilities,
+    facilities,
     deferredSearch,
     governorate,
     healthAdmin,
@@ -460,12 +468,69 @@ export function FacilitiesExplorer({
         ),
       })
 
-      const result = (await response.json()) as { error?: string }
+      const result = (await response.json()) as {
+        error?: string
+        facility_id?: string
+      }
 
       if (!response.ok) {
         throw new Error(result.error || 'تعذر حفظ المنشأة')
       }
 
+      const now = new Date().toISOString()
+      const selectedHealthAdministration = manageableHealthAdmins.find(
+        (item) => item.id === editor.organizationId
+      )
+
+      if (editor.mode === 'create' && result.facility_id) {
+        const createdFacility: V2FacilityDirectoryItem = {
+          id: result.facility_id,
+          name: editor.name.trim(),
+          facilityTypeLabel: editor.facilityTypeLabel,
+          organizationId: editor.organizationId,
+          governorate: editor.governorate,
+          healthAdmin:
+            selectedHealthAdministration?.name || 'غير محددة',
+          urbanRural: editor.urbanRural || null,
+          villageCity: editor.villageCity.trim() || null,
+          latitude: Number(editor.latitude),
+          longitude: Number(editor.longitude),
+          isActive: true,
+          visitCount: 0,
+          lastVisitAt: null,
+          updatedAt: now,
+          lastAuditAt: now,
+          lastAuditActorName: null,
+        }
+
+        setFacilities((current) => [createdFacility, ...current])
+        setSelectedFacilityId(createdFacility.id)
+      } else if (editor.facilityId) {
+        setFacilities((current) =>
+          current.map((facility) =>
+            facility.id === editor.facilityId
+              ? {
+                  ...facility,
+                  name: editor.name.trim(),
+                  facilityTypeLabel: editor.facilityTypeLabel,
+                  organizationId: editor.organizationId,
+                  governorate: editor.governorate,
+                  healthAdmin:
+                    selectedHealthAdministration?.name ||
+                    facility.healthAdmin,
+                  urbanRural: editor.urbanRural || null,
+                  villageCity: editor.villageCity.trim() || null,
+                  latitude: Number(editor.latitude),
+                  longitude: Number(editor.longitude),
+                  updatedAt: now,
+                  lastAuditAt: now,
+                }
+              : facility
+          )
+        )
+      }
+
+      setAuditRevision((current) => current + 1)
       closeEditor()
       router.refresh()
     } catch (saveError) {
@@ -518,6 +583,34 @@ export function FacilitiesExplorer({
         throw new Error(result.error || 'تعذر تغيير حالة المنشأة')
       }
 
+      const nextActive = action === 'reactivate'
+      const now = new Date().toISOString()
+
+      setFacilities((current) =>
+        current.map((facility) =>
+          facility.id === statusFacility.id
+            ? {
+                ...facility,
+                isActive: nextActive,
+                updatedAt: now,
+                lastAuditAt: now,
+              }
+            : facility
+        )
+      )
+
+      setAuditFacility((current) =>
+        current?.id === statusFacility.id
+          ? {
+              ...current,
+              isActive: nextActive,
+              updatedAt: now,
+              lastAuditAt: now,
+            }
+          : current
+      )
+
+      setAuditRevision((current) => current + 1)
       setStatusFacility(null)
       setStatusReason('')
       router.refresh()
@@ -547,17 +640,21 @@ export function FacilitiesExplorer({
       <section className="flex flex-wrap items-center gap-2.5">
         <CompactMetric
           icon={<Building2 className="h-4 w-4" />}
-          value={data.ministryTotal}
+          value={facilities.length}
           label="إجمالي المنشآت"
         />
         <CompactMetric
           icon={<Stethoscope className="h-4 w-4" />}
-          value={data.activeTotal}
+          value={facilities.filter((item) => item.isActive).length}
           label="منشأة نشطة"
         />
         <CompactMetric
           icon={<MapPin className="h-4 w-4" />}
-          value={data.governorateCount}
+          value={
+            new Set(
+              facilities.map((item) => item.governorate).filter(Boolean)
+            ).size
+          }
           label="محافظة"
         />
         {management.canCreate && manageableHealthAdmins.length > 0 && (
@@ -704,7 +801,7 @@ export function FacilitiesExplorer({
             aria-label="نوع المنشأة"
           >
             <option value="">كل أنواع المنشآت</option>
-            {data.facilityTypes.map((item) => (
+            {allFacilityTypeLabels.map((item) => (
               <option key={item} value={item}>
                 {item}
               </option>
@@ -980,12 +1077,26 @@ export function FacilitiesExplorer({
                           }
                           className={`cursor-pointer transition ${
                             selected
-                              ? 'bg-teal-50/70'
-                              : 'hover:bg-slate-50/70'
+                              ? 'bg-teal-50/80'
+                              : facility.isActive
+                                ? 'hover:bg-slate-50/70'
+                                : 'bg-rose-50/60 hover:bg-rose-100/60'
                           }`}
                         >
-                          <td className="px-4 py-3">
-                            <p className="max-w-[300px] text-xs font-bold text-slate-900">
+                          <td
+                            className={`px-4 py-3 ${
+                              facility.isActive
+                                ? ''
+                                : 'border-r-4 border-r-rose-300'
+                            }`}
+                          >
+                            <p
+                              className={`max-w-[300px] text-xs font-bold ${
+                                facility.isActive
+                                  ? 'text-slate-900'
+                                  : 'text-rose-900'
+                              }`}
+                            >
                               {facility.name}
                             </p>
                             {facility.villageCity && (
@@ -1316,6 +1427,7 @@ export function FacilitiesExplorer({
         facilityId={auditFacility?.id ?? null}
         facilityName={auditFacility?.name ?? ''}
         onClose={() => setAuditFacility(null)}
+        refreshToken={auditRevision}
       />
     </div>
   )
