@@ -91,6 +91,131 @@ type FacilityProgramRow = {
   is_active: boolean
 }
 
+
+const SUPABASE_PAGE_SIZE = 1000
+
+async function loadAllActiveFacilities(): Promise<FacilityRow[]> {
+  const admin = getAdminSupabaseClient()
+  const rows: FacilityRow[] = []
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('facilities')
+      .select(
+        'id, name, facility_type, organization_id, sector_id, governorate, health_admin, village_city, is_active'
+      )
+      .eq('is_active', true)
+      .order('name')
+      .order('id')
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `[V2 Mission Assignment] Failed to load facilities page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []) as FacilityRow[]
+    rows.push(...page)
+
+    if (page.length < SUPABASE_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
+async function loadAllFacilityVisitStats(): Promise<FacilityVisitStatRow[]> {
+  const admin = getAdminSupabaseClient()
+  const rows: FacilityVisitStatRow[] = []
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('facility_mission_visit_stats')
+      .select(
+        'facility_id, assignment_count, visit_count, distinct_primary_inspectors, last_visited_at, last_scheduled_date'
+      )
+      .order('facility_id')
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `[V2 Mission Assignment] Failed to load visit stats page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []) as FacilityVisitStatRow[]
+    rows.push(...page)
+
+    if (page.length < SUPABASE_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
+async function loadAllMissionTargetFacilityLinks(): Promise<
+  Array<{ target_id: string; facility_id: string }>
+> {
+  const admin = getAdminSupabaseClient()
+  const rows: Array<{ target_id: string; facility_id: string }> = []
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('mission_target_facilities')
+      .select('target_id, facility_id')
+      .order('target_id')
+      .order('facility_id')
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `[V2 Mission Assignment] Failed to load target links page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []).map((row) => ({
+      target_id: String(row.target_id),
+      facility_id: String(row.facility_id),
+    }))
+    rows.push(...page)
+
+    if (page.length < SUPABASE_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
+async function loadAllProgramFacilityLinks(): Promise<
+  Array<{ program_id: string; facility_id: string }>
+> {
+  const admin = getAdminSupabaseClient()
+  const rows: Array<{ program_id: string; facility_id: string }> = []
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('facility_program_facilities')
+      .select('program_id, facility_id')
+      .order('program_id')
+      .order('facility_id')
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `[V2 Mission Assignment] Failed to load program links page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []).map((row) => ({
+      program_id: String(row.program_id),
+      facility_id: String(row.facility_id),
+    }))
+    rows.push(...page)
+
+    if (page.length < SUPABASE_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
 function buildOrganizationFacts(
   organizations: readonly OrganizationRow[]
 ): Map<string, V2OrganizationFact> {
@@ -249,24 +374,17 @@ async function loadAssignmentOptions(input: {
   const executeUserIds = await loadExecutionEligibleUserIds()
 
   const [
-    { data: facilityRows, error: facilitiesError },
+    facilityRows,
     { data: userRows, error: usersError },
     { data: templateRows, error: templatesError },
-    { data: visitRows, error: visitStatsError },
+    visitRows,
     { data: targetRows, error: targetsError },
-    { data: targetLinkRows, error: targetLinksError },
+    targetLinkRows,
     { data: programRows, error: programsError },
-    { data: programLinkRows, error: programLinksError },
+    programLinkRows,
     { data: libraryRows, error: libraryError },
   ] = await Promise.all([
-    admin
-      .from('facilities')
-      .select(
-        'id, name, facility_type, organization_id, sector_id, governorate, health_admin, village_city, is_active'
-      )
-      .eq('is_active', true)
-      .order('name')
-      .limit(6000),
+    loadAllActiveFacilities(),
     admin
       .from('users')
       .select(
@@ -283,11 +401,7 @@ async function loadAssignmentOptions(input: {
       .eq('is_active', true)
       .order('is_base', { ascending: false })
       .order('name'),
-    admin
-      .from('facility_mission_visit_stats')
-      .select(
-        'facility_id, assignment_count, visit_count, distinct_primary_inspectors, last_visited_at, last_scheduled_date'
-      ),
+    loadAllFacilityVisitStats(),
     admin
       .from('mission_targets')
       .select(
@@ -295,18 +409,14 @@ async function loadAssignmentOptions(input: {
       )
       .eq('status', 'active')
       .order('start_date', { ascending: false }),
-    admin
-      .from('mission_target_facilities')
-      .select('target_id, facility_id'),
+    loadAllMissionTargetFacilityLinks(),
     admin
       .from('facility_programs')
       .select('id, code, name, description, program_type, is_active')
       .eq('is_active', true)
       .order('sort_order')
       .order('name'),
-    admin
-      .from('facility_program_facilities')
-      .select('program_id, facility_id'),
+    loadAllProgramFacilityLinks(),
     admin
       .from('user_template_library')
       .select('template_id, source_type, is_default')
@@ -314,14 +424,10 @@ async function loadAssignmentOptions(input: {
   ])
 
   const firstError =
-    facilitiesError ||
     usersError ||
     templatesError ||
-    visitStatsError ||
     targetsError ||
-    targetLinksError ||
     programsError ||
-    programLinksError ||
     libraryError
 
   if (firstError) {
@@ -332,13 +438,13 @@ async function loadAssignmentOptions(input: {
   }
 
   const visitByFacility = new Map(
-    ((visitRows ?? []) as FacilityVisitStatRow[]).map((row) => [
+    visitRows.map((row) => [
       row.facility_id,
       row,
     ])
   )
 
-  const facilities = ((facilityRows ?? []) as FacilityRow[])
+  const facilities = facilityRows
     .filter((facility) =>
       resourceAllowed({
         user: input.user,
@@ -417,7 +523,7 @@ async function loadAssignmentOptions(input: {
   )
 
   const targetFacilityIds = new Map<string, string[]>()
-  for (const link of targetLinkRows ?? []) {
+  for (const link of targetLinkRows) {
     const facilityId = String(link.facility_id)
     if (!accessibleFacilityIds.has(facilityId)) continue
     const targetId = String(link.target_id)
@@ -498,7 +604,7 @@ async function loadAssignmentOptions(input: {
     )
 
   const programFacilityIds = new Map<string, string[]>()
-  for (const link of programLinkRows ?? []) {
+  for (const link of programLinkRows) {
     const facilityId = String(link.facility_id)
     if (!accessibleFacilityIds.has(facilityId)) continue
     const programId = String(link.program_id)
