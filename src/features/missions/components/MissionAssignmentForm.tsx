@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   AlertTriangle,
+  Bookmark,
+  BookmarkCheck,
   Building2,
   CalendarDays,
   Check,
@@ -12,10 +14,14 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileText,
+  Filter,
+  FolderKanban,
   Hotel,
   Loader2,
+  MapPinned,
   Search,
   ShieldCheck,
+  Target,
   UserRound,
   Users,
   X,
@@ -30,6 +36,11 @@ type FacilityOption = {
   governorate: string | null
   health_admin: string | null
   village_city: string | null
+  assignment_count: number
+  visit_count: number
+  distinct_primary_inspectors: number
+  last_visited_at: string | null
+  last_scheduled_date: string | null
 }
 
 type InspectorOption = {
@@ -47,7 +58,36 @@ type TemplateOption = {
   version: string | null
   description: string | null
   is_base: boolean
+  visibility: 'system' | 'organization' | 'private'
+  created_by_me: boolean
+  in_my_library: boolean
   applicable_facility_types: string[] | null
+}
+
+type TargetOption = {
+  id: string
+  title: string
+  period_label: string
+  start_date: string
+  end_date: string
+  target_missions: number
+  assigned_user_id: string | null
+  assigned_user_name: string | null
+  scope_name: string
+  facility_ids: string[]
+  facility_count: number
+  visited_count: number
+}
+
+type ProgramOption = {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  program_type: string
+  facility_ids: string[]
+  facility_count: number
+  visited_count: number
 }
 
 type OptionsPayload = {
@@ -61,7 +101,10 @@ type OptionsPayload = {
   facilities?: FacilityOption[]
   inspectors?: InspectorOption[]
   templates?: TemplateOption[]
+  targets?: TargetOption[]
+  programs?: ProgramOption[]
   canApprove?: boolean
+  canUseTemplateLibrary?: boolean
   preparationMode?: 'secretariat' | 'issuer'
   error?: string
 }
@@ -81,6 +124,13 @@ type CreateResponse = {
 }
 
 type Step = 1 | 2 | 3
+type SourceMode = 'manual' | 'target' | 'program'
+type VisitFilter = 'all' | 'visited' | 'unvisited'
+type FacilitySort = 'least_visited' | 'most_visited' | 'name' | 'recent'
+type TemplateTab = 'mine' | 'available'
+
+const MAX_BATCH_FACILITIES = 50
+const FACILITY_PAGE_SIZE = 100
 
 const PURPOSE_SUGGESTIONS = [
   'مرور دوري لمتابعة انتظام العمل وجودة الخدمات المقدمة بالمنشأة.',
@@ -98,6 +148,23 @@ function priorityLabel(value: string) {
   if (value === 'urgent') return 'عاجلة'
   if (value === 'high') return 'مرتفعة'
   return 'عادية'
+}
+
+function sourceLabel(value: SourceMode) {
+  if (value === 'target') return 'مستهدف محدد'
+  if (value === 'program') return 'مشروع / مبادرة'
+  return 'اختيار حر'
+}
+
+function formatVisitDate(value: string | null) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('en-GB', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
 }
 
 function StepPill({
@@ -151,23 +218,42 @@ export function MissionAssignmentForm() {
   const [facilities, setFacilities] = useState<FacilityOption[]>([])
   const [inspectors, setInspectors] = useState<InspectorOption[]>([])
   const [templates, setTemplates] = useState<TemplateOption[]>([])
+  const [targets, setTargets] = useState<TargetOption[]>([])
+  const [programs, setPrograms] = useState<ProgramOption[]>([])
   const [canApprove, setCanApprove] = useState(false)
+  const [canUseTemplateLibrary, setCanUseTemplateLibrary] = useState(false)
   const [preparationMode, setPreparationMode] = useState<
     'secretariat' | 'issuer'
   >('issuer')
 
+  const [sourceMode, setSourceMode] = useState<SourceMode>('manual')
+  const [sourceTargetId, setSourceTargetId] = useState('')
+  const [sourceProgramId, setSourceProgramId] = useState('')
   const [facilitySearch, setFacilitySearch] = useState('')
-  const [inspectorSearch, setInspectorSearch] = useState('')
+  const [governorateFilter, setGovernorateFilter] = useState('')
+  const [healthAdminFilter, setHealthAdminFilter] = useState('')
+  const [facilityTypeFilter, setFacilityTypeFilter] = useState('')
+  const [visitFilter, setVisitFilter] = useState<VisitFilter>('all')
+  const [facilitySort, setFacilitySort] =
+    useState<FacilitySort>('least_visited')
+  const [visibleFacilityCount, setVisibleFacilityCount] =
+    useState(FACILITY_PAGE_SIZE)
   const [selectedFacilityIds, setSelectedFacilityIds] = useState<string[]>([])
+
+  const [inspectorSearch, setInspectorSearch] = useState('')
   const [selectedInspectorIds, setSelectedInspectorIds] = useState<string[]>([])
   const [primaryInspectorId, setPrimaryInspectorId] = useState('')
-  const [templateId, setTemplateId] = useState('')
-  const [visitPurpose, setVisitPurpose] = useState('')
   const [scheduledDate, setScheduledDate] = useState(todayString())
   const [expectedEndDate, setExpectedEndDate] = useState(todayString())
-  const [priority, setPriority] = useState<'normal' | 'high' | 'urgent'>('normal')
+  const [priority, setPriority] = useState<'normal' | 'high' | 'urgent'>(
+    'normal'
+  )
   const [requiresOvernight, setRequiresOvernight] = useState(false)
   const [requiresHotelBooking, setRequiresHotelBooking] = useState(false)
+
+  const [templateTab, setTemplateTab] = useState<TemplateTab>('available')
+  const [templateId, setTemplateId] = useState('')
+  const [visitPurpose, setVisitPurpose] = useState('')
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -195,13 +281,15 @@ export function MissionAssignmentForm() {
         setFacilities(payload.facilities ?? [])
         setInspectors(payload.inspectors ?? [])
         setTemplates(nextTemplates)
+        setTargets(payload.targets ?? [])
+        setPrograms(payload.programs ?? [])
         setCanApprove(payload.canApprove === true)
+        setCanUseTemplateLibrary(payload.canUseTemplateLibrary === true)
         setPreparationMode(payload.preparationMode ?? 'issuer')
 
-        const baseTemplate =
-          nextTemplates.find((template) => template.is_base) ??
-          nextTemplates[0]
-        if (baseTemplate) setTemplateId(baseTemplate.id)
+        if (nextTemplates.some((template) => template.in_my_library)) {
+          setTemplateTab('mine')
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(
@@ -222,12 +310,174 @@ export function MissionAssignmentForm() {
     }
   }, [])
 
+  const facilityById = useMemo(
+    () => new Map(facilities.map((facility) => [facility.id, facility])),
+    [facilities]
+  )
+
+  const selectedTarget = targets.find((target) => target.id === sourceTargetId)
+  const selectedProgram = programs.find(
+    (program) => program.id === sourceProgramId
+  )
+
+  const sourceFacilityIds = useMemo(() => {
+    if (sourceMode === 'target') {
+      return new Set(selectedTarget?.facility_ids ?? [])
+    }
+    if (sourceMode === 'program') {
+      return new Set(selectedProgram?.facility_ids ?? [])
+    }
+    return new Set(facilities.map((facility) => facility.id))
+  }, [facilities, selectedProgram, selectedTarget, sourceMode])
+
+  const sourceFacilities = useMemo(
+    () => facilities.filter((facility) => sourceFacilityIds.has(facility.id)),
+    [facilities, sourceFacilityIds]
+  )
+
+  const governorates = useMemo(
+    () =>
+      [...new Set(sourceFacilities.map((facility) => facility.governorate).filter(Boolean))]
+        .map(String)
+        .sort((a, b) => a.localeCompare(b, 'ar')),
+    [sourceFacilities]
+  )
+
+  const healthAdmins = useMemo(() => {
+    let base = sourceFacilities
+    if (governorateFilter) {
+      base = base.filter(
+        (facility) => facility.governorate === governorateFilter
+      )
+    }
+
+    return [
+      ...new Set(base.map((facility) => facility.health_admin).filter(Boolean)),
+    ]
+      .map(String)
+      .sort((a, b) => a.localeCompare(b, 'ar'))
+  }, [sourceFacilities, governorateFilter])
+
+  const facilityTypes = useMemo(
+    () =>
+      [
+        ...new Set(
+          sourceFacilities
+            .map((facility) => facility.facility_type)
+            .filter(Boolean)
+        ),
+      ].sort((a, b) => a.localeCompare(b, 'ar')),
+    [sourceFacilities]
+  )
+
+  const filteredFacilities = useMemo(() => {
+    const q = facilitySearch.trim().toLocaleLowerCase('ar')
+    let rows = sourceFacilities.filter((facility) => {
+      if (
+        governorateFilter &&
+        facility.governorate !== governorateFilter
+      ) {
+        return false
+      }
+
+      if (
+        healthAdminFilter &&
+        facility.health_admin !== healthAdminFilter
+      ) {
+        return false
+      }
+
+      if (
+        facilityTypeFilter &&
+        facility.facility_type !== facilityTypeFilter
+      ) {
+        return false
+      }
+
+      if (visitFilter === 'visited' && facility.visit_count <= 0) {
+        return false
+      }
+
+      if (visitFilter === 'unvisited' && facility.visit_count > 0) {
+        return false
+      }
+
+      if (!q) return true
+
+      return [
+        facility.name,
+        facility.facility_type,
+        facility.organization_name,
+        facility.governorate ?? '',
+        facility.health_admin ?? '',
+        facility.village_city ?? '',
+      ].some((value) => value.toLocaleLowerCase('ar').includes(q))
+    })
+
+    rows = [...rows].sort((a, b) => {
+      if (facilitySort === 'name') {
+        return a.name.localeCompare(b.name, 'ar')
+      }
+
+      if (facilitySort === 'most_visited') {
+        return b.visit_count - a.visit_count || a.name.localeCompare(b.name, 'ar')
+      }
+
+      if (facilitySort === 'recent') {
+        const aTime = a.last_visited_at
+          ? new Date(a.last_visited_at).getTime()
+          : 0
+        const bTime = b.last_visited_at
+          ? new Date(b.last_visited_at).getTime()
+          : 0
+        return bTime - aTime || a.name.localeCompare(b.name, 'ar')
+      }
+
+      return a.visit_count - b.visit_count || a.name.localeCompare(b.name, 'ar')
+    })
+
+    return rows
+  }, [
+    facilitySearch,
+    facilitySort,
+    facilityTypeFilter,
+    governorateFilter,
+    healthAdminFilter,
+    sourceFacilities,
+    visitFilter,
+  ])
+
+  useEffect(() => {
+    setVisibleFacilityCount(FACILITY_PAGE_SIZE)
+  }, [
+    sourceMode,
+    sourceTargetId,
+    sourceProgramId,
+    facilitySearch,
+    governorateFilter,
+    healthAdminFilter,
+    facilityTypeFilter,
+    visitFilter,
+    facilitySort,
+  ])
+
+  useEffect(() => {
+    if (
+      healthAdminFilter &&
+      !healthAdmins.includes(healthAdminFilter)
+    ) {
+      setHealthAdminFilter('')
+    }
+  }, [healthAdminFilter, healthAdmins])
+
+  const visibleFacilities = filteredFacilities.slice(0, visibleFacilityCount)
+
   const selectedFacilities = useMemo(
     () =>
       selectedFacilityIds
-        .map((id) => facilities.find((facility) => facility.id === id))
+        .map((id) => facilityById.get(id))
         .filter((facility): facility is FacilityOption => Boolean(facility)),
-    [facilities, selectedFacilityIds]
+    [facilityById, selectedFacilityIds]
   )
 
   const selectedInspectors = useMemo(
@@ -242,23 +492,13 @@ export function MissionAssignmentForm() {
     (template) => template.id === templateId
   )
 
-  const filteredFacilities = useMemo(() => {
-    const q = facilitySearch.trim().toLocaleLowerCase('ar')
-    if (!q) return facilities.slice(0, 40)
-
-    return facilities
-      .filter((facility) =>
-        [
-          facility.name,
-          facility.facility_type,
-          facility.organization_name,
-          facility.governorate ?? '',
-          facility.health_admin ?? '',
-          facility.village_city ?? '',
-        ].some((value) => value.toLocaleLowerCase('ar').includes(q))
-      )
-      .slice(0, 60)
-  }, [facilities, facilitySearch])
+  const selectedFacilityTypes = useMemo(
+    () =>
+      new Set(
+        selectedFacilities.map((facility) => facility.facility_type)
+      ),
+    [selectedFacilities]
+  )
 
   const filteredInspectors = useMemo(() => {
     const q = inspectorSearch.trim().toLocaleLowerCase('ar')
@@ -273,15 +513,98 @@ export function MissionAssignmentForm() {
           inspector.organization_name,
         ].some((value) => value.toLocaleLowerCase('ar').includes(q))
       })
-      .slice(0, 40)
+      .slice(0, 100)
   }, [inspectors, inspectorSearch, selectedInspectorIds])
 
+  const myTemplates = useMemo(
+    () =>
+      templates.filter(
+        (template) => template.in_my_library || template.created_by_me
+      ),
+    [templates]
+  )
+
+  const templateList =
+    templateTab === 'mine' ? myTemplates : templates
+
+  function resetFacilityFilters() {
+    setFacilitySearch('')
+    setGovernorateFilter('')
+    setHealthAdminFilter('')
+    setFacilityTypeFilter('')
+    setVisitFilter('all')
+    setFacilitySort('least_visited')
+  }
+
+  function changeSourceMode(mode: SourceMode) {
+    setSourceMode(mode)
+    setSourceTargetId('')
+    setSourceProgramId('')
+    setSelectedFacilityIds([])
+    resetFacilityFilters()
+    setError(null)
+  }
+
+  function chooseTarget(target: TargetOption) {
+    setSourceMode('target')
+    setSourceTargetId(target.id)
+    setSourceProgramId('')
+    setSelectedFacilityIds([])
+    resetFacilityFilters()
+
+    if (
+      target.assigned_user_id &&
+      inspectors.some((inspector) => inspector.id === target.assigned_user_id)
+    ) {
+      setSelectedInspectorIds((current) => {
+        if (current.includes(target.assigned_user_id as string)) return current
+        return [...current, target.assigned_user_id as string]
+      })
+      setPrimaryInspectorId((current) =>
+        current || (target.assigned_user_id as string)
+      )
+    }
+  }
+
+  function chooseProgram(program: ProgramOption) {
+    if (program.facility_count === 0) return
+    setSourceMode('program')
+    setSourceProgramId(program.id)
+    setSourceTargetId('')
+    setSelectedFacilityIds([])
+    resetFacilityFilters()
+  }
+
   function toggleFacility(facilityId: string) {
-    setSelectedFacilityIds((current) =>
-      current.includes(facilityId)
-        ? current.filter((id) => id !== facilityId)
-        : [...current, facilityId]
-    )
+    setSelectedFacilityIds((current) => {
+      if (current.includes(facilityId)) {
+        return current.filter((id) => id !== facilityId)
+      }
+
+      if (current.length >= MAX_BATCH_FACILITIES) {
+        setError(
+          'الحد الأقصى لدفعة التكليف الواحدة هو ' +
+            MAX_BATCH_FACILITIES.toLocaleString('en-US') +
+            ' منشأة.'
+        )
+        return current
+      }
+
+      setError(null)
+      return [...current, facilityId]
+    })
+  }
+
+  function selectFilteredFacilities(unvisitedOnly = false) {
+    setSelectedFacilityIds((current) => {
+      const next = new Set(current)
+      for (const facility of filteredFacilities) {
+        if (unvisitedOnly && facility.visit_count > 0) continue
+        if (next.size >= MAX_BATCH_FACILITIES) break
+        next.add(facility.id)
+      }
+      return [...next]
+    })
   }
 
   function addInspector(inspectorId: string) {
@@ -304,13 +627,63 @@ export function MissionAssignmentForm() {
     })
   }
 
+  async function toggleTemplateLibrary(template: TemplateOption) {
+    if (!canUseTemplateLibrary || template.created_by_me) return
+
+    try {
+      const method = template.in_my_library ? 'DELETE' : 'POST'
+      const url = template.in_my_library
+        ? '/api/v2/checklists/library?template_id=' +
+          encodeURIComponent(template.id)
+        : '/api/v2/checklists/library'
+
+      const response = await fetch(url, {
+        method,
+        credentials: 'same-origin',
+        headers:
+          method === 'POST'
+            ? { 'Content-Type': 'application/json' }
+            : undefined,
+        body:
+          method === 'POST'
+            ? JSON.stringify({ template_id: template.id })
+            : undefined,
+      })
+
+      const payload = (await response.json()) as { error?: string }
+      if (!response.ok) {
+        throw new Error(payload.error || 'تعذر تحديث استماراتي')
+      }
+
+      setTemplates((current) =>
+        current.map((item) =>
+          item.id === template.id
+            ? { ...item, in_my_library: !item.in_my_library }
+            : item
+        )
+      )
+    } catch (libraryError) {
+      setError(
+        libraryError instanceof Error
+          ? libraryError.message
+          : 'تعذر تحديث استماراتي'
+      )
+    }
+  }
+
   function validate(currentStep: Step): string | null {
     if (currentStep === 1) {
-      if (!templateId) return 'اختر نموذج المرور.'
+      if (sourceMode === 'target' && !sourceTargetId) {
+        return 'اختر المستهدف الذي ستصدر منه المأمورية.'
+      }
+
+      if (sourceMode === 'program' && !sourceProgramId) {
+        return 'اختر المشروع أو المبادرة أولًا.'
+      }
+
       if (selectedFacilityIds.length === 0) {
         return 'اختر منشأة صحية واحدة على الأقل.'
       }
-      if (!visitPurpose.trim()) return 'اكتب غرض المأمورية.'
     }
 
     if (currentStep === 2) {
@@ -327,6 +700,18 @@ export function MissionAssignmentForm() {
       if (scheduledDate < todayString()) {
         return 'لا يمكن إصدار تكليف جديد بتاريخ سابق من V2.'
       }
+
+      if (
+        selectedTarget?.assigned_user_id &&
+        !selectedInspectorIds.includes(selectedTarget.assigned_user_id)
+      ) {
+        return 'المستهدف المحدد مرتبط بمستخدم يجب أن يكون ضمن فريق المأمورية.'
+      }
+    }
+
+    if (currentStep === 3) {
+      if (!templateId) return 'اختر استمارة المرور قبل الإصدار.'
+      if (!visitPurpose.trim()) return 'اكتب غرض المأمورية.'
     }
 
     return null
@@ -341,15 +726,17 @@ export function MissionAssignmentForm() {
 
     setError(null)
     if (step < 3) setStep((step + 1) as Step)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   function previousStep() {
     setError(null)
     if (step > 1) setStep((step - 1) as Step)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function submit() {
-    const validation = validate(1) || validate(2)
+    const validation = validate(1) || validate(2) || validate(3)
     if (validation) {
       setError(validation)
       return
@@ -364,6 +751,11 @@ export function MissionAssignmentForm() {
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          selection_source: sourceMode,
+          source_target_id:
+            sourceMode === 'target' ? sourceTargetId : null,
+          source_program_id:
+            sourceMode === 'program' ? sourceProgramId : null,
           facility_ids: selectedFacilityIds,
           team_user_ids: selectedInspectorIds,
           primary_user_id: primaryInspectorId,
@@ -397,11 +789,67 @@ export function MissionAssignmentForm() {
     }
   }
 
+  function renderActions(compact = false) {
+    return (
+      <div className="flex items-center gap-2">
+        {step > 1 && (
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={previousStep}
+            className={
+              'inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 ' +
+              (compact ? 'h-9 px-3 text-[11px]' : 'h-10 px-4 text-xs')
+            }
+          >
+            <ChevronRight className="h-4 w-4" />
+            السابق
+          </button>
+        )}
+
+        {step < 3 ? (
+          <button
+            type="button"
+            onClick={nextStep}
+            className={
+              'inline-flex items-center gap-1.5 rounded-xl bg-teal-700 font-bold text-white hover:bg-teal-800 ' +
+              (compact ? 'h-9 px-3 text-[11px]' : 'h-10 px-4 text-xs')
+            }
+          >
+            التالي
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={() => void submit()}
+            className={
+              'inline-flex items-center gap-2 rounded-xl bg-teal-700 font-black text-white shadow-sm hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50 ' +
+              (compact ? 'h-9 px-3 text-[11px]' : 'h-10 px-5 text-xs')
+            }
+          >
+            {submitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ClipboardCheck className="h-4 w-4" />
+            )}
+            {submitting
+              ? 'جارٍ الإصدار...'
+              : canApprove
+                ? 'إصدار واعتماد'
+                : 'إرسال للاعتماد'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[420px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white text-sm text-slate-500">
         <Loader2 className="h-5 w-5 animate-spin" />
-        جارٍ تجهيز بيانات التكليف المتاحة داخل نطاقك...
+        جارٍ تجهيز المنشآت والمستهدفات وفريق المرور...
       </div>
     )
   }
@@ -433,9 +881,7 @@ export function MissionAssignmentForm() {
         <div className="p-5 sm:p-7">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {missions.map((mission) => {
-              const facility = facilities.find(
-                (item) => item.id === mission.facility_id
-              )
+              const facility = facilityById.get(mission.facility_id)
               return (
                 <div
                   key={mission.mission_id}
@@ -458,9 +904,10 @@ export function MissionAssignmentForm() {
               onClick={() => {
                 setSuccess(null)
                 setStep(1)
-                setSelectedFacilityIds([])
+                changeSourceMode('manual')
                 setSelectedInspectorIds([])
                 setPrimaryInspectorId('')
+                setTemplateId('')
                 setVisitPurpose('')
                 setNotes('')
               }}
@@ -486,28 +933,31 @@ export function MissionAssignmentForm() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-6">
-        <div className="flex items-center justify-between gap-2">
-          <StepPill
-            number={1}
-            label="النطاق والمنشآت"
-            active={step === 1}
-            done={step > 1}
-          />
-          <div className="h-px flex-1 bg-slate-200" />
-          <StepPill
-            number={2}
-            label="الفريق والموعد"
-            active={step === 2}
-            done={step > 2}
-          />
-          <div className="h-px flex-1 bg-slate-200" />
-          <StepPill
-            number={3}
-            label="المراجعة والإصدار"
-            active={step === 3}
-            done={false}
-          />
+      <section className="sticky top-2 z-30 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <StepPill
+              number={1}
+              label="النطاق والمنشآت"
+              active={step === 1}
+              done={step > 1}
+            />
+            <div className="h-px min-w-5 flex-1 bg-slate-200" />
+            <StepPill
+              number={2}
+              label="الفريق والموعد"
+              active={step === 2}
+              done={step > 2}
+            />
+            <div className="h-px min-w-5 flex-1 bg-slate-200" />
+            <StepPill
+              number={3}
+              label="الاستمارة والإصدار"
+              active={step === 3}
+              done={false}
+            />
+          </div>
+          {renderActions(true)}
         </div>
       </section>
 
@@ -520,173 +970,476 @@ export function MissionAssignmentForm() {
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         {step === 1 && (
-          <div className="space-y-6 p-4 sm:p-6">
+          <div className="space-y-5 p-4 sm:p-6">
             <div>
               <p className="text-[10px] font-bold text-teal-700">
                 المرحلة الأولى
               </p>
               <h2 className="mt-1 text-base font-black text-slate-900">
-                نطاق المأمورية والمنشآت المستهدفة
+                من أين تختار منشآت المرور؟
               </h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                اختر نموذج المرور ثم المنشآت. اختيار أكثر من منشأة سيصدر مأمورية
-                مستقلة لكل منشأة بنفس الفريق والموعد.
+                ابدأ بمستهدف محدد، مشروع/مبادرة، أو اختيار حر من كل المنشآت
+                المتاحة داخل نطاقك.
               </p>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-              <div className="space-y-4">
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-bold text-slate-700">
-                    نوع المرور / نموذج التقييم
-                  </span>
-                  <select
-                    value={templateId}
-                    onChange={(event) => setTemplateId(event.target.value)}
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[
+                {
+                  id: 'target' as SourceMode,
+                  title: 'مستهدف محدد',
+                  note: 'منشآت مرتبطة بمستهدف دوري أو شخص محدد',
+                  icon: Target,
+                },
+                {
+                  id: 'program' as SourceMode,
+                  title: 'مشروع / مبادرة',
+                  note: 'مثل حياة كريمة أو أي مشروع يضم منشآت محددة',
+                  icon: FolderKanban,
+                },
+                {
+                  id: 'manual' as SourceMode,
+                  title: 'اختيار حر',
+                  note: 'ابدأ بالمحافظة والإدارة والنوع واختر بنفسك',
+                  icon: MapPinned,
+                },
+              ].map((item) => {
+                const Icon = item.icon
+                const active = sourceMode === item.id
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => changeSourceMode(item.id)}
+                    className={
+                      'rounded-2xl border p-3 text-right transition ' +
+                      (active
+                        ? 'border-teal-300 bg-teal-50 ring-1 ring-teal-100'
+                        : 'border-slate-200 bg-white hover:bg-slate-50')
+                    }
                   >
-                    <option value="">اختر نموذج المرور</option>
-                    {templates.map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.name}
-                        {template.is_base ? ' — أساسي' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    <Icon
+                      className={
+                        'h-5 w-5 ' +
+                        (active ? 'text-teal-700' : 'text-slate-400')
+                      }
+                    />
+                    <p className="mt-2 text-xs font-black text-slate-900">
+                      {item.title}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500">
+                      {item.note}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
 
-                {selectedTemplate?.description && (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-[11px] leading-5 text-slate-500">
-                    {selectedTemplate.description}
+            {sourceMode === 'target' && (
+              <div className="rounded-2xl border border-teal-100 bg-teal-50/40 p-3">
+                <div className="mb-3">
+                  <h3 className="text-xs font-black text-slate-900">
+                    المستهدفات النشطة ذات المنشآت المحددة
+                  </h3>
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    عند اختيار مستهدف مرتبط بمستخدم، يضاف هذا المستخدم للفريق
+                    تلقائيًا.
+                  </p>
+                </div>
+
+                {targets.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-teal-200 bg-white px-4 py-6 text-center text-xs text-slate-500">
+                    لا توجد مستهدفات نشطة بمنشآت محددة داخل نطاقك حاليًا.
+                  </div>
+                ) : (
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    {targets.map((target) => {
+                      const active = sourceTargetId === target.id
+                      return (
+                        <button
+                          key={target.id}
+                          type="button"
+                          onClick={() => chooseTarget(target)}
+                          className={
+                            'rounded-xl border p-3 text-right ' +
+                            (active
+                              ? 'border-teal-400 bg-white ring-1 ring-teal-100'
+                              : 'border-teal-100 bg-white hover:border-teal-300')
+                          }
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-extrabold text-slate-900">
+                                {target.title}
+                              </p>
+                              <p className="mt-1 text-[9px] text-slate-400">
+                                {target.period_label} · {target.scope_name}
+                              </p>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-teal-50 px-2 py-1 text-[9px] font-black text-teal-800">
+                              {target.facility_count.toLocaleString('en-US')} منشأة
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-1.5 text-[9px]">
+                            <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
+                              تمت زيارة {target.visited_count.toLocaleString('en-US')}
+                            </span>
+                            {target.assigned_user_name && (
+                              <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-800">
+                                {target.assigned_user_name}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
+              </div>
+            )}
 
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-bold text-slate-700">
-                    غرض المأمورية
-                  </span>
-                  <textarea
-                    value={visitPurpose}
-                    onChange={(event) => setVisitPurpose(event.target.value)}
-                    rows={4}
-                    placeholder="اكتب الغرض الإداري والفني من الزيارة..."
-                    className="w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-xs leading-6 text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                  />
-                </label>
+            {sourceMode === 'program' && (
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-3">
+                <div className="mb-3">
+                  <h3 className="text-xs font-black text-slate-900">
+                    المشروعات والمبادرات
+                  </h3>
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    المشروع يحدد مجموعة المنشآت، وبعد اختياره تستطيع التصفية
+                    بالمحافظة والإدارة الصحية.
+                  </p>
+                </div>
 
-                <div className="flex flex-wrap gap-1.5">
-                  {PURPOSE_SUGGESTIONS.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => setVisitPurpose(suggestion)}
-                      className="rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-bold text-slate-500 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800"
-                    >
-                      {suggestion.split(' ').slice(0, 4).join(' ')}...
-                    </button>
-                  ))}
+                <div className="grid gap-2 lg:grid-cols-2">
+                  {programs.map((program) => {
+                    const active = sourceProgramId === program.id
+                    const empty = program.facility_count === 0
+                    return (
+                      <button
+                        key={program.id}
+                        type="button"
+                        disabled={empty}
+                        onClick={() => chooseProgram(program)}
+                        className={
+                          'rounded-xl border p-3 text-right disabled:cursor-not-allowed disabled:opacity-55 ' +
+                          (active
+                            ? 'border-indigo-400 bg-white ring-1 ring-indigo-100'
+                            : 'border-indigo-100 bg-white hover:border-indigo-300')
+                        }
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-extrabold text-slate-900">
+                              {program.name}
+                            </p>
+                            {program.description && (
+                              <p className="mt-1 line-clamp-2 text-[9px] leading-4 text-slate-400">
+                                {program.description}
+                              </p>
+                            )}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-1 text-[9px] font-black text-indigo-800">
+                            {program.facility_count.toLocaleString('en-US')} منشأة
+                          </span>
+                        </div>
+                        {empty && (
+                          <p className="mt-2 text-[9px] font-bold text-amber-700">
+                            لم يتم ربط منشآت معتمدة بهذا المشروع بعد.
+                          </p>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
+            )}
 
-              <div>
-                <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-                  <label className="block min-w-0 flex-1">
-                    <span className="mb-1.5 block text-xs font-bold text-slate-700">
-                      البحث عن منشأة
-                    </span>
-                    <div className="relative">
+            {(sourceMode === 'manual' ||
+              (sourceMode === 'target' && sourceTargetId) ||
+              (sourceMode === 'program' && sourceProgramId)) && (
+              <>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Filter className="h-4 w-4 text-teal-700" />
+                      <div>
+                        <p className="text-xs font-black text-slate-900">
+                          فلاتر المنشآت
+                        </p>
+                        <p className="text-[9px] text-slate-400">
+                          {sourceFacilities.length.toLocaleString('en-US')} منشأة
+                          متاحة من المصدر الحالي
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={resetFacilityFilters}
+                      className="text-[10px] font-bold text-slate-500 hover:text-teal-700"
+                    >
+                      مسح الفلاتر
+                    </button>
+                  </div>
+
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+                    <div className="relative xl:col-span-2">
                       <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <input
                         value={facilitySearch}
                         onChange={(event) =>
                           setFacilitySearch(event.target.value)
                         }
-                        placeholder="الاسم، الإدارة الصحية، المحافظة أو النوع..."
-                        className="h-11 w-full rounded-xl border border-slate-200 bg-white pr-9 pl-3 text-xs outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                        placeholder="اسم المنشأة، المدينة، الإدارة..."
+                        className="h-10 w-full rounded-xl border border-slate-200 bg-white pr-9 pl-3 text-xs outline-none focus:border-teal-500"
                       />
                     </div>
-                  </label>
 
-                  <span className="rounded-full bg-teal-50 px-2.5 py-1 text-[10px] font-black text-teal-800">
-                    {selectedFacilityIds.length.toLocaleString('en-US')} محددة
-                  </span>
+                    <select
+                      value={governorateFilter}
+                      onChange={(event) => {
+                        setGovernorateFilter(event.target.value)
+                        setHealthAdminFilter('')
+                      }}
+                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
+                    >
+                      <option value="">كل المحافظات</option>
+                      {governorates.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={healthAdminFilter}
+                      onChange={(event) =>
+                        setHealthAdminFilter(event.target.value)
+                      }
+                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
+                    >
+                      <option value="">كل الإدارات الصحية</option>
+                      {healthAdmins.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={facilityTypeFilter}
+                      onChange={(event) =>
+                        setFacilityTypeFilter(event.target.value)
+                      }
+                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
+                    >
+                      <option value="">كل أنواع المنشآت</option>
+                      {facilityTypes.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={visitFilter}
+                      onChange={(event) =>
+                        setVisitFilter(event.target.value as VisitFilter)
+                      }
+                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
+                    >
+                      <option value="all">كل حالات المرور</option>
+                      <option value="unvisited">لم يتم المرور</option>
+                      <option value="visited">تم المرور سابقًا</option>
+                    </select>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                    <select
+                      value={facilitySort}
+                      onChange={(event) =>
+                        setFacilitySort(event.target.value as FacilitySort)
+                      }
+                      className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[10px] outline-none"
+                    >
+                      <option value="least_visited">الأقل مرورًا أولًا</option>
+                      <option value="most_visited">الأكثر مرورًا أولًا</option>
+                      <option value="recent">الأحدث زيارة أولًا</option>
+                      <option value="name">بالاسم</option>
+                    </select>
+
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => selectFilteredFacilities(true)}
+                        className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] font-bold text-slate-600"
+                      >
+                        تحديد غير المزارة
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectFilteredFacilities(false)}
+                        className="h-8 rounded-lg border border-teal-200 bg-white px-2.5 text-[9px] font-bold text-teal-700"
+                      >
+                        تحديد النتائج
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedFacilityIds([])}
+                        className="h-8 rounded-lg px-2.5 text-[9px] font-bold text-slate-500"
+                      >
+                        إلغاء التحديد
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
-                {selectedFacilities.length > 0 && (
-                  <div className="mb-3 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto rounded-xl border border-teal-100 bg-teal-50/50 p-2">
-                    {selectedFacilities.map((facility) => (
-                      <button
-                        key={facility.id}
-                        type="button"
-                        onClick={() => toggleFacility(facility.id)}
-                        className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1.5 text-[10px] font-bold text-teal-800 ring-1 ring-teal-100"
-                      >
-                        {facility.name}
-                        <X className="h-3 w-3" />
-                      </button>
-                    ))}
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-bold text-slate-700">
+                      النتائج: {filteredFacilities.length.toLocaleString('en-US')} ·
+                      المحدد: {selectedFacilityIds.length.toLocaleString('en-US')}
+                    </p>
+                    <p className="text-[9px] text-slate-400">
+                      الحد الأقصى للدفعة الواحدة{' '}
+                      {MAX_BATCH_FACILITIES.toLocaleString('en-US')} منشأة
+                    </p>
                   </div>
-                )}
 
-                <div className="max-h-[420px] overflow-y-auto rounded-xl border border-slate-200">
-                  {filteredFacilities.map((facility) => {
-                    const selected = selectedFacilityIds.includes(facility.id)
-                    const rowClass = selected
-                      ? 'bg-teal-50'
-                      : 'bg-white hover:bg-slate-50'
-                    const iconClass = selected
-                      ? 'bg-teal-700 text-white'
-                      : 'bg-slate-100 text-slate-400'
+                  {selectedFacilities.length > 0 && (
+                    <div className="mb-3 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto rounded-xl border border-teal-100 bg-teal-50/50 p-2">
+                      {selectedFacilities.map((facility) => (
+                        <button
+                          key={facility.id}
+                          type="button"
+                          onClick={() => toggleFacility(facility.id)}
+                          className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1.5 text-[10px] font-bold text-teal-800 ring-1 ring-teal-100"
+                        >
+                          {facility.name}
+                          <X className="h-3 w-3" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-                    return (
-                      <button
-                        key={facility.id}
-                        type="button"
-                        onClick={() => toggleFacility(facility.id)}
-                        className={
-                          'flex w-full items-start gap-3 border-b border-slate-100 px-3 py-3 text-right transition last:border-b-0 ' +
-                          rowClass
-                        }
-                      >
-                        <div
+                  <div className="max-h-[560px] overflow-y-auto rounded-xl border border-slate-200">
+                    {visibleFacilities.map((facility) => {
+                      const selected = selectedFacilityIds.includes(facility.id)
+                      const visited = facility.visit_count > 0
+                      return (
+                        <button
+                          key={facility.id}
+                          type="button"
+                          onClick={() => toggleFacility(facility.id)}
                           className={
-                            'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ' +
-                            iconClass
+                            'grid w-full gap-2 border-b border-slate-100 px-3 py-3 text-right transition last:border-b-0 sm:grid-cols-[auto_minmax(0,1fr)_auto] ' +
+                            (selected
+                              ? 'bg-teal-50'
+                              : 'bg-white hover:bg-slate-50')
                           }
                         >
-                          {selected ? (
-                            <Check className="h-4 w-4" />
-                          ) : (
-                            <Building2 className="h-4 w-4" />
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-extrabold text-slate-800">
-                            {facility.name}
-                          </p>
-                          <p className="mt-1 truncate text-[10px] text-slate-400">
-                            {facility.health_admin ||
-                              facility.organization_name}
-                            {facility.governorate
-                              ? ' · ' + facility.governorate
-                              : ''}
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500">
-                          {facility.facility_type}
-                        </span>
-                      </button>
-                    )
-                  })}
+                          <div
+                            className={
+                              'mt-0.5 flex h-7 w-7 items-center justify-center rounded-lg ' +
+                              (selected
+                                ? 'bg-teal-700 text-white'
+                                : 'bg-slate-100 text-slate-400')
+                            }
+                          >
+                            {selected ? (
+                              <Check className="h-4 w-4" />
+                            ) : (
+                              <Building2 className="h-4 w-4" />
+                            )}
+                          </div>
 
-                  {filteredFacilities.length === 0 && (
-                    <div className="px-4 py-10 text-center text-xs text-slate-400">
-                      لا توجد منشآت مطابقة داخل نطاقك.
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <p className="truncate text-xs font-extrabold text-slate-800">
+                                {facility.name}
+                              </p>
+                              <span
+                                className={
+                                  'rounded-full px-2 py-0.5 text-[9px] font-black ' +
+                                  (visited
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : 'bg-slate-100 text-slate-500')
+                                }
+                              >
+                                {visited
+                                  ? facility.visit_count.toLocaleString('en-US') +
+                                    ' زيارة منفذة'
+                                  : 'لم يتم المرور'}
+                              </span>
+                              {facility.assignment_count > facility.visit_count && (
+                                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-bold text-amber-700">
+                                  تكليفات قائمة/سابقة{' '}
+                                  {facility.assignment_count.toLocaleString('en-US')}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 truncate text-[10px] text-slate-400">
+                              {facility.governorate || '—'} ·{' '}
+                              {facility.health_admin || facility.organization_name}
+                              {facility.village_city
+                                ? ' · ' + facility.village_city
+                                : ''}
+                            </p>
+                            <div className="mt-1.5 flex flex-wrap gap-2 text-[9px] text-slate-400">
+                              <span>{facility.facility_type}</span>
+                              {facility.last_visited_at && (
+                                <span>
+                                  آخر مرور: {formatVisitDate(facility.last_visited_at)}
+                                </span>
+                              )}
+                              {facility.distinct_primary_inspectors > 0 && (
+                                <span>
+                                  رؤساء فرق مختلفون:{' '}
+                                  {facility.distinct_primary_inspectors.toLocaleString(
+                                    'en-US'
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="hidden text-left sm:block">
+                            <span className="text-[9px] font-bold text-slate-400">
+                              #{facility.assignment_count.toLocaleString('en-US')}
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })}
+
+                    {visibleFacilities.length === 0 && (
+                      <div className="px-4 py-10 text-center text-xs text-slate-400">
+                        لا توجد منشآت مطابقة لهذه الفلاتر.
+                      </div>
+                    )}
+                  </div>
+
+                  {visibleFacilityCount < filteredFacilities.length && (
+                    <div className="mt-3 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setVisibleFacilityCount(
+                            (current) => current + FACILITY_PAGE_SIZE
+                          )
+                        }
+                        className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-[10px] font-bold text-slate-600 hover:bg-slate-50"
+                      >
+                        عرض المزيد · المتبقي{' '}
+                        {(
+                          filteredFacilities.length - visibleFacilityCount
+                        ).toLocaleString('en-US')}
+                      </button>
                     </div>
                   )}
                 </div>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         )}
 
@@ -700,8 +1453,8 @@ export function MissionAssignmentForm() {
                 فريق المأمورية والموعد
               </h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                لا تظهر هنا إلا الحسابات النشطة المخولة بتنفيذ مأموريات
-                ميدانية والواقعة داخل نطاق تكليفك.
+                تظهر الحسابات التشغيلية التي يمكن أن تشارك في مأمورية داخل
+                نطاق تكليفك. المشاركة تمنح التنفيذ للمأمورية المسندة فقط.
               </p>
             </div>
 
@@ -718,13 +1471,24 @@ export function MissionAssignmentForm() {
                       onChange={(event) =>
                         setInspectorSearch(event.target.value)
                       }
-                      placeholder="ابحث باسم المفتش أو الجهة..."
+                      placeholder="ابحث بالاسم أو المسمى أو الجهة..."
                       className="h-11 w-full rounded-xl border border-slate-200 pr-9 pl-3 text-xs outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                     />
                   </div>
                 </label>
 
-                <div className="max-h-64 overflow-y-auto rounded-xl border border-slate-200">
+                <div className="mb-1 flex items-center justify-between text-[9px] text-slate-400">
+                  <span>
+                    متاح داخل نطاقك: {inspectors.length.toLocaleString('en-US')} حساب
+                  </span>
+                  {selectedTarget?.assigned_user_name && (
+                    <span className="font-bold text-amber-700">
+                      المستهدف مرتبط بـ {selectedTarget.assigned_user_name}
+                    </span>
+                  )}
+                </div>
+
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-200">
                   {filteredInspectors.map((inspector) => (
                     <button
                       key={inspector.id}
@@ -740,7 +1504,7 @@ export function MissionAssignmentForm() {
                           {inspector.full_name}
                         </p>
                         <p className="mt-1 truncate text-[10px] text-slate-400">
-                          {inspector.job_title || 'مفتش ميداني'} ·{' '}
+                          {inspector.job_title || 'مستخدم تشغيلي'} ·{' '}
                           {inspector.organization_name}
                         </p>
                       </div>
@@ -749,7 +1513,7 @@ export function MissionAssignmentForm() {
 
                   {filteredInspectors.length === 0 && (
                     <div className="px-4 py-8 text-center text-xs text-slate-400">
-                      لا يوجد مستخدمون آخرون مطابقون.
+                      لا توجد حسابات أخرى مطابقة للبحث.
                     </div>
                   )}
                 </div>
@@ -918,6 +1682,193 @@ export function MissionAssignmentForm() {
                     </div>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-6 p-4 sm:p-6">
+            <div>
+              <p className="text-[10px] font-bold text-teal-700">
+                المرحلة الثالثة
+              </p>
+              <h2 className="mt-1 text-base font-black text-slate-900">
+                استمارة المرور والغرض ثم المراجعة
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                بعد أن حددت المنشآت والفريق، اختر الآن الاستمارة المناسبة
+                للمهمة بدل فرضها في بداية التكليف.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-xs font-black text-slate-900">
+                    استمارة المرور
+                  </h3>
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    استماراتك الشخصية أو النماذج المتاحة في المنظومة.
+                  </p>
+                </div>
+                <div className="flex rounded-xl bg-slate-100 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setTemplateTab('mine')}
+                    className={
+                      'h-8 rounded-lg px-3 text-[10px] font-bold ' +
+                      (templateTab === 'mine'
+                        ? 'bg-white text-teal-800 shadow-sm'
+                        : 'text-slate-500')
+                    }
+                  >
+                    استماراتي ({myTemplates.length.toLocaleString('en-US')})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTemplateTab('available')}
+                    className={
+                      'h-8 rounded-lg px-3 text-[10px] font-bold ' +
+                      (templateTab === 'available'
+                        ? 'bg-white text-teal-800 shadow-sm'
+                        : 'text-slate-500')
+                    }
+                  >
+                    النماذج المتاحة ({templates.length.toLocaleString('en-US')})
+                  </button>
+                </div>
+              </div>
+
+              {templateList.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-slate-200 px-4 py-7 text-center text-xs text-slate-400">
+                  لا توجد استمارات محفوظة في «استماراتي». افتح النماذج
+                  المتاحة واحفظ ما تستخدمه باستمرار.
+                </div>
+              ) : (
+                <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                  {templateList.map((template) => {
+                    const selected = template.id === templateId
+                    const incompatible =
+                      Array.isArray(template.applicable_facility_types) &&
+                      template.applicable_facility_types.length > 0 &&
+                      [...selectedFacilityTypes].some(
+                        (type) =>
+                          !template.applicable_facility_types?.includes(type)
+                      )
+
+                    return (
+                      <div
+                        key={template.id}
+                        className={
+                          'rounded-xl border p-3 ' +
+                          (selected
+                            ? 'border-teal-300 bg-teal-50/60'
+                            : incompatible
+                              ? 'border-slate-100 bg-slate-50 opacity-60'
+                              : 'border-slate-200 bg-white')
+                        }
+                      >
+                        <div className="flex items-start gap-2">
+                          <button
+                            type="button"
+                            disabled={incompatible}
+                            onClick={() => setTemplateId(template.id)}
+                            className="min-w-0 flex-1 text-right disabled:cursor-not-allowed"
+                          >
+                            <div className="flex items-center gap-2">
+                              <FileText
+                                className={
+                                  'h-4 w-4 shrink-0 ' +
+                                  (selected
+                                    ? 'text-teal-700'
+                                    : 'text-slate-400')
+                                }
+                              />
+                              <p className="truncate text-xs font-extrabold text-slate-900">
+                                {template.name}
+                              </p>
+                            </div>
+                            <p className="mt-1 text-[9px] text-slate-400">
+                              {template.created_by_me
+                                ? 'أنشأتها أنت'
+                                : template.is_base
+                                  ? 'نموذج أساسي'
+                                  : template.visibility === 'system'
+                                    ? 'نموذج مشترك'
+                                    : 'نموذج جهة'}
+                              {template.version
+                                ? ' · إصدار ' + template.version
+                                : ''}
+                            </p>
+                            {incompatible && (
+                              <p className="mt-1 text-[9px] font-bold text-rose-700">
+                                غير مخصص لنوع إحدى المنشآت المحددة.
+                              </p>
+                            )}
+                          </button>
+
+                          {canUseTemplateLibrary &&
+                            !template.created_by_me && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void toggleTemplateLibrary(template)
+                                }
+                                className={
+                                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border ' +
+                                  (template.in_my_library
+                                    ? 'border-teal-200 bg-teal-50 text-teal-700'
+                                    : 'border-slate-200 bg-white text-slate-400')
+                                }
+                                title={
+                                  template.in_my_library
+                                    ? 'إزالة من استماراتي'
+                                    : 'حفظ في استماراتي'
+                                }
+                              >
+                                {template.in_my_library ? (
+                                  <BookmarkCheck className="h-4 w-4" />
+                                ) : (
+                                  <Bookmark className="h-4 w-4" />
+                                )}
+                              </button>
+                            )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-3">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-bold text-slate-700">
+                    غرض المأمورية
+                  </span>
+                  <textarea
+                    value={visitPurpose}
+                    onChange={(event) => setVisitPurpose(event.target.value)}
+                    rows={5}
+                    placeholder="اكتب الغرض الإداري والفني من الزيارة..."
+                    className="w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-xs leading-6 text-slate-700 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                  />
+                </label>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {PURPOSE_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => setVisitPurpose(suggestion)}
+                      className="rounded-full border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-bold text-slate-500 hover:border-teal-200 hover:bg-teal-50 hover:text-teal-800"
+                    >
+                      {suggestion.split(' ').slice(0, 4).join(' ')}...
+                    </button>
+                  ))}
+                </div>
 
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-bold text-slate-700">
@@ -926,183 +1877,130 @@ export function MissionAssignmentForm() {
                   <textarea
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
-                    rows={5}
-                    placeholder="أي تعليمات خاصة بالفريق أو التوثيق أو الزيارة..."
-                    className="w-full resize-none rounded-xl border border-slate-200 p-3 text-xs leading-6 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                    rows={4}
+                    placeholder="تعليمات خاصة بالفريق أو التوثيق أو الزيارة..."
+                    className="w-full resize-none rounded-xl border border-slate-200 p-3 text-xs leading-6 outline-none focus:border-teal-500"
                   />
                 </label>
               </div>
-            </div>
-          </div>
-        )}
 
-        {step === 3 && (
-          <div className="space-y-5 p-4 sm:p-6">
-            <div>
-              <p className="text-[10px] font-bold text-teal-700">
-                المرحلة الثالثة
-              </p>
-              <h2 className="mt-1 text-base font-black text-slate-900">
-                مراجعة التكليف قبل الإصدار
-              </h2>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                راجع الفريق والمنشآت والموعد. لا يتم الحفظ إلا بعد الضغط على
-                زر الإصدار.
-              </p>
-            </div>
+              <div className="space-y-3">
+                <div
+                  className={
+                    'flex items-start gap-3 rounded-2xl border p-4 ' +
+                    (canApprove
+                      ? 'border-emerald-200 bg-emerald-50/60'
+                      : 'border-amber-200 bg-amber-50/60')
+                  }
+                >
+                  <ShieldCheck
+                    className={
+                      'mt-0.5 h-5 w-5 shrink-0 ' +
+                      (canApprove ? 'text-emerald-700' : 'text-amber-700')
+                    }
+                  />
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-900">
+                      {canApprove
+                        ? 'سيصدر التكليف معتمدًا'
+                        : preparationMode === 'secretariat'
+                          ? 'سيتم إرسال التكليف للاعتماد'
+                          : 'سيصدر التكليف بانتظار الاعتماد'}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-5 text-slate-500">
+                      {canApprove
+                        ? 'حسابك يملك صلاحية اعتماد المأموريات داخل هذا النطاق.'
+                        : preparationMode === 'secretariat'
+                          ? 'أنت تعد التكليف وتقترح الفريق فقط؛ لا تصل إشعارات للفريق قبل اعتماد جهة مخولة.'
+                          : 'الاعتماد النهائي يحتاج جهة مخولة.'}
+                    </p>
+                  </div>
+                </div>
 
-            <div
-              className={
-                'flex items-start gap-3 rounded-2xl border p-4 ' +
-                (canApprove
-                  ? 'border-emerald-200 bg-emerald-50/60'
-                  : 'border-amber-200 bg-amber-50/60')
-              }
-            >
-              <ShieldCheck
-                className={
-                  'mt-0.5 h-5 w-5 shrink-0 ' +
-                  (canApprove ? 'text-emerald-700' : 'text-amber-700')
-                }
-              />
-              <div>
-                <p className="text-xs font-extrabold text-slate-900">
-                  {canApprove
-                    ? 'سيصدر التكليف معتمدًا'
-                    : preparationMode === 'secretariat'
-                      ? 'سيتم إرسال التكليف للاعتماد'
-                      : 'سيصدر التكليف بانتظار الاعتماد'}
-                </p>
-                <p className="mt-1 text-[10px] leading-5 text-slate-500">
-                  {canApprove
-                    ? 'حسابك يملك صلاحية اعتماد المأموريات داخل هذا النطاق.'
-                    : preparationMode === 'secretariat'
-                      ? 'أنت تعد نموذج التكليف وتقترح الفريق فقط؛ لا يصبح التكليف نافذًا ولا تصل إشعارات للفريق قبل اعتماد جهة مخولة.'
-                      : 'حسابك يستطيع الإنشاء والتكليف، لكن الاعتماد النهائي يحتاج جهة مخولة.'}
-                </p>
-              </div>
-            </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[9px] font-bold text-slate-400">
+                      مصدر الاختيار
+                    </p>
+                    <p className="mt-1 text-xs font-extrabold text-slate-800">
+                      {sourceLabel(sourceMode)}
+                    </p>
+                    {selectedTarget && (
+                      <p className="mt-1 truncate text-[9px] text-slate-400">
+                        {selectedTarget.title}
+                      </p>
+                    )}
+                    {selectedProgram && (
+                      <p className="mt-1 truncate text-[9px] text-slate-400">
+                        {selectedProgram.name}
+                      </p>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[9px] font-bold text-slate-400">
+                      المأموريات الناتجة
+                    </p>
+                    <p className="mt-1 text-lg font-black text-slate-900">
+                      {selectedFacilities.length.toLocaleString('en-US')}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[9px] font-bold text-slate-400">
+                      أعضاء الفريق
+                    </p>
+                    <p className="mt-1 text-lg font-black text-slate-900">
+                      {selectedInspectors.length.toLocaleString('en-US')}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[9px] font-bold text-slate-400">
+                      الاستمارة
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-[11px] font-extrabold text-slate-800">
+                      {selectedTemplate?.name || 'لم تحدد بعد'}
+                    </p>
+                  </div>
+                </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <FileText className="h-4 w-4 text-teal-700" />
-                <p className="mt-2 text-[9px] font-bold text-slate-400">
-                  نموذج المرور
-                </p>
-                <p className="mt-1 text-xs font-extrabold text-slate-800">
-                  {selectedTemplate?.name || 'غير محدد'}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <Building2 className="h-4 w-4 text-teal-700" />
-                <p className="mt-2 text-[9px] font-bold text-slate-400">
-                  عدد المأموريات
-                </p>
-                <p className="mt-1 text-lg font-black text-slate-900">
-                  {selectedFacilities.length.toLocaleString('en-US')}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <Users className="h-4 w-4 text-teal-700" />
-                <p className="mt-2 text-[9px] font-bold text-slate-400">
-                  أعضاء الفريق
-                </p>
-                <p className="mt-1 text-lg font-black text-slate-900">
-                  {selectedInspectors.length.toLocaleString('en-US')}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <CalendarDays className="h-4 w-4 text-teal-700" />
-                <p className="mt-2 text-[9px] font-bold text-slate-400">
-                  الموعد
-                </p>
-                <p className="mt-1 text-xs font-extrabold text-slate-800">
-                  {scheduledDate}
-                  {expectedEndDate !== scheduledDate
-                    ? ' ← ' + expectedEndDate
-                    : ''}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <h3 className="text-xs font-extrabold text-slate-900">
-                  المنشآت المستهدفة
-                </h3>
-                <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
-                  {selectedFacilities.map((facility, index) => (
-                    <div
-                      key={facility.id}
-                      className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2"
-                    >
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-[9px] font-black text-teal-700 shadow-sm">
-                        {index + 1}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate text-[11px] font-extrabold text-slate-800">
+                <div className="rounded-2xl border border-slate-200 p-3">
+                  <h3 className="text-[10px] font-black text-slate-900">
+                    عينة من المنشآت المحددة
+                  </h3>
+                  <div className="mt-2 space-y-1.5">
+                    {selectedFacilities.slice(0, 6).map((facility) => (
+                      <div
+                        key={facility.id}
+                        className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2"
+                      >
+                        <p className="truncate text-[10px] font-bold text-slate-700">
                           {facility.name}
                         </p>
-                        <p className="mt-0.5 truncate text-[9px] text-slate-400">
-                          {facility.health_admin ||
-                            facility.organization_name}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <h3 className="text-xs font-extrabold text-slate-900">
-                  فريق المأمورية
-                </h3>
-                <div className="mt-3 space-y-2">
-                  {selectedInspectors.map((inspector) => (
-                    <div
-                      key={inspector.id}
-                      className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-[11px] font-extrabold text-slate-800">
-                          {inspector.full_name}
-                        </p>
-                        <p className="mt-0.5 truncate text-[9px] text-slate-400">
-                          {inspector.organization_name}
-                        </p>
-                      </div>
-                      {inspector.id === primaryInspectorId && (
-                        <span className="shrink-0 rounded-full bg-teal-100 px-2 py-1 text-[9px] font-black text-teal-800">
-                          رئيس الفريق
+                        <span className="shrink-0 text-[9px] text-slate-400">
+                          {facility.visit_count.toLocaleString('en-US')} زيارة
                         </span>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    ))}
+                    {selectedFacilities.length > 6 && (
+                      <p className="text-center text-[9px] text-slate-400">
+                        +{' '}
+                        {(selectedFacilities.length - 6).toLocaleString(
+                          'en-US'
+                        )}{' '}
+                        منشأة أخرى
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-              <p className="text-[9px] font-bold text-slate-400">
-                غرض المأمورية
-              </p>
-              <p className="mt-1 text-xs leading-6 text-slate-700">
-                {visitPurpose}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold">
-                <span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">
-                  أولوية {priorityLabel(priority)}
-                </span>
-                {requiresOvernight && (
-                  <span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">
-                    تتطلب مبيت
-                  </span>
-                )}
-                {requiresHotelBooking && (
-                  <span className="rounded-full bg-white px-2.5 py-1 text-slate-600 ring-1 ring-slate-200">
-                    حجز فندقي
-                  </span>
-                )}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-[10px] text-slate-500">
+                  الموعد: {scheduledDate}
+                  {expectedEndDate !== scheduledDate
+                    ? ' ← ' + expectedEndDate
+                    : ''}{' '}
+                  · أولوية {priorityLabel(priority)}
+                  {requiresOvernight ? ' · تتطلب مبيت' : ''}
+                  {requiresHotelBooking ? ' · حجز فندقي' : ''}
+                </div>
               </div>
             </div>
           </div>
@@ -1111,56 +2009,10 @@ export function MissionAssignmentForm() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:px-6">
           <div className="text-[10px] text-slate-400">
             {caller?.organization_name
-              ? 'جهة إصدار التكليف: ' + caller.organization_name
+              ? 'جهة إعداد التكليف: ' + caller.organization_name
               : 'يتم التحقق من جهة الإصدار على السيرفر'}
           </div>
-
-          <div className="flex gap-2">
-            {step > 1 && (
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={previousStep}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              >
-                <ChevronRight className="h-4 w-4" />
-                السابق
-              </button>
-            )}
-
-            {step < 3 ? (
-              <button
-                type="button"
-                onClick={nextStep}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-teal-700 px-4 text-xs font-bold text-white hover:bg-teal-800"
-              >
-                التالي
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void submit()}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-700 px-5 text-xs font-black text-white shadow-sm hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {submitting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ClipboardCheck className="h-4 w-4" />
-                )}
-                {submitting
-                  ? 'جارٍ إصدار التكليف...'
-                  : canApprove
-                    ? 'إصدار واعتماد ' +
-                      selectedFacilityIds.length.toLocaleString('en-US') +
-                      ' مأمورية'
-                    : 'إرسال ' +
-                      selectedFacilityIds.length.toLocaleString('en-US') +
-                      ' مأمورية للاعتماد'}
-              </button>
-            )}
-          </div>
+          {renderActions(false)}
         </div>
       </section>
     </div>
