@@ -396,37 +396,57 @@ async function enrichTargetExecution(
   target: MissionTarget
 ): Promise<{ executed: number; facilities: TargetFacility[] }> {
   const admin = getAdminSupabaseClient()
+  const completedStatuses = [
+    'completed',
+    'closed',
+    'done',
+    'منفذة',
+    'مكتملة',
+    'مغلقة',
+  ]
 
+  // New V2 assignments persist the target that produced the mission.
+  // This is the authoritative source for target achievement: a user's target
+  // may include them as any team member (not necessarily assigned_user_id),
+  // and a place target should not count unrelated missions in the same place.
   if (
     target.target_type === 'specific_facilities' &&
     target.target_facilities.length > 0
   ) {
-    const facilityIds = target.target_facilities.map((facility) => facility.id)
+    const facilityIds = new Set(
+      target.target_facilities.map((facility) => facility.id)
+    )
 
-    let query = admin
+    const { data, error } = await admin
       .from('missions')
-      .select('id, target_facility_id, facility_id, scheduled_date, completed_at, status, assigned_user_id')
-      .in('status', ['completed', 'closed', 'done'])
+      .select(
+        'id, target_facility_id, facility_id, scheduled_date, completed_at, status'
+      )
+      .eq('source_target_id', target.id)
+      .in('status', completedStatuses)
       .gte('scheduled_date', target.start_date)
       .lte('scheduled_date', target.end_date)
 
-    if (target.assigned_user_id) {
-      query = query.eq('assigned_user_id', target.assigned_user_id)
-    }
-
-    const { data, error } = await query
     if (error) {
-      console.error('[mission-targets] facility metrics failed:', error.message)
+      console.error(
+        '[mission-targets] linked facility metrics failed:',
+        error.message
+      )
       return { executed: 0, facilities: target.target_facilities }
     }
 
-    const visited = new Map<string, { visited_at?: string; mission_id?: string }>()
+    const visited = new Map<
+      string,
+      { visited_at?: string; mission_id?: string }
+    >()
 
     for (const mission of data ?? []) {
-      const facilityId = mission.target_facility_id ?? mission.facility_id
-      if (!facilityId || !facilityIds.includes(String(facilityId))) continue
+      const facilityId = String(
+        mission.target_facility_id ?? mission.facility_id ?? ''
+      )
+      if (!facilityId || !facilityIds.has(facilityId)) continue
 
-      visited.set(String(facilityId), {
+      visited.set(facilityId, {
         visited_at:
           mission.completed_at ?? mission.scheduled_date ?? undefined,
         mission_id: String(mission.id),
@@ -449,43 +469,19 @@ async function enrichTargetExecution(
     }
   }
 
-  let query = admin
+  const { count, error } = await admin
     .from('missions')
     .select('id', { count: 'exact', head: true })
-    .in('status', ['completed', 'closed', 'done'])
+    .eq('source_target_id', target.id)
+    .in('status', completedStatuses)
     .gte('scheduled_date', target.start_date)
     .lte('scheduled_date', target.end_date)
 
-  if (target.scope_level === 'user' && target.assigned_user_id) {
-    query = query.eq('assigned_user_id', target.assigned_user_id)
-  } else if (target.scope_level === 'sector' && target.sector_id) {
-    query = query.eq('sector_id', target.sector_id)
-  } else if (
-    (target.scope_level === 'governorate' ||
-      target.scope_level === 'health_admin') &&
-    target.scope_id
-  ) {
-    const { data: facilities } = await admin
-      .from('facilities')
-      .select('id')
-      .eq(
-        target.scope_level === 'governorate'
-          ? 'governorate'
-          : 'health_admin',
-        target.scope_name
-      )
-
-    const facilityIds = (facilities ?? []).map((facility) => String(facility.id))
-    if (facilityIds.length === 0) {
-      return { executed: 0, facilities: target.target_facilities }
-    }
-
-    query = query.in('target_facility_id', facilityIds)
-  }
-
-  const { count, error } = await query
   if (error) {
-    console.error('[mission-targets] aggregate metrics failed:', error.message)
+    console.error(
+      '[mission-targets] linked aggregate metrics failed:',
+      error.message
+    )
     return { executed: 0, facilities: target.target_facilities }
   }
 
@@ -554,6 +550,7 @@ export async function GET(request: Request) {
     const statusFilter = searchParams.get('status') || 'all'
     const typeFilter = searchParams.get('type') || 'all'
     const reportMode = searchParams.get('report') === 'true'
+    const workspaceMode = searchParams.get('workspace') === 'true'
     const forMission =
       searchParams.get('for_mission') === 'true' ||
       searchParams.get('all') === 'true'
@@ -634,7 +631,10 @@ export async function GET(request: Request) {
     let users: UserRow[] = []
     let facilities: FacilityRow[] = []
 
-    if (hasV2Permission(gate.access, 'targets.create')) {
+    if (
+      !workspaceMode &&
+      hasV2Permission(gate.access, 'targets.create')
+    ) {
       const [{ data: userRows }, { data: facilityRows }] = await Promise.all([
         admin
           .from('users')
