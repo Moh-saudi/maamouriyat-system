@@ -673,6 +673,10 @@ export async function GET() {
         gate.access,
         'checklists.library'
       ),
+      canManagePrograms: hasV2Permission(
+        gate.access,
+        'facility_programs.manage'
+      ),
     })
   } catch (error) {
     console.error('[v2-mission-assignment:GET] unexpected error:', error)
