@@ -21,7 +21,6 @@ import {
   ShieldCheck,
   Target,
   UserRound,
-  Users,
 } from 'lucide-react'
 import { CompactFilterSelect } from '@/components/ui/CompactFilterSelect'
 import { getFacilityTypeLabel } from '@/config/facility-types'
