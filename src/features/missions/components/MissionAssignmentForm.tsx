@@ -537,6 +537,18 @@ export function MissionAssignmentForm() {
     [facilityById, selectedFacilityIds]
   )
 
+  const selectedGovernorates = useMemo(
+    () =>
+      [
+        ...new Set(
+          selectedFacilities
+            .map((facility) => facility.governorate?.trim() || '')
+            .filter(Boolean)
+        ),
+      ].sort((a, b) => a.localeCompare(b, 'ar')),
+    [selectedFacilities]
+  )
+
   const selectedInspectors = useMemo(
     () =>
       selectedInspectorIds
@@ -757,6 +769,19 @@ export function MissionAssignmentForm() {
       if (selectedFacilityIds.length === 0) {
         return 'اختر منشأة صحية واحدة على الأقل.'
       }
+
+      if (selectedFacilities.some((facility) => !facility.governorate?.trim())) {
+        return 'توجد منشأة بلا محافظة معتمدة. يجب استكمال بياناتها قبل إصدار التكليف.'
+      }
+
+      if (selectedGovernorates.length > 1) {
+        return (
+          'لا يمكن إصدار تكليف رسمي واحد لمنشآت من أكثر من محافظة. ' +
+          'المحافظات المحددة: ' +
+          selectedGovernorates.join('، ') +
+          '. أنشئ تكليفًا مستقلًا لكل محافظة حتى تكون المدة والبدلات صحيحة.'
+        )
+      }
     }
 
     if (currentStep === 2) {
@@ -945,7 +970,7 @@ export function MissionAssignmentForm() {
               </h2>
               <p className="mt-1 text-xs leading-5 text-slate-600">
                 تم إنشاء {missions.length.toLocaleString('en-US')} مأمورية
-                مستقلة ضمن دفعة تكليف واحدة.
+                مستقلة ضمن تكليف رسمي واحد لمحافظة واحدة.
               </p>
             </div>
           </div>
@@ -1428,6 +1453,13 @@ export function MissionAssignmentForm() {
                       {MAX_BATCH_FACILITIES.toLocaleString('en-US')} منشأة
                     </p>
                   </div>
+
+                  {selectedGovernorates.length > 1 && (
+                    <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[10px] leading-5 text-rose-800">
+                      <span className="font-black">اختيار متعدد المحافظات غير صالح كتكلـيف واحد:</span>{' '}
+                      {selectedGovernorates.join('، ')}. افصل كل محافظة في تكليف بموعد مستقل.
+                    </div>
+                  )}
 
                   {selectedFacilities.length > 0 && (
                     <div className="mb-3 flex max-h-24 flex-wrap gap-1.5 overflow-y-auto rounded-xl border border-teal-100 bg-teal-50/50 p-2">
