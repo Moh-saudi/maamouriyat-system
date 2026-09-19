@@ -3761,7 +3761,10 @@ export function MissionExecutionForm({
       )}
 
       {/* Bottom Sticky Action Bar with Immediate Alerts */}
-      <div className={styles.mobileStickyBar}>
+      <div
+        id="mission-execution-actions"
+        className={styles.mobileStickyBar}
+      >
         {/* Floating Quick Alert Banner if error exists */}
         {error && (
           <div style={{
