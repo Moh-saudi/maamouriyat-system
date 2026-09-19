@@ -15,6 +15,7 @@ import type {
 
 type MissionResultRow = {
   checklist_item_id: string | null
+  form_criterion_id: string | null
   answer: string | null
   notes: string | null
   photo_url: string | null
@@ -158,20 +159,25 @@ function decodeMissionResultAnswer(value: string | null): unknown {
 
 function normalizeResultInput(
   result: MissionResultInput,
-  validItemIds: ReadonlySet<string>,
+  validLegacyItemIds: ReadonlySet<string>,
+  validFormCriterionIds: ReadonlySet<string>,
   missionId: string
 ) {
   const rawIdCandidate = result.item_id ?? result.checklist_item_id
   const rawId = typeof rawIdCandidate === 'string' ? rawIdCandidate : ''
-  const isValidForeignKey = rawId.length > 0 && validItemIds.has(rawId)
+  const isValidLegacyItem =
+    rawId.length > 0 && validLegacyItemIds.has(rawId)
+  const isValidFormCriterion =
+    rawId.length > 0 && validFormCriterionIds.has(rawId)
   const rawNotes = typeof result.notes === 'string' ? result.notes : ''
 
   return {
     mission_id: missionId,
-    checklist_item_id: isValidForeignKey ? rawId : null,
+    checklist_item_id: isValidLegacyItem ? rawId : null,
+    form_criterion_id: isValidFormCriterion ? rawId : null,
     answer: encodeMissionResultAnswer(result.answer),
     notes:
-      !isValidForeignKey && rawId
+      !isValidLegacyItem && !isValidFormCriterion && rawId
         ? `__item_id__:${rawId}||${rawNotes}`
         : rawNotes || null,
     photo_url: typeof result.photo_url === 'string' ? result.photo_url : null,
@@ -208,7 +214,7 @@ export async function GET(request: Request) {
 
     let query = admin
       .from('mission_results')
-      .select('checklist_item_id, answer, notes, photo_url')
+      .select('checklist_item_id, form_criterion_id, answer, notes, photo_url')
       .eq('mission_id', missionId)
 
     query = activeRunId
@@ -226,7 +232,7 @@ export async function GET(request: Request) {
     }
 
     const mapped = ((data ?? []) as MissionResultRow[]).map((row) => {
-      let itemId = row.checklist_item_id
+      let itemId = row.form_criterion_id ?? row.checklist_item_id
       let notes = row.notes || ''
 
       if (notes.startsWith('__item_id__:') || notes.startsWith('__static_id__:')) {
@@ -312,14 +318,38 @@ export async function POST(request: Request) {
 
     const admin = getAdminSupabaseClient()
 
-    const { data: validItems, error: validItemsError } = await admin
-      .from('checklist_items')
-      .select('id')
+    const rawIds = [
+      ...new Set(
+        (body.results as MissionResultInput[])
+          .map((result) => result.item_id ?? result.checklist_item_id)
+          .filter((value): value is string => typeof value === 'string' && value.length > 0)
+      ),
+    ]
 
-    if (validItemsError) {
+    const [
+      { data: validItems, error: validItemsError },
+      { data: validCriteria, error: validCriteriaError },
+    ] = await Promise.all([
+      rawIds.length > 0
+        ? admin
+            .from('checklist_items')
+            .select('id')
+            .in('id', rawIds)
+        : Promise.resolve({ data: [], error: null }),
+      rawIds.length > 0
+        ? admin
+            .from('form_criteria')
+            .select('id')
+            .in('id', rawIds)
+        : Promise.resolve({ data: [], error: null }),
+    ])
+
+    const lookupError = validItemsError || validCriteriaError
+
+    if (lookupError) {
       console.error(
         '[mission-results:POST] checklist lookup failed:',
-        validItemsError.message
+        lookupError.message
       )
       return NextResponse.json(
         { error: 'تعذر التحقق من عناصر نموذج التقييم' },
@@ -327,12 +357,20 @@ export async function POST(request: Request) {
       )
     }
 
-    const validItemIds = new Set(
+    const validLegacyItemIds = new Set(
       (validItems ?? []).map((item) => String(item.id))
+    )
+    const validFormCriterionIds = new Set(
+      (validCriteria ?? []).map((item) => String(item.id))
     )
 
     const payload = (body.results as MissionResultInput[]).map((result) =>
-      normalizeResultInput(result, validItemIds, missionId)
+      normalizeResultInput(
+        result,
+        validLegacyItemIds,
+        validFormCriterionIds,
+        missionId
+      )
     )
 
     const { error: replaceError } = await admin.rpc('replace_mission_results', {
