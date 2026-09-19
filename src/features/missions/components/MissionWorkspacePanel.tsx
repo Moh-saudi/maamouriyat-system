@@ -13,6 +13,7 @@ import {
   Clock3,
   FolderKanban,
   Layers3,
+  ListChecks,
   Loader2,
   MapPin,
   Printer,
@@ -80,6 +81,7 @@ type AssignmentGroup = {
     issued_by_me: boolean
     can_approve: boolean
     executable_mission_count: number
+    can_manage_checklists: boolean
   }
 }
 
@@ -1000,21 +1002,38 @@ export function MissionWorkspacePanel({
 
                   {group.batch_id && (
                     <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-2.5">
-                      <Link
-                        href={
-                          '/v2/missions/assignments/' +
-                          group.batch_id +
-                          '/execute'
-                        }
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-[9px] font-black text-white hover:bg-teal-800"
-                      >
-                        <ClipboardCheck className="h-3.5 w-3.5" />
-                        {group.relations.executable_mission_count > 0
-                          ? 'تنفيذ التكليف'
-                          : group.completed_count === group.mission_count
-                            ? 'متابعة إنهاء التكليف'
-                            : 'متابعة التكليف'}
-                      </Link>
+                      {group.relations.assigned_to_me && (
+                        <Link
+                          href={
+                            '/v2/missions/assignments/' +
+                            group.batch_id +
+                            '/execute'
+                          }
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-[9px] font-black text-white hover:bg-teal-800"
+                        >
+                          <ClipboardCheck className="h-3.5 w-3.5" />
+                          {group.relations.executable_mission_count > 0
+                            ? 'تنفيذ التكليف'
+                            : group.completed_count === group.mission_count
+                              ? 'متابعة إنهاء التكليف'
+                              : 'متابعة التكليف'}
+                        </Link>
+                      )}
+
+                      {(group.relations.assigned_to_me ||
+                        group.relations.can_manage_checklists) && (
+                        <Link
+                          href={
+                            '/v2/missions/assignments/' +
+                            group.batch_id +
+                            '/forms'
+                          }
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 text-[9px] font-bold text-violet-800 hover:bg-violet-100"
+                        >
+                          <ListChecks className="h-3.5 w-3.5" />
+                          استمارات التكليف
+                        </Link>
+                      )}
                       {group.governorates.length > 1 ? (
                         <>
                           <span className="ml-auto text-[9px] font-bold text-rose-600">
