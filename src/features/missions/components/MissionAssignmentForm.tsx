@@ -26,7 +26,6 @@ import {
   ShieldCheck,
   Target,
   UserRound,
-  Users,
   X,
 } from 'lucide-react'
 
