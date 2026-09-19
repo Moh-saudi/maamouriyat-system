@@ -23,6 +23,11 @@ import {
 } from 'lucide-react'
 import { CompactFilterSelect } from '@/components/ui/CompactFilterSelect'
 import { getFacilityTypeLabel } from '@/config/facility-types'
+import {
+  MISSION_OPERATIONAL_STATE,
+  resolveMissionOperationalState,
+  type MissionOperationalState,
+} from '@/config/mission-lifecycle'
 
 type MissionMode = 'assigned' | 'issued' | 'oversight' | 'pending'
 
@@ -38,6 +43,7 @@ type AssignmentGroup = {
   mission_count: number
   facility_count: number
   status: string
+  operational_state: MissionOperationalState
   status_counts: Record<string, number>
   completed_count: number
   remaining_count: number
@@ -88,6 +94,12 @@ type DetailMission = {
   checkout_time: string | null
   gps_verified: boolean
   completed_at: string | null
+  actual_start_date: string | null
+  actual_end_date: string | null
+  actual_duration_days: number | null
+  actual_overnight_nights: number | null
+  completion_disposition: string | null
+  timing_adjustment_reason: string | null
   facility: {
     id: string
     name: string
@@ -140,11 +152,12 @@ type DetailPayload = {
 }
 
 const STATUS_OPTIONS = [
-  { value: 'pending_approval', label: 'بانتظار الاعتماد' },
-  { value: 'approved', label: 'معتمدة' },
-  { value: 'in_progress', label: 'قيد التنفيذ' },
-  { value: 'completed', label: 'مكتملة' },
-  { value: 'closed', label: 'مغلقة' },
+  { value: 'upcoming', label: 'قادمة' },
+  { value: 'current', label: 'جارية' },
+  { value: 'executed', label: 'منفذة' },
+  { value: 'ended', label: 'منتهية' },
+  { value: 'overdue', label: 'متأخرة' },
+  { value: 'pending', label: 'بانتظار الاعتماد' },
   { value: 'rejected', label: 'مرفوضة' },
   { value: 'cancelled', label: 'ملغاة' },
 ] as const
@@ -282,11 +295,22 @@ function geographicGroups(rows: DetailMission[]) {
 
 function MissionDetailRow({ mission }: { mission: DetailMission }) {
   const status = statusMeta(mission.status)
+  const lifecycle = resolveMissionOperationalState({
+    status: mission.status,
+    scheduledDate: mission.scheduled_date,
+    expectedEndDate: mission.expected_end_date,
+    actualStartDate: mission.actual_start_date,
+    actualEndDate: mission.actual_end_date,
+  })
 
   return (
     <div className="grid gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto]">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-1.5">
+          <span className={'h-2.5 w-2.5 rounded-full ' + lifecycle.dotClassName} />
+          <span className={'rounded-full px-2 py-0.5 text-[8px] font-black ring-1 ' + lifecycle.badgeClassName}>
+            {lifecycle.label}
+          </span>
           <span className="font-mono text-[9px] font-black text-teal-700">
             {mission.serial_number}
           </span>
@@ -320,6 +344,14 @@ function MissionDetailRow({ mission }: { mission: DetailMission }) {
             ? ' · رئيس الفريق: ' + mission.primary_inspector.name
             : ''}
         </p>
+        {mission.actual_duration_days && (
+          <p className="mt-1 text-[8px] font-bold text-slate-500">
+            المدة الفعلية: {mission.actual_duration_days.toLocaleString('en-US')} يوم
+            {mission.actual_overnight_nights !== null
+              ? ' · ' + mission.actual_overnight_nights.toLocaleString('en-US') + ' ليلة'
+              : ''}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2 sm:justify-end">
@@ -678,6 +710,7 @@ export function MissionWorkspacePanel({
               const groupDetails = details[group.group_key] ?? []
               const SourceIcon = sourceIcon(group.source.type)
               const overallStatus = statusMeta(group.status)
+              const lifecycle = MISSION_OPERATIONAL_STATE[group.operational_state]
               const geography = geographicGroups(groupDetails)
               const useGeographicSections =
                 groupDetails.length > 8 && geography.length > 1
@@ -686,7 +719,9 @@ export function MissionWorkspacePanel({
                 <article
                   key={group.group_key}
                   className={
-                    'overflow-hidden rounded-2xl border bg-white shadow-sm transition ' +
+                    'overflow-hidden rounded-2xl border border-r-4 bg-white shadow-sm transition ' +
+                    lifecycle.cardAccentClassName +
+                    ' ' +
                     (opened
                       ? 'border-teal-200 ring-1 ring-teal-50'
                       : 'border-slate-200')
@@ -708,12 +743,23 @@ export function MissionWorkspacePanel({
                           </span>
                           <span
                             className={
-                              'rounded-full px-2.5 py-1 text-[9px] font-black ring-1 ' +
-                              overallStatus.className
+                              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-black ring-1 ' +
+                              lifecycle.badgeClassName
                             }
                           >
-                            {overallStatus.label}
+                            <span className={'h-2 w-2 rounded-full ' + lifecycle.dotClassName} />
+                            {lifecycle.label}
                           </span>
+                          {group.status !== group.operational_state && group.status !== 'approved' && (
+                            <span
+                              className={
+                                'rounded-full px-2 py-0.5 text-[8px] font-bold ring-1 ' +
+                                overallStatus.className
+                              }
+                            >
+                              {overallStatus.label}
+                            </span>
+                          )}
                           <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500">
                             أولوية {priorityLabel(group.priority)}
                           </span>
