@@ -4,10 +4,7 @@ import {
   hasV2Permission,
 } from '@/server/authorization'
 import { requireV2Permission } from '@/server/authorization/http-guard'
-import type {
-  V2AuthorizationSnapshot,
-  V2ScopeType,
-} from '@/server/authorization/types'
+import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
 import type { V2AuthenticatedUser } from '@/server/auth/types'
 import type { V2OrganizationFact } from '@/server/authorization/scope-types'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
