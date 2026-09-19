@@ -267,44 +267,16 @@ export async function POST(request: Request) {
     const isPrimary =
       typeof body.is_primary === 'boolean' ? body.is_primary : true
 
-    if (isPrimary) {
-      const { error: clearPrimaryError } = await admin
-        .from('organization_correction_specialties')
-        .update({ is_primary: false, updated_at: new Date().toISOString() })
-        .eq('specialty_id', specialtyId)
-        .eq('service_scope_org_id', serviceScopeOrgId)
-        .eq('is_active', true)
-        .eq('is_primary', true)
-
-      if (clearPrimaryError) {
-        console.error(
-          '[correction-specialties:POST] clear primary failed:',
-          clearPrimaryError.message
-        )
-        return NextResponse.json(
-          { error: 'تعذر تحديث جهة التصحيح الأساسية لهذا النطاق' },
-          { status: 500 }
-        )
+    const { error: saveError } = await admin.rpc(
+      'save_organization_correction_specialty',
+      {
+        p_actor_user_id: gate.user.profileId,
+        p_organization_id: organizationId,
+        p_specialty_id: specialtyId,
+        p_service_scope_org_id: serviceScopeOrgId,
+        p_is_primary: isPrimary,
       }
-    }
-
-    const { error: saveError } = await admin
-      .from('organization_correction_specialties')
-      .upsert(
-        {
-          organization_id: organizationId,
-          specialty_id: specialtyId,
-          service_scope_org_id: serviceScopeOrgId,
-          is_primary: isPrimary,
-          is_active: true,
-          created_by_user_id: gate.user.profileId,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict:
-            'organization_id,specialty_id,service_scope_org_id',
-        }
-      )
+    )
 
     if (saveError) {
       console.error(
@@ -362,17 +334,15 @@ export async function DELETE(request: Request) {
     if (!authorization.ok) return authorization.response
 
     const admin = getAdminSupabaseClient()
-    const { error } = await admin
-      .from('organization_correction_specialties')
-      .update({
-        is_active: false,
-        is_primary: false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('organization_id', organizationId)
-      .eq('specialty_id', specialtyId)
-      .eq('service_scope_org_id', serviceScopeOrgId)
-      .eq('is_active', true)
+    const { error } = await admin.rpc(
+      'deactivate_organization_correction_specialty',
+      {
+        p_actor_user_id: gate.user.profileId,
+        p_organization_id: organizationId,
+        p_specialty_id: specialtyId,
+        p_service_scope_org_id: serviceScopeOrgId,
+      }
+    )
 
     if (error) {
       console.error(
