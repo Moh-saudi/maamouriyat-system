@@ -50,6 +50,7 @@ type InspectorOption = {
   organization_id: string
   organization_name: string
   org_level: number
+  can_execute: boolean
 }
 
 type TemplateOption = {
@@ -556,7 +557,10 @@ export function MissionAssignmentForm() {
 
     if (
       target.assigned_user_id &&
-      inspectors.some((inspector) => inspector.id === target.assigned_user_id)
+      inspectors.some(
+        (inspector) =>
+          inspector.id === target.assigned_user_id && inspector.can_execute
+      )
     ) {
       setSelectedInspectorIds((current) => {
         if (current.includes(target.assigned_user_id as string)) return current
@@ -610,6 +614,19 @@ export function MissionAssignmentForm() {
   }
 
   function addInspector(inspectorId: string) {
+    const candidate = inspectors.find(
+      (inspector) => inspector.id === inspectorId
+    )
+    if (!candidate?.can_execute) {
+      setError(
+        candidate
+          ? 'هذا الحساب ظاهر داخل نطاقك لكنه لا يملك دورًا يسمح بتنفيذ مأمورية ميدانية.'
+          : 'تعذر التحقق من أهلية المستخدم.'
+      )
+      return
+    }
+
+    setError(null)
     setSelectedInspectorIds((current) => {
       if (current.includes(inspectorId)) return current
       const next = [...current, inspectorId]
@@ -1487,7 +1504,10 @@ export function MissionAssignmentForm() {
 
                 <div className="mb-1 flex items-center justify-between text-[9px] text-slate-400">
                   <span>
-                    متاح داخل نطاقك: {inspectors.length.toLocaleString('en-US')} حساب
+                    داخل نطاقك: {inspectors.length.toLocaleString('en-US')} حساب · مؤهل للفريق{' '}
+                    {inspectors
+                      .filter((inspector) => inspector.can_execute)
+                      .length.toLocaleString('en-US')}
                   </span>
                   {selectedTarget?.assigned_user_name && (
                     <span className="font-bold text-amber-700">
@@ -1501,20 +1521,38 @@ export function MissionAssignmentForm() {
                     <button
                       key={inspector.id}
                       type="button"
+                      disabled={!inspector.can_execute}
                       onClick={() => addInspector(inspector.id)}
-                      className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-3 text-right last:border-b-0 hover:bg-slate-50"
+                      className={
+                        'flex w-full items-center gap-3 border-b border-slate-100 px-3 py-3 text-right last:border-b-0 ' +
+                        (inspector.can_execute
+                          ? 'hover:bg-slate-50'
+                          : 'cursor-not-allowed bg-slate-50/70 opacity-70')
+                      }
                     >
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
                         <UserRound className="h-4 w-4" />
                       </div>
-                      <div className="min-w-0">
-                        <p className="truncate text-xs font-extrabold text-slate-800">
-                          {inspector.full_name}
-                        </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="truncate text-xs font-extrabold text-slate-800">
+                            {inspector.full_name}
+                          </p>
+                          {!inspector.can_execute && (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[8px] font-bold text-amber-700">
+                              غير مؤهل للتنفيذ
+                            </span>
+                          )}
+                        </div>
                         <p className="mt-1 truncate text-[10px] text-slate-400">
                           {inspector.job_title || 'مستخدم تشغيلي'} ·{' '}
                           {inspector.organization_name}
                         </p>
+                        {!inspector.can_execute && (
+                          <p className="mt-1 text-[9px] text-amber-700">
+                            يحتاج دورًا تشغيليًا أو صلاحية missions.execute قبل إضافته للفريق.
+                          </p>
+                        )}
                       </div>
                     </button>
                   ))}
