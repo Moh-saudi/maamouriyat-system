@@ -94,7 +94,11 @@ export async function POST(request: Request) {
       )
     }
 
-    if (userLevel < gate.user.orgLevel) {
+    const isInformationCenterOperator = gate.access.roles.some(
+      (role) => role.roleCode === 'information_center'
+    )
+
+    if (!isInformationCenterOperator && userLevel < gate.user.orgLevel) {
       return NextResponse.json(
         { error: 'لا يمكنك إنشاء مستخدم بمستوى إداري أعلى من مستواك' },
         { status: 403 }
