@@ -120,6 +120,9 @@ export function MissionExecutionForm({
   orgUnits?: any[]
 }) {
   const router = useRouter()
+  const isGroupedExecution =
+    returnHref.startsWith('/v2/missions/assignments/') &&
+    returnHref.endsWith('/execute')
   const [bypassLock, setBypassLock] = useState(false)
   const supabase = createBrowserSupabaseClient()
   const todayDate = localDateKey()
@@ -1758,7 +1761,9 @@ export function MissionExecutionForm({
     setLoading(false)
     if (status === 'completed') {
       setSuccess(
-        `تم اعتماد المأمورية بالمدة الفعلية (${actualDurationDays} يوم) وتجهيزها للمراجعة المالية.`
+        isGroupedExecution
+          ? `تم إنهاء المرور على هذه المنشأة بالمدة الفعلية (${actualDurationDays} يوم). عُد إلى التكليف لاستكمال باقي المنشآت.`
+          : `تم اعتماد المأمورية بالمدة الفعلية (${actualDurationDays} يوم) وتجهيزها للمراجعة المالية.`
       )
       setShowSuccessModal(true)
     } else {
@@ -3885,27 +3890,29 @@ export function MissionExecutionForm({
 
             {/* Navigation Buttons */}
             <div style={{ display: 'grid', gap: '8px', marginTop: '6px' }}>
-              <button
-                type="button"
-                onClick={() => router.push(`/dashboard/missions/${mission.id}/print`)}
-                style={{
-                  background: '#006d77',
-                  color: 'white',
-                  border: 0,
-                  borderRadius: '10px',
-                  padding: '12px 18px',
-                  fontSize: '14px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(0, 109, 119, 0.25)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px'
-                }}
-              >
-                🖨️ عرض وطباعة التقرير الفني المعتمد
-              </button>
+              {!isGroupedExecution && (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/dashboard/missions/${mission.id}/print`)}
+                  style={{
+                    background: '#006d77',
+                    color: 'white',
+                    border: 0,
+                    borderRadius: '10px',
+                    padding: '12px 18px',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px rgba(0, 109, 119, 0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  🖨️ عرض وطباعة التقرير الفني المعتمد
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => router.push(returnHref)}
@@ -3920,7 +3927,9 @@ export function MissionExecutionForm({
                   cursor: 'pointer'
                 }}
               >
-                📋 العودة إلى التكليف
+                {isGroupedExecution
+                  ? '📋 العودة للتكليف واستكمال المنشآت'
+                  : '📋 العودة إلى التكليف'}
               </button>
             </div>
           </div>
