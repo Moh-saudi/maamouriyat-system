@@ -222,11 +222,11 @@ export async function POST(request: Request) {
 
       let scopeOrganizationId = requestedScope
 
-      if (!national && !scopeOrganizationId) {
+      if (!national && !scopeOrganizationId && !id) {
         scopeOrganizationId = gate.user.organizationId
       }
 
-      if (!national && !scopeOrganizationId) {
+      if (!national && !scopeOrganizationId && !id) {
         return NextResponse.json(
           { error: 'يجب تحديد نطاق تنظيمي للمشروع' },
           { status: 400 }
@@ -268,6 +268,26 @@ export async function POST(request: Request) {
             { error: 'إدارة مشروع قومي تتطلب نطاقًا قوميًّا' },
             { status: 403 }
           )
+        }
+
+        if (!requestedScope) {
+          scopeOrganizationId = current.scope_organization_id
+        }
+
+        if (scopeOrganizationId) {
+          const updateFacts = await loadFactsFor(gate, [scopeOrganizationId])
+          if (
+            !organizationAllowed({
+              gate,
+              organizationId: scopeOrganizationId,
+              facts: updateFacts,
+            })
+          ) {
+            return NextResponse.json(
+              { error: 'نطاق المشروع خارج صلاحياتك' },
+              { status: 403 }
+            )
+          }
         }
 
         const { data, error } = await admin
