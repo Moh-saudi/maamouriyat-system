@@ -3,6 +3,11 @@ import type {
   V2ScopeType,
 } from './types'
 
+const CORRECTION_UNIT_SYSTEM_ROLES = new Set([
+  'correction_unit_manager',
+  'correction_unit_member',
+])
+
 const INFORMATION_CENTER_DELEGABLE_SYSTEM_ROLES = new Set([
   'sector_manager',
   'central_admin_manager',
@@ -57,9 +62,23 @@ export function canDelegateV2UserRole(input: {
     scopeType: V2ScopeType
   }[]
 }): boolean {
-  const isInformationCenter = input.snapshot.roles.some(
-    (role) => role.roleCode === 'information_center'
+  const callerRoleCodes = new Set(
+    input.snapshot.roles.map((role) => role.roleCode)
   )
+  const isInformationCenter = callerRoleCodes.has('information_center')
+  const isSystemAccountProvisioner =
+    callerRoleCodes.has('system_superadmin') ||
+    callerRoleCodes.has('system_techadmin')
+
+  // System account administrators may provision generic correction roles
+  // without receiving the correction permissions themselves.
+  if (
+    isSystemAccountProvisioner &&
+    input.isSystemRole &&
+    CORRECTION_UNIT_SYSTEM_ROLES.has(input.roleCode)
+  ) {
+    return true
+  }
 
   // Information Center is an account-support operator inside its resolved
   // organization scope. It may provision approved system work types without
