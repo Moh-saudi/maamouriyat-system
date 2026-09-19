@@ -204,8 +204,7 @@ export function MissionExecutionForm({
         const matchesGov =
           !currentGov ||
           !org.governorate ||
-          org.governorate === currentGov ||
-          (org.governorate_id && org.governorate_id === mission.target_governorate_id)
+          org.governorate === currentGov
 
         if (isCentral || matchesGov) {
           list.push({ name: org.name })
@@ -1578,14 +1577,10 @@ export function MissionExecutionForm({
     }
 
     if (destinationType === 'facility' && isUnregisteredFacility) {
-      if (!newFacilityName.trim()) {
-        setError('يرجى كتابة اسم المنشأة الجديدة.')
-        return
-      }
-      if (!newFacilityGovId) {
-        setError('يرجى اختيار المحافظة التابعة لها المنشأة الجديدة.')
-        return
-      }
+      setError(
+        'تسجيل منشأة جديدة من شاشة التنفيذ غير متاح. سجّل المنشأة أولًا من وحدة المنشآت الصحية ثم أعد فتح المأمورية.'
+      )
+      return
     }
 
     if (destinationType === 'governorate' && !actualGovernorateId) {
@@ -1639,14 +1634,10 @@ export function MissionExecutionForm({
     }
 
     if (destinationType === 'facility' && isUnregisteredFacility) {
-      if (!newFacilityName.trim()) {
-        setError('يرجى كتابة اسم المنشأة الجديدة.')
-        return
-      }
-      if (!newFacilityGovId) {
-        setError('يرجى اختيار المحافظة التابعة لها المنشأة الجديدة.')
-        return
-      }
+      setError(
+        'تسجيل منشأة جديدة من شاشة التنفيذ غير متاح. سجّل المنشأة أولًا من وحدة المنشآت الصحية ثم أعد فتح المأمورية.'
+      )
+      return
     }
 
     if (destinationType === 'governorate' && !actualGovernorateId) {
@@ -1705,27 +1696,11 @@ export function MissionExecutionForm({
     let savedActualFacilityId = actualFacilityId
 
     if (destinationType === 'facility' && isUnregisteredFacility) {
-      // Register new facility live in the database
-      const { data: newFac, error: facErr } = await supabase
-        .from('facilities')
-        .insert({
-          name: newFacilityName.trim(),
-          facility_type: newFacilityType,
-          address: newFacilityAddress.trim() || 'تم تسجيلها أثناء المرور الميداني',
-          governorate_id: newFacilityGovId,
-          latitude: inspectorLat,
-          longitude: inspectorLng,
-          is_active: true
-        })
-        .select('id')
-        .single()
-
-      if (facErr || !newFac) {
-        setLoading(false)
-        setError(`فشل تسجيل المنشأة الجديدة في قاعدة البيانات: ${facErr?.message}`)
-        return
-      }
-      savedActualFacilityId = newFac.id
+      setLoading(false)
+      setError(
+        'لا يمكن إنشاء منشأة صحية جديدة من شاشة تنفيذ المأمورية. يجب تسجيلها أولًا من وحدة المنشآت الصحية وربطها بالإدارة الصحية والتبعية التنظيمية المعتمدة، ثم إعادة فتح المأمورية.'
+      )
+      return
     }
 
     const finalExecutionNotes = recommendations.trim()
@@ -2314,12 +2289,12 @@ export function MissionExecutionForm({
                           type="radio"
                           name="facility_select_mode"
                           checked={isUnregisteredFacility}
-                          onChange={() => {
-                            setIsUnregisteredFacility(true)
-                            setGpsStatus('idle')
-                          }}
+                          disabled
+                          onChange={() => {}}
                         />
-                        <span style={{ color: '#d97706', fontWeight: 'bold' }}>➕ تسجيل منشأة جديدة غير مدرجة</span>
+                        <span style={{ color: '#94a3b8', fontWeight: 'bold' }}>
+                          تسجيل منشأة جديدة — يتم من وحدة المنشآت الصحية
+                        </span>
                       </label>
                     </div>
 
