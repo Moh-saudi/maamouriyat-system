@@ -865,6 +865,123 @@ export function MissionExecutionForm({
     loadCustomChecklists()
   }, [mission.id])
 
+  async function confirmTemplateChange() {
+    const nextTemplateId = pendingTemplateId.trim()
+
+    if (!nextTemplateId || nextTemplateId === selectedTemplateId) {
+      setTemplateChangeOpen(false)
+      return
+    }
+
+    if (!templateChangeReason.trim()) {
+      setError('اكتب سبب تغيير الاستمارة قبل المتابعة.')
+      return
+    }
+
+    setTemplateChangeBusy(true)
+    setError('')
+
+    try {
+      const response = await fetch(
+        '/api/v2/missions/' + mission.id + '/checklist',
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'change_template',
+            template_id: nextTemplateId,
+            reason: templateChangeReason.trim(),
+          }),
+        }
+      )
+
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(
+          payload.error || 'تعذر تغيير استمارة المأمورية.'
+        )
+      }
+
+      const archivedCount = Number(
+        payload.archived_answer_count || 0
+      )
+
+      setSuccess(
+        archivedCount > 0
+          ? 'تم تغيير الاستمارة. احتفظ النظام بـ ' +
+              archivedCount.toLocaleString('en-US') +
+              ' إجابة في سجل الاستمارة السابقة.'
+          : 'تم تغيير استمارة المأمورية وتسجيل سبب التغيير.'
+      )
+      setTemplateChangeOpen(false)
+      setTemplateChangeReason('')
+
+      window.setTimeout(() => {
+        window.location.reload()
+      }, 700)
+    } catch (changeError) {
+      setError(
+        changeError instanceof Error
+          ? changeError.message
+          : 'تعذر تغيير استمارة المأمورية.'
+      )
+    } finally {
+      setTemplateChangeBusy(false)
+    }
+  }
+
+  async function toggleTeamTemplateChange() {
+    if (!canManageTemplatePolicy) return
+
+    setTemplatePolicyBusy(true)
+    setError('')
+
+    try {
+      const nextAllowed = !teamTemplateChangeAllowed
+      const response = await fetch(
+        '/api/v2/missions/' + mission.id + '/checklist',
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'set_team_change_allowed',
+            allowed: nextAllowed,
+          }),
+        }
+      )
+
+      const payload = await response.json()
+      if (!response.ok) {
+        throw new Error(
+          payload.error ||
+            'تعذر تحديث صلاحية تغيير الاستمارة.'
+        )
+      }
+
+      setTeamTemplateChangeAllowed(nextAllowed)
+      setCanChangeTemplate(true)
+      setSuccess(
+        nextAllowed
+          ? 'تم السماح لأعضاء الفريق بتغيير الاستمارة مع تسجيل السبب.'
+          : 'تم إيقاف حق أعضاء الفريق في تغيير الاستمارة.'
+      )
+    } catch (policyError) {
+      setError(
+        policyError instanceof Error
+          ? policyError.message
+          : 'تعذر تحديث صلاحية تغيير الاستمارة.'
+      )
+    } finally {
+      setTemplatePolicyBusy(false)
+    }
+  }
+
   // Memoized filter for allowed organizational units recursively matching user profile
   const allowedOrgUnits = useMemo(() => {
     let matchedUnitId = currentUserOrgUnitId
@@ -915,6 +1032,14 @@ export function MissionExecutionForm({
     const baseChecklist = getChecklistByDepartment(currentUserDept)
     return baseChecklist
   }, [currentUserDept, availableTemplates, selectedTemplateId, localCustomChecklists])
+
+  const activeTemplate = useMemo(
+    () =>
+      availableTemplates.find(
+        (template: any) => template.id === selectedTemplateId
+      ) || null,
+    [availableTemplates, selectedTemplateId]
+  )
 
   // Live Real-Time Evaluation Metrics Computation
   const liveScoreStats = useMemo(() => {
