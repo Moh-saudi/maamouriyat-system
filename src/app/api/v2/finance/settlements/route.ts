@@ -102,6 +102,8 @@ export async function GET() {
     const gate = await requireV2Permission('finance.view')
     if (!gate.ok) return gate.response
 
+    const financeUser = gate.user
+    const financeAccess = gate.access
     const admin = getAdminSupabaseClient()
     const { data: settlementRows, error } = await admin
       .from('mission_financial_settlements')
@@ -124,9 +126,9 @@ export async function GET() {
       settlements.map((settlement) => settlement.scope_org_id)
     )
 
-    if (gate.user.organizationId) factIds.add(gate.user.organizationId)
+    if (financeUser.organizationId) factIds.add(financeUser.organizationId)
 
-    for (const role of gate.access.roles) {
+    for (const role of financeAccess.roles) {
       if (role.assignmentOrganizationId) {
         factIds.add(role.assignmentOrganizationId)
       }
@@ -142,8 +144,8 @@ export async function GET() {
       if (!fact) return false
 
       return evaluateV2ResourceScope({
-        user: gate.user,
-        snapshot: gate.access,
+        user: financeUser,
+        snapshot: financeAccess,
         permissionKey: 'finance.view',
         organizationFacts,
         resource: {
@@ -220,10 +222,10 @@ export async function GET() {
 
     return NextResponse.json({
       permissions: {
-        prepare: hasV2Permission(gate.access, 'finance.prepare'),
-        approve: hasV2Permission(gate.access, 'finance.approve'),
-        reject: hasV2Permission(gate.access, 'finance.reject'),
-        mark_paid: hasV2Permission(gate.access, 'finance.mark_paid'),
+        prepare: hasV2Permission(financeAccess, 'finance.prepare'),
+        approve: hasV2Permission(financeAccess, 'finance.approve'),
+        reject: hasV2Permission(financeAccess, 'finance.reject'),
+        mark_paid: hasV2Permission(financeAccess, 'finance.mark_paid'),
       },
       settlements: visible.map((settlement) => {
         const mission = missionById.get(settlement.mission_id)
