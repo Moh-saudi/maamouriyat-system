@@ -49,6 +49,16 @@ export type MissionWorkspaceUserRow = {
   job_title: string | null
 }
 
+export type MissionWorkspaceOrganizationRow = {
+  id: string
+  name: string
+  parent_id: string | null
+  sector_id: string | null
+  governorate: string | null
+  health_admin: string | null
+  organization_type_code: string | null
+}
+
 export type MissionWorkspaceTeamRow = {
   mission_id: string
   user_id: string
@@ -241,6 +251,38 @@ export async function loadWorkspaceFacilities(
     }
 
     for (const row of (data ?? []) as MissionWorkspaceFacilityRow[]) {
+      result.set(row.id, row)
+    }
+  }
+
+  return result
+}
+
+export async function loadWorkspaceOrganizations(
+  ids: readonly string[]
+): Promise<Map<string, MissionWorkspaceOrganizationRow>> {
+  const admin = getAdminSupabaseClient()
+  const result = new Map<string, MissionWorkspaceOrganizationRow>()
+  const unique = [...new Set(ids.filter(Boolean))]
+
+  for (let index = 0; index < unique.length; index += 500) {
+    const chunk = unique.slice(index, index + 500)
+    if (chunk.length === 0) continue
+
+    const { data, error } = await admin
+      .from('organizations')
+      .select(
+        'id, name, parent_id, sector_id, governorate, health_admin, organization_type_code'
+      )
+      .in('id', chunk)
+
+    if (error) {
+      throw new Error(
+        `[missions-workspace] failed to load organizations: ${error.message}`
+      )
+    }
+
+    for (const row of (data ?? []) as MissionWorkspaceOrganizationRow[]) {
       result.set(row.id, row)
     }
   }
