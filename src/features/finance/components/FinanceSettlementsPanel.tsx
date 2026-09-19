@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
@@ -368,9 +369,17 @@ export function FinanceSettlementsPanel() {
                 {selected.mission_serial_number} · {selected.facility_name}
               </p>
             </div>
-            <p className="text-lg font-black text-slate-900">
-              {money(selected.total_amount)} ج.م
-            </p>
+            <div className="flex items-center gap-2">
+              <Link
+                href={'/v2/finance/report/' + selected.id}
+                className="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-white px-2.5 text-[10px] font-bold text-teal-800 hover:bg-teal-50"
+              >
+                بيان الاستحقاق
+              </Link>
+              <p className="text-lg font-black text-slate-900">
+                {money(selected.total_amount)} ج.م
+              </p>
+            </div>
           </div>
 
           <div className="p-4">
