@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Building2,
   CalendarDays,
-  MapPin,
   ShieldAlert,
   Users,
 } from 'lucide-react'
@@ -21,6 +20,10 @@ import {
   loadWorkspaceOrganizations,
   loadWorkspaceTeamRows,
   loadWorkspaceUsers,
+  type MissionWorkspaceFacilityRow,
+  type MissionWorkspaceMissionRow,
+  type MissionWorkspaceOrganizationRow,
+  type MissionWorkspaceUserRow,
 } from '@/server/services/missions/workspace-data'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import { getFacilityTypeLabel } from '@/config/facility-types'
@@ -286,7 +289,7 @@ export default async function GroupedMissionAssignmentPrintPage({
 
   const team = [...distinctTeamIds]
     .map((id) => users.get(id))
-    .filter((member): member is NonNullable<typeof member> => Boolean(member))
+    .filter((member): member is MissionWorkspaceUserRow => Boolean(member))
     .sort((a, b) => a.full_name.localeCompare(b.full_name, 'ar'))
 
   let sourceLabel = 'اختيار حر'
@@ -331,10 +334,10 @@ export default async function GroupedMissionAssignmentPrintPage({
       (
         row
       ): row is {
-        mission: (typeof missions)[number]
-        facility: NonNullable<ReturnType<typeof facilities.get>>
-        organization: ReturnType<typeof organizations.get> | null
-        sector: ReturnType<typeof organizations.get> | null
+        mission: MissionWorkspaceMissionRow
+        facility: MissionWorkspaceFacilityRow
+        organization: MissionWorkspaceOrganizationRow | null
+        sector: MissionWorkspaceOrganizationRow | null
       } => Boolean(row)
     )
     .sort((a, b) => {
