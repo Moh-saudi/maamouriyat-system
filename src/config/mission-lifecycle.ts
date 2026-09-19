@@ -88,12 +88,16 @@ export function resolveMissionOperationalState(
     return MISSION_OPERATIONAL_STATE.current
   }
 
-  if (plannedStart && plannedStart > today) {
-    return MISSION_OPERATIONAL_STATE.upcoming
-  }
-
   if (plannedEnd && plannedEnd < today) {
     return MISSION_OPERATIONAL_STATE.overdue
+  }
+
+  if (
+    status === 'approved' ||
+    status === 'assigned' ||
+    plannedStart
+  ) {
+    return MISSION_OPERATIONAL_STATE.upcoming
   }
 
   return MISSION_OPERATIONAL_STATE.current
