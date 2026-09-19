@@ -2708,6 +2708,8 @@ export function MissionExecutionForm({
                       : 'السماح للفريق بالتغيير'}
                 </button>
               </div>
+            )}
+
             <div style={{
               background: '#f8fafc',
               border: '1px solid #e2e8f0',
@@ -2755,8 +2757,6 @@ export function MissionExecutionForm({
                 </span>
               </div>
             </div>
-
-            )}
           </div>
 
           {/* Technical Support Notification Notice */}
