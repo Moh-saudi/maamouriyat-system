@@ -49,7 +49,7 @@ export default async function V2MissionsPage() {
         }
       />
 
-      <MissionWorkspacePanel />
+      <MissionWorkspacePanel defaultMode={canCreate ? 'issued' : 'assigned'} />
     </V2PageContainer>
   )
 }
