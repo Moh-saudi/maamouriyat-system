@@ -172,7 +172,7 @@ export async function GET() {
         ? admin
             .from('missions')
             .select(
-              'id, serial_number, facility_id, scheduled_date, expected_end_date, completed_at, status'
+              'id, serial_number, facility_id, scheduled_date, expected_end_date, completed_at, status, checkin_time, checkout_time, gps_verified, duration_minutes'
             )
             .in('id', missionIds)
         : Promise.resolve({ data: [], error: null }),
@@ -240,6 +240,10 @@ export async function GET() {
           mission_status: mission ? mission.status : null,
           scheduled_date: mission ? mission.scheduled_date : null,
           completed_at: mission ? mission.completed_at : null,
+          checkin_time: mission ? mission.checkin_time : null,
+          checkout_time: mission ? mission.checkout_time : null,
+          gps_verified: mission ? mission.gps_verified === true : false,
+          duration_minutes: mission ? mission.duration_minutes : null,
           beneficiary_name: user
             ? String(user.full_name)
             : 'مستخدم غير مسمى',
