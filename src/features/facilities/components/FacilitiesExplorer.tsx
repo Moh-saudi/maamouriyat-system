@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Building2,
   ChevronLeft,
@@ -148,6 +149,7 @@ export function FacilitiesExplorer({
   data,
   management,
 }: FacilitiesExplorerProps) {
+  const router = useRouter()
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
   const [governorate, setGovernorate] = useState('')
@@ -163,6 +165,10 @@ export function FacilitiesExplorer({
   const [editorError, setEditorError] = useState<string | null>(null)
   const [auditFacility, setAuditFacility] =
     useState<V2FacilityDirectoryItem | null>(null)
+  const [statusFacility, setStatusFacility] =
+    useState<V2FacilityDirectoryItem | null>(null)
+  const [statusReason, setStatusReason] = useState('')
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   const governorates = useMemo(
     () =>
@@ -460,7 +466,8 @@ export function FacilitiesExplorer({
         throw new Error(result.error || 'تعذر حفظ المنشأة')
       }
 
-      window.location.reload()
+      closeEditor()
+      router.refresh()
     } catch (saveError) {
       setEditorError(
         saveError instanceof Error ? saveError.message : 'تعذر حفظ المنشأة'
@@ -470,22 +477,28 @@ export function FacilitiesExplorer({
     }
   }
 
-  async function changeFacilityStatus(
+  function openFacilityStatusDialog(
     facility: V2FacilityDirectoryItem
   ) {
-    const action = facility.isActive ? 'deactivate' : 'reactivate'
-    const verb = facility.isActive ? 'إيقاف' : 'إعادة تفعيل'
+    setStatusFacility(facility)
+    setStatusReason('')
+    setStatusError(null)
+  }
 
-    if (!window.confirm(`هل تريد ${verb} المنشأة "${facility.name}"؟`)) {
-      return
-    }
+  function closeFacilityStatusDialog() {
+    if (saving) return
+    setStatusFacility(null)
+    setStatusReason('')
+    setStatusError(null)
+  }
 
-    const reason =
-      window.prompt(
-        `سبب ${verb} المنشأة (اختياري، ويُحفظ في سجل التعديلات):`
-      ) || ''
+  async function confirmFacilityStatusChange() {
+    if (!statusFacility) return
+
+    const action = statusFacility.isActive ? 'deactivate' : 'reactivate'
 
     setSaving(true)
+    setStatusError(null)
 
     try {
       const response = await fetch('/api/admin/facilities', {
@@ -493,9 +506,9 @@ export function FacilitiesExplorer({
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          facility_id: facility.id,
+          facility_id: statusFacility.id,
           action,
-          reason,
+          reason: statusReason.trim() || null,
         }),
       })
 
@@ -505,11 +518,13 @@ export function FacilitiesExplorer({
         throw new Error(result.error || 'تعذر تغيير حالة المنشأة')
       }
 
-      window.location.reload()
-    } catch (statusError) {
-      window.alert(
-        statusError instanceof Error
-          ? statusError.message
+      setStatusFacility(null)
+      setStatusReason('')
+      router.refresh()
+    } catch (changeError) {
+      setStatusError(
+        changeError instanceof Error
+          ? changeError.message
           : 'تعذر تغيير حالة المنشأة'
       )
     } finally {
@@ -1076,9 +1091,7 @@ export function FacilitiesExplorer({
                                       type="button"
                                       disabled={saving}
                                       onClick={() =>
-                                        void changeFacilityStatus(
-                                          facility
-                                        )
+                                        openFacilityStatusDialog(facility)
                                       }
                                       className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-[10px] font-bold ${
                                         facility.isActive
@@ -1175,6 +1188,128 @@ export function FacilitiesExplorer({
           />
         </div>
       </section>
+
+      {statusFacility && (
+        <div
+          className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/40 sm:items-center sm:p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="facility-status-dialog-title"
+        >
+          <div className="w-full overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-lg sm:rounded-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+              <div>
+                <p
+                  className={`text-[10px] font-bold ${
+                    statusFacility.isActive
+                      ? 'text-red-600'
+                      : 'text-emerald-700'
+                  }`}
+                >
+                  {statusFacility.isActive
+                    ? 'إيقاف منشأة'
+                    : 'إعادة تفعيل منشأة'}
+                </p>
+                <h2
+                  id="facility-status-dialog-title"
+                  className="mt-1 text-base font-extrabold text-slate-900"
+                >
+                  {statusFacility.name}
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  {statusFacility.governorate} • {statusFacility.healthAdmin}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={saving}
+                onClick={closeFacilityStatusDialog}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 disabled:opacity-40"
+                aria-label="إغلاق"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div
+                className={`rounded-xl border px-4 py-3 text-xs leading-6 ${
+                  statusFacility.isActive
+                    ? 'border-red-100 bg-red-50 text-red-800'
+                    : 'border-emerald-100 bg-emerald-50 text-emerald-800'
+                }`}
+              >
+                {statusFacility.isActive
+                  ? 'سيتم إيقاف المنشأة عن الاستخدام التشغيلي مع الاحتفاظ بكامل سجلها التاريخي والمأموريات المرتبطة بها.'
+                  : 'سيتم إعادة تفعيل المنشأة وإتاحتها مرة أخرى داخل النطاق التشغيلي.'}
+              </div>
+
+              {statusError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
+                  {statusError}
+                </div>
+              )}
+
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-bold text-slate-600">
+                  سبب {statusFacility.isActive ? 'الإيقاف' : 'إعادة التفعيل'}
+                  <span className="mr-1 font-normal text-slate-400">
+                    (اختياري)
+                  </span>
+                </span>
+                <textarea
+                  value={statusReason}
+                  onChange={(event) => setStatusReason(event.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  placeholder={
+                    statusFacility.isActive
+                      ? 'مثال: توقف النشاط مؤقتًا، نقل الخدمة، قرار إداري...'
+                      : 'مثال: استئناف النشاط بعد المراجعة...'
+                  }
+                  className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">
+                  سيُحفظ الإجراء والسبب في سجل تعديلات المنشأة.
+                </p>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-4">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={closeFacilityStatusDialog}
+                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 disabled:opacity-40"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void confirmFacilityStatusChange()}
+                className={`inline-flex h-10 items-center gap-2 rounded-xl px-5 text-sm font-bold text-white disabled:opacity-50 ${
+                  statusFacility.isActive
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-emerald-700 hover:bg-emerald-800'
+                }`}
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : statusFacility.isActive ? (
+                  <Power className="h-4 w-4" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
+                {statusFacility.isActive
+                  ? 'تأكيد الإيقاف'
+                  : 'تأكيد إعادة التفعيل'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <FacilityAuditDrawer
         open={Boolean(auditFacility)}
