@@ -29,8 +29,14 @@ const FIELD_LABELS: Record<string, string> = {
 
 type FacilityRow = {
   id: string
+  name: string
+  facility_type: string
   organization_id: string
   governorate: string
+  health_admin: string
+  village_city: string | null
+  is_active: boolean | null
+  updated_at: string | null
 }
 
 type AuditRow = {
@@ -105,7 +111,9 @@ export async function GET(request: Request) {
     const admin = getAdminSupabaseClient()
     const { data: facility, error: facilityError } = await admin
       .from('facilities')
-      .select('id, organization_id, governorate')
+      .select(
+        'id, name, facility_type, organization_id, governorate, health_admin, village_city, is_active, updated_at'
+      )
       .eq('id', facilityId)
       .maybeSingle()
 
@@ -188,6 +196,7 @@ export async function GET(request: Request) {
 
       return {
         id: row.id,
+        actionCode: row.action,
         action: ACTION_LABELS[row.action] || 'تعديل المنشأة',
         actorName: actorNames.get(row.actor_user_id) || 'مستخدم',
         createdAt: row.created_at,
@@ -200,7 +209,19 @@ export async function GET(request: Request) {
       }
     })
 
-    return NextResponse.json({ entries })
+    return NextResponse.json({
+      facility: {
+        id: resource.id,
+        name: resource.name,
+        facilityType: facilityTypeLabel(resource.facility_type),
+        governorate: resource.governorate,
+        healthAdmin: resource.health_admin,
+        villageCity: resource.village_city,
+        isActive: resource.is_active === true,
+        updatedAt: resource.updated_at,
+      },
+      entries,
+    })
   } catch (error) {
     console.error('[Facility Audit] failed:', error)
     return NextResponse.json(
