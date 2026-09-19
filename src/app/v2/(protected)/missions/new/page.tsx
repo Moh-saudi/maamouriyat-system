@@ -5,12 +5,19 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { V2PageContainer } from '@/components/ui/V2PageContainer'
 import { MissionAssignmentForm } from '@/features/missions/components/MissionAssignmentForm'
 import { hasV2Permission } from '@/server/authorization'
-import { requireV2PagePermission } from '@/server/authorization/page-guard'
+import { requireAnyV2PagePermission } from '@/server/authorization/page-guard'
 
 export default async function V2NewMissionPage() {
-  const { access } = await requireV2PagePermission('missions.create')
+  const { access } = await requireAnyV2PagePermission([
+    'missions.create',
+    'missions.prepare',
+  ])
 
-  if (!hasV2Permission(access, 'missions.assign')) {
+  const canChooseTeam =
+    hasV2Permission(access, 'missions.assign') ||
+    hasV2Permission(access, 'missions.propose_team')
+
+  if (!canChooseTeam) {
     redirect('/v2/missions')
   }
 
