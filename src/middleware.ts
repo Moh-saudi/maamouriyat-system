@@ -77,7 +77,7 @@ export async function middleware(req: NextRequest) {
 
   if (user && isLoginPage) {
     const redirectUrl = req.nextUrl.clone()
-    redirectUrl.pathname = '/dashboard'
+    redirectUrl.pathname = '/v2/dashboard'
     return NextResponse.redirect(redirectUrl)
   }
 
