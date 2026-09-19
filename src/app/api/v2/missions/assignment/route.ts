@@ -74,8 +74,11 @@ type MissionTargetOptionRow = {
   end_date: string
   target_missions: number
   assigned_user_id: string | null
+  scope_level: 'ministry' | 'sector' | 'governorate' | 'health_admin' | 'user'
   scope_name: string
-  target_type: string
+  scope_organization_id: string | null
+  sector_id: string | null
+  target_type: 'aggregate' | 'specific_facilities'
   status: string
 }
 
@@ -291,10 +294,9 @@ async function loadAssignmentOptions(input: {
     admin
       .from('mission_targets')
       .select(
-        'id, title, period_label, start_date, end_date, target_missions, assigned_user_id, scope_name, target_type, status'
+        'id, title, period_label, start_date, end_date, target_missions, assigned_user_id, scope_level, scope_name, scope_organization_id, sector_id, target_type, status'
       )
       .eq('status', 'active')
-      .eq('target_type', 'specific_facilities')
       .order('start_date', { ascending: false }),
     admin
       .from('mission_target_facilities')
@@ -423,9 +425,44 @@ async function loadAssignmentOptions(input: {
 
   const targets = ((targetRows ?? []) as MissionTargetOptionRow[])
     .map((target) => {
-      const facilityIds = [
-        ...new Set(targetFacilityIds.get(target.id) ?? []),
-      ]
+      let facilityIds: string[]
+
+      if (target.target_type === 'specific_facilities') {
+        facilityIds = [
+          ...new Set(targetFacilityIds.get(target.id) ?? []),
+        ]
+      } else {
+        facilityIds = facilities
+          .filter((facility) => {
+            if (target.scope_level === 'ministry') return true
+
+            if (target.scope_level === 'sector') {
+              return Boolean(
+                target.sector_id &&
+                  organizationById.get(facility.organization_id)?.sector_id ===
+                    target.sector_id
+              ) || facility.organization_id === target.sector_id
+            }
+
+            if (target.scope_level === 'governorate') {
+              return facility.governorate === target.scope_name
+            }
+
+            if (target.scope_level === 'health_admin') {
+              return (
+                facility.organization_id === target.scope_organization_id ||
+                facility.health_admin === target.scope_name
+              )
+            }
+
+            // A user-level aggregate target is a numerical target assigned to
+            // that person. Geographic eligibility still comes from the mission
+            // issuer's trusted RBAC scope; the assigned user must join the team.
+            return true
+          })
+          .map((facility) => facility.id)
+      }
+
       const assigned = target.assigned_user_id
         ? inspectorById.get(target.assigned_user_id)
         : null
@@ -439,7 +476,9 @@ async function loadAssignmentOptions(input: {
         target_missions: target.target_missions,
         assigned_user_id: target.assigned_user_id,
         assigned_user_name: assigned?.full_name ?? null,
+        scope_level: target.scope_level,
         scope_name: target.scope_name,
+        target_type: target.target_type,
         facility_ids: facilityIds,
         facility_count: facilityIds.length,
         visited_count: facilityIds.filter(
