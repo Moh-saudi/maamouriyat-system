@@ -16,7 +16,7 @@ INSERT INTO public.permissions (
   sort_order
 )
 VALUES (
-  'missions.checklist.manage',
+  'missions.checklist_change',
   'missions',
   'checklist_manage',
   'إدارة استمارة المأمورية',
@@ -43,7 +43,7 @@ INSERT INTO public.role_permission_grants (
 )
 SELECT
   r.id,
-  'missions.checklist.manage',
+  'missions.checklist_change',
   CASE
     WHEN r.code IN ('system_superadmin', 'system_techadmin') THEN 'national'
     ELSE 'organization_tree'
