@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { CompactFilterSelect } from '@/components/ui/CompactFilterSelect'
+import { getFacilityTypeLabel } from '@/config/facility-types'
 import {
   AlertTriangle,
   Building2,
@@ -147,7 +149,9 @@ export function FacilityProgramsManager() {
     () =>
       [...new Set(facilities.map((facility) => facility.facility_type))]
         .filter(Boolean)
-        .sort((a, b) => a.localeCompare(b, 'ar')),
+        .sort((a, b) =>
+          getFacilityTypeLabel(a).localeCompare(getFacilityTypeLabel(b), 'ar')
+        ),
     [facilities]
   )
 
@@ -427,45 +431,36 @@ export function FacilityProgramsManager() {
                 className="h-10 w-full rounded-xl border border-slate-200 pr-9 pl-3 text-xs outline-none"
               />
             </div>
-            <select
+            <CompactFilterSelect
               value={governorate}
-              onChange={(event) => {
-                setGovernorate(event.target.value)
+              onChange={(value) => {
+                setGovernorate(value)
                 setHealthAdmin('')
               }}
-              className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[10px]"
-            >
-              <option value="">كل المحافظات</option>
-              {governorates.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-            <select
+              placeholder="كل المحافظات"
+              options={governorates.map((item) => ({
+                value: item,
+                label: item,
+              }))}
+            />
+            <CompactFilterSelect
               value={healthAdmin}
-              onChange={(event) => setHealthAdmin(event.target.value)}
-              className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[10px]"
-            >
-              <option value="">كل الإدارات الصحية</option>
-              {healthAdmins.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-            <select
+              onChange={setHealthAdmin}
+              placeholder="كل الإدارات الصحية"
+              options={healthAdmins.map((item) => ({
+                value: item,
+                label: item,
+              }))}
+            />
+            <CompactFilterSelect
               value={facilityType}
-              onChange={(event) => setFacilityType(event.target.value)}
-              className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[10px]"
-            >
-              <option value="">كل الأنواع</option>
-              {facilityTypes.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
+              onChange={setFacilityType}
+              placeholder="كل أنواع المنشآت"
+              options={facilityTypes.map((item) => ({
+                value: item,
+                label: getFacilityTypeLabel(item),
+              }))}
+            />
           </div>
 
           <div className="mt-3 max-h-[520px] overflow-y-auto rounded-xl border border-slate-200">
@@ -501,7 +496,7 @@ export function FacilityProgramsManager() {
                     </p>
                     <p className="mt-1 truncate text-[9px] text-slate-400">
                       {facility.governorate || '—'} ·{' '}
-                      {facility.health_admin || '—'} · {facility.facility_type}
+                      {facility.health_admin || '—'} · {getFacilityTypeLabel(facility.facility_type)}
                     </p>
                   </div>
                 </button>
