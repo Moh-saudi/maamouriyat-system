@@ -1,6 +1,8 @@
 export type RoleTemplateId =
   | 'information_center'
   | 'field_inspector'
+  | 'correction_unit_manager'
+  | 'correction_unit_member'
   | 'sector_manager'
   | 'central_admin_manager'
   | 'general_admin_manager'
@@ -23,6 +25,20 @@ export const ROLE_TEMPLATE_CATALOG: readonly RoleTemplateDefinition[] = [
     description:
       'إدارة الحسابات والدعم التشغيلي وتصحيح بيانات المنشآت داخل النطاق الإداري المسموح، بدون صلاحيات تفتيش ميداني.',
     sourceSystemRoleCode: 'information_center',
+  },
+  {
+    id: 'correction_unit_manager',
+    label: 'مسؤول جهة تصحيح',
+    description:
+      'إدارة الملاحظات الموجهة إلى الجهة وتوزيعها ومتابعة تنفيذ التصحيح دون اعتماد التحقق النهائي.',
+    sourceSystemRoleCode: 'correction_unit_manager',
+  },
+  {
+    id: 'correction_unit_member',
+    label: 'عضو جهة تصحيح',
+    description:
+      'استلام الملاحظات الموجهة إلى الجهة وتنفيذ التصحيح وتوثيقه دون صلاحية التحقق النهائي أو الإغلاق.',
+    sourceSystemRoleCode: 'correction_unit_member',
   },
   {
     id: 'field_inspector',
