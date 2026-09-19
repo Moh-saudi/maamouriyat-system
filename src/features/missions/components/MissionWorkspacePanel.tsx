@@ -15,6 +15,7 @@ import {
   Layers3,
   Loader2,
   MapPin,
+  Printer,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -358,6 +359,15 @@ function MissionDetailRow({ mission }: { mission: DetailMission }) {
         <span className="text-[9px] font-bold text-slate-400">
           {formatDate(mission.scheduled_date)}
         </span>
+        <Link
+          href={'/dashboard/missions/' + mission.id + '/print'}
+          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50"
+        >
+          <Printer className="h-3.5 w-3.5" />
+          {lifecycle.key === 'executed' || lifecycle.key === 'ended'
+            ? 'طباعة التقرير'
+            : 'طباعة التكليف'}
+        </Link>
         {mission.relations.can_execute && (
           <Link
             href={'/dashboard/missions/' + mission.id + '/execute'}
