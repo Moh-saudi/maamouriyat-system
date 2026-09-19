@@ -933,7 +933,7 @@ export function MissionAssignmentForm() {
 
   return (
     <div className="space-y-4">
-      <section className="sticky top-2 z-30 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-5">
+      <section className="sticky top-[68px] z-30 rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur sm:px-5">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <StepPill
