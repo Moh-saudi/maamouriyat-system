@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation'
 import {
   ArrowRight,
   CheckCircle2,
-  ClipboardCheck,
   FileText,
 } from 'lucide-react'
 import { MissionExecutionForm } from '@/app/dashboard/missions/[id]/execute/mission-execution-form'
