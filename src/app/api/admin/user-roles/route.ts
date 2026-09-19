@@ -68,7 +68,13 @@ function isSystemRoleCompatibleWithOrganization(input: {
   // Other operational roles remain flexible and are constrained by RBAC scope
   // and delegation checks. Information Center units may be represented as
   // administration/department/section nodes in the organization tree.
-  return roleCode === 'information_center' || roleCode === 'field_inspector'
+  return (
+    roleCode === 'information_center' ||
+    roleCode === 'mission_secretariat' ||
+    roleCode === 'finance_officer' ||
+    roleCode === 'finance_approver' ||
+    roleCode === 'field_inspector'
+  )
 }
 
 async function loadOrganizationResource(organizationId: string) {
