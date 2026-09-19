@@ -48,11 +48,44 @@ type TemplateRow = {
   version: string | null
   description: string | null
   created_by_org: string | null
+  created_by_user_id: string | null
+  visibility: 'system' | 'organization' | 'private'
   applicable_sectors: string[] | null
   applicable_levels: number[] | null
   applicable_facility_types: string[] | null
   is_base: boolean | null
   is_active: boolean | null
+}
+
+type FacilityVisitStatRow = {
+  facility_id: string
+  assignment_count: number | null
+  visit_count: number | null
+  distinct_primary_inspectors: number | null
+  last_visited_at: string | null
+  last_scheduled_date: string | null
+}
+
+type MissionTargetOptionRow = {
+  id: string
+  title: string
+  period_label: string
+  start_date: string
+  end_date: string
+  target_missions: number
+  assigned_user_id: string | null
+  scope_name: string
+  target_type: string
+  status: string
+}
+
+type FacilityProgramRow = {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  program_type: string
+  is_active: boolean
 }
 
 function buildOrganizationFacts(
