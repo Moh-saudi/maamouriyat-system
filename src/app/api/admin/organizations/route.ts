@@ -30,6 +30,7 @@ type OrganizationRow = {
   can_approve_missions: boolean
   can_view_all_governorate: boolean
   can_view_sector_facilities: boolean
+  can_create_child_organizations: boolean
   created_at?: string | null
   created_by_user_id?: string | null
   updated_at?: string | null
@@ -47,6 +48,7 @@ const CAPABILITY_FIELDS = [
   'can_approve_missions',
   'can_view_all_governorate',
   'can_view_sector_facilities',
+  'can_create_child_organizations',
 ] as const
 
 
@@ -461,7 +463,7 @@ export async function GET() {
     const { data, error } = await admin
       .from('organizations')
       .select(
-        'id, name, level, level_label, organization_type_code, parent_id, sector_id, governorate, health_admin, code, is_active, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities'
+        'id, name, level, level_label, organization_type_code, parent_id, sector_id, governorate, health_admin, code, is_active, can_issue_missions, can_approve_missions, can_view_all_governorate, can_view_sector_facilities, can_create_child_organizations'
       )
       .order('level')
       .order('name')
@@ -765,6 +767,17 @@ export async function POST(request: NextRequest) {
     if (!scopeDecision.allowed) {
       return NextResponse.json(
         { error: 'لا يمكن إنشاء جهة خارج نطاقك التنظيمي', code: 'SCOPE_DENIED' },
+        { status: 403 }
+      )
+    }
+
+    if (parent.can_create_child_organizations !== true) {
+      return NextResponse.json(
+        {
+          error:
+            'الجهة الأم لم تسمح بإنشاء جهات فرعية. يجب تفعيل السماح من خصائص الجهة بواسطة جهة مخولة أعلى.',
+          code: 'PARENT_CHILD_CREATION_DISABLED',
+        },
         { status: 403 }
       )
     }
