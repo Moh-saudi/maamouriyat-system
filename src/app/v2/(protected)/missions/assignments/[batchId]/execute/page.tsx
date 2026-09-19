@@ -23,11 +23,13 @@ import {
   loadWorkspaceTeamRows,
   loadWorkspaceUsers,
   normalizeMissionWorkspaceStatus,
+  type MissionWorkspaceFacilityRow,
   type MissionWorkspaceMissionRow,
   type MissionWorkspaceTeamRow,
 } from '@/server/services/missions/workspace-data'
 import {
   resolveMissionOperationalState,
+  type MissionOperationalStateMeta,
 } from '@/config/mission-lifecycle'
 import { getFacilityTypeLabel } from '@/config/facility-types'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
@@ -35,6 +37,18 @@ import { GroupedAssignmentCompletionPanel } from '@/features/missions/components
 
 type PageProps = {
   params: Promise<{ batchId: string }>
+}
+
+type GroupedExecutionRow = {
+  mission: MissionWorkspaceMissionRow
+  facility: MissionWorkspaceFacilityRow
+  organization: string
+  sector: string | null
+  primary: string
+  lifecycle: MissionOperationalStateMeta
+  assignedToMe: boolean
+  canExecute: boolean
+  completed: boolean
 }
 
 type BatchRow = {
@@ -250,9 +264,7 @@ export default async function GroupedMissionExecutionPage({
       }
     })
     .filter(
-      (
-        row
-      ): row is NonNullable<typeof row> => Boolean(row)
+      (row): row is GroupedExecutionRow => Boolean(row)
     )
     .sort((a, b) => {
       const adminCompare = (a.facility.health_admin ?? '').localeCompare(
