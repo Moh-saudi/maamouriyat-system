@@ -23,6 +23,7 @@ interface FacilityAuditDrawerProps {
   facilityId: string | null
   facilityName: string
   onClose: () => void
+  refreshToken?: number
 }
 
 export function FacilityAuditDrawer({
@@ -30,6 +31,7 @@ export function FacilityAuditDrawer({
   facilityId,
   facilityName,
   onClose,
+  refreshToken = 0,
 }: FacilityAuditDrawerProps) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -79,7 +81,7 @@ export function FacilityAuditDrawer({
     return () => {
       cancelled = true
     }
-  }, [open, facilityId])
+  }, [open, facilityId, refreshToken])
 
   if (!open) return null
 
