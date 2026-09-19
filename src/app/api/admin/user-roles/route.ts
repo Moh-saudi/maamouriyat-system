@@ -39,8 +39,9 @@ function callerRoleCodes(
 function isSystemRoleCompatibleWithOrganization(input: {
   roleCode: string
   organizationTypeCode: string | null
+  isCorrectionUnit: boolean
 }): boolean {
-  const { roleCode, organizationTypeCode } = input
+  const { roleCode, organizationTypeCode, isCorrectionUnit } = input
 
   if (!organizationTypeCode) return false
 
@@ -57,15 +58,17 @@ function isSystemRoleCompatibleWithOrganization(input: {
   const requiredType = exactLeadershipType[roleCode]
   if (requiredType) return organizationTypeCode === requiredType
 
-  // Operational roles remain flexible and are constrained by RBAC scope and
-  // delegation checks. This supports Information Center units represented as
-  // administration/department/section nodes in the organization tree.
-  return (
-    roleCode === 'information_center' ||
+  if (
     roleCode === 'correction_unit_manager' ||
-    roleCode === 'correction_unit_member' ||
-    roleCode === 'field_inspector'
-  )
+    roleCode === 'correction_unit_member'
+  ) {
+    return isCorrectionUnit
+  }
+
+  // Other operational roles remain flexible and are constrained by RBAC scope
+  // and delegation checks. Information Center units may be represented as
+  // administration/department/section nodes in the organization tree.
+  return roleCode === 'information_center' || roleCode === 'field_inspector'
 }
 
 async function loadOrganizationResource(organizationId: string) {
@@ -82,12 +85,26 @@ async function loadOrganizationResource(organizationId: string) {
 
   if (!data) return null
 
+  const { count: correctionSpecialtyCount, error: specialtyError } =
+    await admin
+      .from('organization_correction_specialties')
+      .select('organization_id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .eq('is_active', true)
+
+  if (specialtyError) {
+    throw new Error(
+      `Failed to load correction-unit status: ${specialtyError.message}`
+    )
+  }
+
   return {
     organizationId: String(data.id),
     organizationTypeCode:
       typeof data.organization_type_code === 'string'
         ? data.organization_type_code
         : null,
+    isCorrectionUnit: (correctionSpecialtyCount ?? 0) > 0,
     sectorId:
       data.organization_type_code === 'sector'
         ? String(data.id)
@@ -256,6 +273,7 @@ export async function GET(request: Request) {
             roleCode: role.code,
             organizationTypeCode:
               organizationResource.organizationTypeCode,
+            isCorrectionUnit: organizationResource.isCorrectionUnit,
           })
         ) {
           canAssign = false
@@ -417,6 +435,7 @@ export async function POST(request: Request) {
         !isSystemRoleCompatibleWithOrganization({
           roleCode: role.code,
           organizationTypeCode: targetOrganization.organizationTypeCode,
+          isCorrectionUnit: targetOrganization.isCorrectionUnit,
         })
       ) {
         return NextResponse.json(
