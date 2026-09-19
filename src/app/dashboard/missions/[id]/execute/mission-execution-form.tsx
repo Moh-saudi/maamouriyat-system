@@ -1825,6 +1825,58 @@ export function MissionExecutionForm({
       }
     }
 
+    // Persist checklist answers before changing mission status.
+    // If the checklist was replaced in another session, the API rejects this
+    // stale run and the mission must remain open.
+    if (Object.keys(answers).length > 0) {
+      const resultsPayload = Object.entries(answers).map(
+        ([itemId, val]) => ({
+          item_id: itemId,
+          checklist_item_id: itemId,
+          answer: val.answer,
+          notes: val.notes || null,
+          photo_url: val.photo_url || null,
+        })
+      )
+
+      try {
+        const resultsRes = await fetch('/api/missions/results', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            mission_id: mission.id,
+            checklist_run_id: checklistRunId,
+            results: resultsPayload,
+          }),
+        })
+
+        if (!resultsRes.ok) {
+          const resultsErr = await resultsRes
+            .json()
+            .catch(() => ({}))
+
+          setLoading(false)
+          setError(
+            resultsErr.error ||
+              'تعذر حفظ إجابات الاستمارة. لم يتم إنهاء المأمورية.'
+          )
+          return
+        }
+      } catch (resultsError) {
+        console.error(
+          'Network error saving mission results:',
+          resultsError
+        )
+        setLoading(false)
+        setError(
+          'تعذر الاتصال أثناء حفظ إجابات الاستمارة. لم يتم إنهاء المأمورية.'
+        )
+        return
+      }
+    }
+
     const { error: updateError } = await supabase
       .from('missions')
       .update(missionUpdatePayload)
@@ -1922,37 +1974,6 @@ export function MissionExecutionForm({
       setViolationDescription('')
       setViolationPriority('medium')
       handleRemovePhoto()
-    }
-
-    // Save dynamic checklist results via our secure backend API route to clear old and write fresh results cleanly
-    if (Object.keys(answers).length > 0) {
-      const resultsPayload = Object.entries(answers).map(([itemId, val]) => ({
-        item_id: itemId,
-        checklist_item_id: itemId,
-        answer: val.answer,
-        notes: val.notes || null,
-        photo_url: val.photo_url || null
-      }))
-
-      try {
-        const resultsRes = await fetch('/api/missions/results', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            mission_id: mission.id,
-            results: resultsPayload
-          })
-        })
-
-        if (!resultsRes.ok) {
-          const resultsErr = await resultsRes.json().catch(() => ({}))
-          console.error('Error saving mission results via API:', resultsErr.error)
-        }
-      } catch (err) {
-        console.error('Network error saving mission results:', err)
-      }
     }
 
     setLoading(false)
