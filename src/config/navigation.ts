@@ -3,7 +3,7 @@
 // Central Structural Navigation Definitions for V2 App Shell
 // ══════════════════════════════════════════════════════════════
 
-export type NavGroupKey = 'main' | 'operations' | 'admin'
+export type NavGroupKey = 'main' | 'operations' | 'admin' | 'support'
 
 export type NavItem = {
   id: string
@@ -19,6 +19,7 @@ export const V2_NAV_GROUPS: Record<NavGroupKey, string> = {
   main: 'الرئيسية',
   operations: 'العمل الميداني والرقابة',
   admin: 'إدارة المنظومة',
+  support: 'المساعدة والتدريب',
 } as const
 
 export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
@@ -44,12 +45,12 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
   },
   {
     id: 'violations',
-    label: 'سجل المخالفات',
+    label: 'الملاحظات والتصحيح',
     href: '/v2/violations',
     iconName: 'AlertTriangle',
     group: 'operations',
     mobilePriority: 3,
-    description: 'رصد وتصعيد ومعالجة المخالفات الطبية والإدارية',
+    description: 'رصد الملاحظات وتوجيهها للجهات المختصة ومتابعة التصحيح والتصعيد',
   },
   {
     id: 'facilities',
@@ -105,6 +106,15 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     group: 'admin',
     mobilePriority: 9,
     description: 'إعدادات المنظومة وسجلات التدقيق والأمان',
+  },
+  {
+    id: 'help',
+    label: 'مركز المساعدة والتدريب',
+    href: '/v2/help',
+    iconName: 'HelpCircle',
+    group: 'support',
+    mobilePriority: 10,
+    description: 'دليل مبسط حسب دورك وصلاحياتك داخل المنظومة',
   },
 ] as const
 
