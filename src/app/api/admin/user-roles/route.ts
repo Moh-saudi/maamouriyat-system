@@ -366,6 +366,38 @@ export async function POST(request: Request) {
       )
     }
 
+    if (role.is_system) {
+      if (!target.profile.organization_id) {
+        return NextResponse.json(
+          {
+            error: 'المستخدم المستهدف بلا جهة تنظيمية موثوقة لهذا الدور',
+            code: 'ROLE_CONTEXT_DENIED',
+          },
+          { status: 403 }
+        )
+      }
+
+      const targetOrganization = await loadOrganizationResource(
+        target.profile.organization_id
+      )
+
+      if (
+        !targetOrganization ||
+        !isSystemRoleCompatibleWithOrganization({
+          roleCode: role.code,
+          organizationTypeCode: targetOrganization.organizationTypeCode,
+        })
+      ) {
+        return NextResponse.json(
+          {
+            error: 'نوع العمل المحدد غير مناسب للجهة التنظيمية للمستخدم',
+            code: 'ROLE_CONTEXT_DENIED',
+          },
+          { status: 403 }
+        )
+      }
+    }
+
     const { data: grants, error: grantsError } = await admin
       .from('role_permission_grants')
       .select('role_id, permission_key, scope_type')
