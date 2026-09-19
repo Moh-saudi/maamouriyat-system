@@ -154,6 +154,12 @@ export async function GET(request: Request) {
     const gate = await requireV2Permission('missions.view')
     if (!gate.ok) return gate.response
 
+    // Preserve the narrowed authorized context for nested functions and
+    // callbacks. TypeScript does not reliably retain the discriminated-union
+    // narrowing of `gate` across those closure boundaries.
+    const authorizedUser = authorizedUser
+    const authorizedAccess = authorizedAccess
+
     const url = new URL(request.url)
     const rawMode = url.searchParams.get('mode') || ''
     const mode: MissionMode = (
@@ -179,14 +185,14 @@ export async function GET(request: Request) {
     const teamByMission = buildTeamMap(teamRows)
     const assignedMissionIds = new Set(
       teamRows
-        .filter((row) => row.user_id === gate.user.profileId)
+        .filter((row) => row.user_id === authorizedUser.profileId)
         .map((row) => row.mission_id)
     )
 
     for (const mission of missions) {
       if (
-        mission.assigned_user_id === gate.user.profileId ||
-        mission.primary_inspector_id === gate.user.profileId
+        mission.assigned_user_id === authorizedUser.profileId ||
+        mission.primary_inspector_id === authorizedUser.profileId
       ) {
         assignedMissionIds.add(mission.id)
       }
@@ -203,9 +209,9 @@ export async function GET(request: Request) {
     )
 
     const factIds = new Set<string>()
-    if (gate.user.organizationId) factIds.add(gate.user.organizationId)
+    if (authorizedUser.organizationId) factIds.add(authorizedUser.organizationId)
 
-    for (const role of gate.access.roles) {
+    for (const role of authorizedAccess.roles) {
       if (role.assignmentOrganizationId) {
         factIds.add(role.assignmentOrganizationId)
       }
@@ -259,8 +265,8 @@ export async function GET(request: Request) {
       ].filter((value): value is string => Boolean(value))
 
       return evaluateV2ResourceScope({
-        user: gate.user,
-        snapshot: gate.access,
+        user: authorizedUser,
+        snapshot: authorizedAccess,
         permissionKey,
         organizationFacts,
         resource: {
@@ -273,8 +279,8 @@ export async function GET(request: Request) {
       }).allowed
     }
 
-    const canApprove = hasV2Permission(gate.access, 'missions.approve')
-    const canExecute = hasV2Permission(gate.access, 'missions.execute')
+    const canApprove = hasV2Permission(authorizedAccess, 'missions.approve')
+    const canExecute = hasV2Permission(authorizedAccess, 'missions.execute')
     const today = new Date().toISOString().slice(0, 10)
     const groups = new Map<string, GroupAccumulator>()
 
@@ -344,7 +350,7 @@ export async function GET(request: Request) {
           assigned_mission_count: 0,
           executable_mission_count: 0,
           approvable_mission_count: 0,
-          issued_by_me: mission.created_by === gate.user.profileId,
+          issued_by_me: mission.created_by === authorizedUser.profileId,
           overdue_count: 0,
           search_parts: [],
         }
