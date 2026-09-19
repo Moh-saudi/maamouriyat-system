@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { CompactFilterSelect } from '@/components/ui/CompactFilterSelect'
+import { getFacilityTypeLabel } from '@/config/facility-types'
 import {
   AlertTriangle,
   Bookmark,
@@ -373,7 +375,9 @@ export function MissionAssignmentForm() {
             .map((facility) => facility.facility_type)
             .filter(Boolean)
         ),
-      ].sort((a, b) => a.localeCompare(b, 'ar')),
+      ].sort((a, b) =>
+        getFacilityTypeLabel(a).localeCompare(getFacilityTypeLabel(b), 'ar')
+      ),
     [sourceFacilities]
   )
 
@@ -1234,78 +1238,87 @@ export function MissionAssignmentForm() {
                       />
                     </div>
 
-                    <select
+                    <CompactFilterSelect
                       value={governorateFilter}
-                      onChange={(event) => {
-                        setGovernorateFilter(event.target.value)
+                      onChange={(value) => {
+                        setGovernorateFilter(value)
                         setHealthAdminFilter('')
                       }}
-                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
-                    >
-                      <option value="">كل المحافظات</option>
-                      {governorates.map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="كل المحافظات"
+                      options={governorates.map((value) => ({
+                        value,
+                        label: value,
+                      }))}
+                    />
 
-                    <select
+                    <CompactFilterSelect
                       value={healthAdminFilter}
-                      onChange={(event) =>
-                        setHealthAdminFilter(event.target.value)
-                      }
-                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
-                    >
-                      <option value="">كل الإدارات الصحية</option>
-                      {healthAdmins.map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setHealthAdminFilter}
+                      placeholder="كل الإدارات الصحية"
+                      options={healthAdmins.map((value) => ({
+                        value,
+                        label: value,
+                      }))}
+                    />
 
-                    <select
+                    <CompactFilterSelect
                       value={facilityTypeFilter}
-                      onChange={(event) =>
-                        setFacilityTypeFilter(event.target.value)
-                      }
-                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
-                    >
-                      <option value="">كل أنواع المنشآت</option>
-                      {facilityTypes.map((value) => (
-                        <option key={value} value={value}>
-                          {value}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setFacilityTypeFilter}
+                      placeholder="كل أنواع المنشآت"
+                      options={facilityTypes.map((value) => ({
+                        value,
+                        label: getFacilityTypeLabel(value),
+                        meta:
+                          sourceFacilities
+                            .filter(
+                              (facility) => facility.facility_type === value
+                            )
+                            .length.toLocaleString('en-US'),
+                      }))}
+                    />
 
-                    <select
-                      value={visitFilter}
-                      onChange={(event) =>
-                        setVisitFilter(event.target.value as VisitFilter)
+                    <CompactFilterSelect
+                      value={visitFilter === 'all' ? '' : visitFilter}
+                      onChange={(value) =>
+                        setVisitFilter(
+                          value === 'visited'
+                            ? 'visited'
+                            : value === 'unvisited'
+                              ? 'unvisited'
+                              : 'all'
+                        )
                       }
-                      className="h-10 rounded-xl border border-slate-200 bg-white px-2 text-[11px] outline-none"
-                    >
-                      <option value="all">كل حالات المرور</option>
-                      <option value="unvisited">لم يتم المرور</option>
-                      <option value="visited">تم المرور سابقًا</option>
-                    </select>
+                      placeholder="كل حالات المرور"
+                      options={[
+                        { value: 'unvisited', label: 'لم يتم المرور' },
+                        { value: 'visited', label: 'تم المرور سابقًا' },
+                      ]}
+                    />
                   </div>
 
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    <select
+                    <CompactFilterSelect
                       value={facilitySort}
-                      onChange={(event) =>
-                        setFacilitySort(event.target.value as FacilitySort)
+                      onChange={(value) =>
+                        setFacilitySort(
+                          (value || 'least_visited') as FacilitySort
+                        )
                       }
-                      className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[10px] outline-none"
-                    >
-                      <option value="least_visited">الأقل مرورًا أولًا</option>
-                      <option value="most_visited">الأكثر مرورًا أولًا</option>
-                      <option value="recent">الأحدث زيارة أولًا</option>
-                      <option value="name">بالاسم</option>
-                    </select>
+                      placeholder="الأقل مرورًا أولًا"
+                      className="w-48"
+                      options={[
+                        {
+                          value: 'least_visited',
+                          label: 'الأقل مرورًا أولًا',
+                        },
+                        {
+                          value: 'most_visited',
+                          label: 'الأكثر مرورًا أولًا',
+                        },
+                        { value: 'recent', label: 'الأحدث زيارة أولًا' },
+                        { value: 'name', label: 'بالاسم' },
+                      ]}
+                    />
 
                     <div className="flex flex-wrap gap-1.5">
                       <button
@@ -1425,7 +1438,7 @@ export function MissionAssignmentForm() {
                                 : ''}
                             </p>
                             <div className="mt-1.5 flex flex-wrap gap-2 text-[9px] text-slate-400">
-                              <span>{facility.facility_type}</span>
+                              <span>{getFacilityTypeLabel(facility.facility_type)}</span>
                               {facility.last_visited_at && (
                                 <span>
                                   آخر مرور: {formatVisitDate(facility.last_visited_at)}
