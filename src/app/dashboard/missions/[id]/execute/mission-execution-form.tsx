@@ -100,6 +100,7 @@ export function MissionExecutionForm({
   facilities,
   governorates,
   mission,
+  returnHref = '/v2/missions',
   users = [],
   currentUserLevel = 7,
   savedResults = [],
@@ -112,6 +113,7 @@ export function MissionExecutionForm({
   facilities: Facility[]
   governorates: Governorate[]
   mission: Mission
+  returnHref?: string
   users?: any[]
   currentUserLevel?: number
   savedResults?: any[]
@@ -1887,7 +1889,7 @@ export function MissionExecutionForm({
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
           <button
-            onClick={() => router.push('/dashboard/missions')}
+            onClick={() => router.push(returnHref)}
             style={{
               background: '#37474f',
               color: 'white',
@@ -1900,7 +1902,7 @@ export function MissionExecutionForm({
               boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
             }}
           >
-            ← العودة لجدول المأموريات
+            ← العودة إلى التكليف
           </button>
         </div>
       </div>
@@ -1922,7 +1924,7 @@ export function MissionExecutionForm({
         </div>
         <button
           type="button"
-          onClick={() => router.push('/dashboard/missions')}
+          onClick={() => router.push(returnHref)}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -1938,7 +1940,7 @@ export function MissionExecutionForm({
             boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
           }}
         >
-          ← العودة لجدول المأموريات
+          ← العودة إلى التكليف
         </button>
       </div>
 
@@ -3906,7 +3908,7 @@ export function MissionExecutionForm({
               </button>
               <button
                 type="button"
-                onClick={() => router.push('/dashboard/missions')}
+                onClick={() => router.push(returnHref)}
                 style={{
                   background: '#f1f5f9',
                   color: '#334155',
@@ -3918,7 +3920,7 @@ export function MissionExecutionForm({
                   cursor: 'pointer'
                 }}
               >
-                📋 العودة إلى جدول المأموريات
+                📋 العودة إلى التكليف
               </button>
             </div>
           </div>
