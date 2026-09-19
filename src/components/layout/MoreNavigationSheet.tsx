@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { X, ChevronLeft } from 'lucide-react'
-import { Drawer } from '@heroui/react'
+import { Drawer, useOverlayState } from '@heroui/react'
 import { NavIcon } from './NavIcon'
 import {
   type NavItem,
@@ -25,6 +25,10 @@ export function MoreNavigationSheet({
   items,
 }: MoreNavigationSheetProps) {
   const pathname = usePathname()
+  const drawerState = useOverlayState({
+    isOpen,
+    onOpenChange,
+  })
   const sourceItems = items ?? V2_NAVIGATION_ITEMS
   const navItems = getMobileMoreNavItems(sourceItems, 4)
 
@@ -36,7 +40,7 @@ export function MoreNavigationSheet({
   const activeGroups = Array.from(new Set(navItems.map((item) => item.group)))
 
   return (
-    <Drawer.Root isOpen={isOpen} onOpenChange={onOpenChange}>
+    <Drawer.Root state={drawerState}>
       <Drawer.Backdrop className="bg-slate-900/40 backdrop-blur-xs fixed inset-0 z-50 transition-opacity">
         <Drawer.Content
           placement="bottom"
