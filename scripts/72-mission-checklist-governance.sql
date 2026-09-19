@@ -278,8 +278,8 @@ BEGIN
   IF FOUND THEN
     SELECT COUNT(*)::INTEGER
     INTO v_answers
-    FROM public.mission_results
-    WHERE checklist_run_id = v_current.id;
+    FROM public.mission_results mr
+    WHERE mr.checklist_run_id = v_current.id;
 
     UPDATE public.mission_checklist_runs
     SET
@@ -290,9 +290,9 @@ BEGIN
   ELSE
     v_answers := (
       SELECT COUNT(*)::INTEGER
-      FROM public.mission_results
-      WHERE mission_id = p_mission_id
-        AND checklist_run_id IS NULL
+      FROM public.mission_results mr
+      WHERE mr.mission_id = p_mission_id
+        AND mr.checklist_run_id IS NULL
     );
   END IF;
 
