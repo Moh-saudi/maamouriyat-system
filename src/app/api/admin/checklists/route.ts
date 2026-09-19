@@ -40,7 +40,7 @@ export async function GET() {
         .order('name', { ascending: true }),
       adminClient
         .from('form_templates')
-        .select('id, name, version, description, applicable_sectors, is_base, is_active, created_at, updated_at')
+        .select('id, name, version, description, created_by_org, created_by_user_id, visibility, applicable_sectors, is_base, is_active, created_at, updated_at')
         .eq('is_active', true)
         .order('is_base', { ascending: false }),
       adminClient
@@ -62,7 +62,21 @@ export async function GET() {
     ])
 
     const sectors = sectorsRes.data || []
-    const templates = templatesRes.data || []
+    const canSeeOrganizationTemplates =
+      gate.access.permissions['checklists.design']?.sources.some(
+        (source) => source.scopeType === 'national'
+      ) === true
+    const templates = (templatesRes.data || []).filter((template) => {
+      if (template.visibility === 'system') return true
+      if (template.created_by_user_id === gate.user.profileId) return true
+      if (
+        template.visibility === 'organization' &&
+        canSeeOrganizationTemplates
+      ) {
+        return true
+      }
+      return false
+    })
     const sections = sectionsRes.data || []
     const criteria = criteriaRes.data || []
 
