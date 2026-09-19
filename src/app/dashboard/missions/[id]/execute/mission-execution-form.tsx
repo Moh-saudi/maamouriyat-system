@@ -704,16 +704,13 @@ export function MissionExecutionForm({
   useEffect(() => {
     const loadCustomChecklists = async () => {
       try {
-        const [policyRes, apiRes] = await Promise.all([
-          fetch('/api/v2/missions/' + mission.id + '/checklist', {
+        const policyRes = await fetch(
+          '/api/v2/missions/' + mission.id + '/checklist',
+          {
             cache: 'no-store',
             credentials: 'same-origin',
-          }),
-          fetch('/api/admin/checklists', {
-            cache: 'no-store',
-            credentials: 'same-origin',
-          }),
-        ])
+          }
+        )
 
         if (!policyRes.ok) {
           const policyError = await policyRes.json().catch(() => ({}))
@@ -724,18 +721,10 @@ export function MissionExecutionForm({
           return
         }
 
-        if (!apiRes.ok) {
-          setError('تعذر تحميل بنود الاستمارة المعتمدة.')
-          return
-        }
-
         const policy = await policyRes.json()
-        const resData = await apiRes.json()
-        const templates =
-          resData.templates || (Array.isArray(resData) ? resData : [])
-        const allowedTemplateIds = new Set(
-          (policy.templates || []).map((item: any) => String(item.id))
-        )
+        const templates = Array.isArray(policy.templates)
+          ? policy.templates
+          : []
 
         setChecklistRunId(policy.active_run?.id || null)
         setCanChangeTemplate(policy.can_change === true)
@@ -746,11 +735,7 @@ export function MissionExecutionForm({
         setChecklistAnswerCount(Number(policy.answer_count || 0))
 
         const mappedTemplates: any[] = []
-        templates
-          .filter((tmpl: any) =>
-            allowedTemplateIds.has(String(tmpl.id))
-          )
-          .forEach((tmpl: any) => {
+        templates.forEach((tmpl: any) => {
           const mappedSections: any[] = []
           ;(tmpl.sections || []).forEach((sec: any) => {
             const items = (sec.criteria || sec.checklist_items || [])
