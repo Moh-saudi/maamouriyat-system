@@ -157,7 +157,7 @@ export function FacilitiesExplorer({
   const [facilityType, setFacilityType] = useState('')
   const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('all')
   const [facilities, setFacilities] = useState<V2FacilityDirectoryItem[]>(
-    facilities
+    data.facilities
   )
   const [auditRevision, setAuditRevision] = useState(0)
   const [page, setPage] = useState(1)
@@ -175,8 +175,8 @@ export function FacilitiesExplorer({
   const [statusError, setStatusError] = useState<string | null>(null)
 
   useEffect(() => {
-    setFacilities(facilities)
-  }, [facilities])
+    setFacilities(data.facilities)
+  }, [data.facilities])
 
   const governorates = useMemo(
     () =>
