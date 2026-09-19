@@ -6,7 +6,6 @@ import { defaultCorrectionUnits, type CorrectionUnitOption } from '@/lib/correct
 import { createBrowserSupabaseClient } from '@/lib/supabase/client'
 import { Camera, Trash2, Check, Star } from 'lucide-react'
 import imageCompression from 'browser-image-compression'
-import { getChecklistByDepartment } from '@/lib/checklist-data'
 import styles from './execute.module.css'
 import { SearchableAddableSelect } from '@/app/system-ui'
 import { formatFacilityType } from '@/lib/facility-types'
@@ -1028,10 +1027,11 @@ export function MissionExecutionForm({
       return localCustomChecklists
     }
 
-    // 2. Fallback to built-in department checklist if API is unavailable
-    const baseChecklist = getChecklistByDepartment(currentUserDept)
-    return baseChecklist
-  }, [currentUserDept, availableTemplates, selectedTemplateId, localCustomChecklists])
+    // V2 execution must never silently fall back to another checklist.
+    // If the assigned template cannot be loaded, execution stays blocked
+    // until the governed mission template is available again.
+    return []
+  }, [availableTemplates, selectedTemplateId, localCustomChecklists])
 
   const activeTemplate = useMemo(
     () =>
