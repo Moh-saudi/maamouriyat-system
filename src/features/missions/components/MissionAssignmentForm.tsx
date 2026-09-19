@@ -132,7 +132,12 @@ type CreateResponse = {
 
 type Step = 1 | 2 | 3
 type SourceMode = 'manual' | 'target' | 'program'
-type VisitFilter = 'all' | 'visited' | 'unvisited'
+type VisitFilter =
+  | 'all'
+  | 'visited'
+  | 'unvisited'
+  | 'stale_90'
+  | 'stale_180'
 type FacilitySort = 'least_visited' | 'most_visited' | 'name' | 'recent'
 type TemplateTab = 'mine' | 'available'
 
@@ -411,6 +416,20 @@ export function MissionAssignmentForm() {
 
       if (visitFilter === 'unvisited' && facility.visit_count > 0) {
         return false
+      }
+
+      if (visitFilter === 'stale_90') {
+        if (!facility.last_visited_at) return true
+        const age =
+          Date.now() - new Date(facility.last_visited_at).getTime()
+        if (age < 90 * 24 * 60 * 60 * 1000) return false
+      }
+
+      if (visitFilter === 'stale_180') {
+        if (!facility.last_visited_at) return true
+        const age =
+          Date.now() - new Date(facility.last_visited_at).getTime()
+        if (age < 180 * 24 * 60 * 60 * 1000) return false
       }
 
       if (!q) return true
@@ -1103,12 +1122,28 @@ export function MissionAssignmentForm() {
                               <p className="mt-1 text-[9px] text-slate-400">
                                 {target.period_label} · {target.scope_name}
                               </p>
-                              <p className="mt-1 text-[9px] font-bold text-slate-500">
-                                {target.target_type === 'specific_facilities'
-                                  ? 'منشآت محددة بالاسم'
-                                  : 'مستهدف تراكمي بالعدد'}
-                                {' · '}المطلوب {target.target_missions.toLocaleString('en-US')} مأمورية
-                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <span
+                                  className={
+                                    'rounded-full px-2 py-0.5 text-[8px] font-black ' +
+                                    (target.scope_level === 'user'
+                                      ? 'bg-violet-50 text-violet-700'
+                                      : 'bg-blue-50 text-blue-700')
+                                  }
+                                >
+                                  {target.scope_level === 'user'
+                                    ? 'مستهدف مستخدم'
+                                    : 'مستهدف مكاني'}
+                                </span>
+                                <span className="text-[9px] font-bold text-slate-500">
+                                  {target.target_type === 'specific_facilities'
+                                    ? 'منشآت محددة بالاسم'
+                                    : 'مستهدف تراكمي بالعدد'}
+                                  {' · '}المطلوب{' '}
+                                  {target.target_missions.toLocaleString('en-US')}{' '}
+                                  مأمورية
+                                </span>
+                              </div>
                             </div>
                             <span className="shrink-0 rounded-full bg-teal-50 px-2 py-1 text-[9px] font-black text-teal-800">
                               {target.facility_count.toLocaleString('en-US')} منشأة
@@ -1281,16 +1316,25 @@ export function MissionAssignmentForm() {
                       value={visitFilter === 'all' ? '' : visitFilter}
                       onChange={(value) =>
                         setVisitFilter(
-                          value === 'visited'
-                            ? 'visited'
-                            : value === 'unvisited'
-                              ? 'unvisited'
-                              : 'all'
+                          value === 'visited' ||
+                            value === 'unvisited' ||
+                            value === 'stale_90' ||
+                            value === 'stale_180'
+                            ? value
+                            : 'all'
                         )
                       }
                       placeholder="كل حالات المرور"
                       options={[
-                        { value: 'unvisited', label: 'لم يتم المرور' },
+                        { value: 'unvisited', label: 'لم يتم المرور مطلقًا' },
+                        {
+                          value: 'stale_180',
+                          label: 'لم يتم المرور منذ 6 أشهر',
+                        },
+                        {
+                          value: 'stale_90',
+                          label: 'لم يتم المرور منذ 3 أشهر',
+                        },
                         { value: 'visited', label: 'تم المرور سابقًا' },
                       ]}
                     />
