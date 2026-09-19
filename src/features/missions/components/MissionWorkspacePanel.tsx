@@ -108,6 +108,8 @@ type DetailMission = {
     governorate: string | null
     health_admin: string | null
     village_city: string | null
+    organization_name: string
+    sector_name: string | null
   } | null
   creator: {
     id: string
@@ -294,7 +296,13 @@ function geographicGroups(rows: DetailMission[]) {
   return [...groups.values()]
 }
 
-function MissionDetailRow({ mission }: { mission: DetailMission }) {
+function MissionDetailRow({
+  mission,
+  grouped,
+}: {
+  mission: DetailMission
+  grouped: boolean
+}) {
   const status = statusMeta(mission.status)
   const lifecycle = resolveMissionOperationalState({
     status: mission.status,
@@ -333,18 +341,32 @@ function MissionDetailRow({ mission }: { mission: DetailMission }) {
         <p className="mt-1.5 truncate text-[11px] font-extrabold text-slate-800">
           {mission.facility?.name ?? 'منشأة غير متاحة'}
         </p>
-        <p className="mt-1 truncate text-[9px] text-slate-400">
-          {mission.facility?.health_admin ||
-            mission.facility?.governorate ||
-            '—'}
-          {mission.facility?.facility_type
-            ? ' · ' +
-              getFacilityTypeLabel(mission.facility.facility_type)
-            : ''}
-          {mission.primary_inspector?.name
-            ? ' · رئيس الفريق: ' + mission.primary_inspector.name
-            : ''}
-        </p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[8px] font-bold">
+          <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">
+            المحافظة: {mission.facility?.governorate || 'غير محددة'}
+          </span>
+          <span className="rounded-full bg-teal-50 px-2 py-1 text-teal-700">
+            الإدارة الصحية: {mission.facility?.health_admin || 'غير محددة'}
+          </span>
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
+            التبعية: {mission.facility?.organization_name || 'غير محددة'}
+          </span>
+          {mission.facility?.sector_name && (
+            <span className="rounded-full bg-violet-50 px-2 py-1 text-violet-700">
+              القطاع: {mission.facility.sector_name}
+            </span>
+          )}
+          {mission.facility?.facility_type && (
+            <span className="rounded-full bg-slate-50 px-2 py-1 text-slate-500">
+              {getFacilityTypeLabel(mission.facility.facility_type)}
+            </span>
+          )}
+        </div>
+        {mission.primary_inspector?.name && (
+          <p className="mt-1 text-[8px] text-slate-400">
+            رئيس الفريق: {mission.primary_inspector.name}
+          </p>
+        )}
         {mission.actual_duration_days && (
           <p className="mt-1 text-[8px] font-bold text-slate-500">
             المدة الفعلية: {mission.actual_duration_days.toLocaleString('en-US')} يوم
@@ -359,15 +381,19 @@ function MissionDetailRow({ mission }: { mission: DetailMission }) {
         <span className="text-[9px] font-bold text-slate-400">
           {formatDate(mission.scheduled_date)}
         </span>
-        <Link
-          href={'/dashboard/missions/' + mission.id + '/print'}
-          className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50"
-        >
-          <Printer className="h-3.5 w-3.5" />
-          {lifecycle.key === 'executed' || lifecycle.key === 'ended'
-            ? 'طباعة التقرير'
-            : 'طباعة التكليف'}
-        </Link>
+        {(lifecycle.key === 'executed' ||
+          lifecycle.key === 'ended' ||
+          !grouped) && (
+          <Link
+            href={'/dashboard/missions/' + mission.id + '/print'}
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            {lifecycle.key === 'executed' || lifecycle.key === 'ended'
+              ? 'طباعة التقرير'
+              : 'طباعة التكليف'}
+          </Link>
+        )}
         {mission.relations.can_execute && (
           <Link
             href={'/dashboard/missions/' + mission.id + '/execute'}
@@ -794,6 +820,11 @@ export function MissionWorkspacePanel({
                           <span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500">
                             أولوية {priorityLabel(group.priority)}
                           </span>
+                          {group.governorates.length > 1 && (
+                            <span className="rounded-full bg-rose-50 px-2 py-1 text-[9px] font-black text-rose-700 ring-1 ring-rose-100">
+                              سجل قديم متعدد المحافظات
+                            </span>
+                          )}
                           {group.overdue_count > 0 && (
                             <span className="rounded-full bg-rose-50 px-2 py-1 text-[9px] font-black text-rose-700">
                               {group.overdue_count.toLocaleString('en-US')} متأخرة
@@ -986,6 +1017,7 @@ export function MissionWorkspacePanel({
                                   <MissionDetailRow
                                     key={mission.id}
                                     mission={mission}
+                                    grouped={group.mission_count > 1}
                                   />
                                 ))}
                               </div>
@@ -998,10 +1030,23 @@ export function MissionWorkspacePanel({
                             <MissionDetailRow
                               key={mission.id}
                               mission={mission}
+                              grouped={group.mission_count > 1}
                             />
                           ))}
                         </div>
                       )}
+
+                      <div className="mt-3 flex flex-wrap justify-end gap-2">
+                        {group.batch_id && (
+                          <Link
+                            href={'/v2/missions/assignments/' + group.batch_id + '/print'}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 text-[9px] font-bold text-teal-800 hover:bg-teal-50"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                            طباعة التكليف المجمع
+                          </Link>
+                        )}
+                      </div>
 
                       {group.relations.can_approve && (
                         <div className="mt-3 flex justify-end">
