@@ -5,8 +5,6 @@ import {
   ArrowRight,
   Building2,
   CheckCircle2,
-  FileText,
-  MapPin,
   Users,
 } from 'lucide-react'
 import { MissionDocumentPrintButton } from '@/features/missions/components/MissionDocumentPrintButton'
@@ -22,6 +20,7 @@ import {
   loadWorkspaceTeamRows,
   loadWorkspaceUsers,
   normalizeMissionWorkspaceStatus,
+  type MissionWorkspaceFacilityRow,
   type MissionWorkspaceMissionRow,
   type MissionWorkspaceTeamRow,
   type MissionWorkspaceUserRow,
@@ -30,6 +29,14 @@ import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 type PageProps = {
   params: Promise<{ batchId: string }>
+}
+
+type PrintedReportRow = {
+  mission: MissionWorkspaceMissionRow
+  facility: MissionWorkspaceFacilityRow
+  organization: string
+  sector: string | null
+  recommendations: string | null
 }
 
 type BatchRow = {
@@ -227,7 +234,7 @@ export default async function GroupedMissionReportPrintPage({
         recommendations: extractRecommendations(mission.notes),
       }
     })
-    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .filter((row): row is PrintedReportRow => Boolean(row))
     .sort((a, b) => {
       const adminCompare = (a.facility.health_admin ?? '').localeCompare(
         b.facility.health_admin ?? '',
