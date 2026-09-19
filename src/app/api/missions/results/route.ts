@@ -111,11 +111,11 @@ async function loadMissionTeamState(
   }
 }
 
-async function loadActiveChecklistRunId(missionId: string) {
+async function loadActiveChecklistRun(missionId: string) {
   const admin = getAdminSupabaseClient()
   const { data, error } = await admin
     .from('mission_checklist_runs')
-    .select('id')
+    .select('id, template_id')
     .eq('mission_id', missionId)
     .eq('status', 'active')
     .order('created_at', { ascending: false })
@@ -129,7 +129,12 @@ async function loadActiveChecklistRunId(missionId: string) {
     )
   }
 
-  return data?.id ? String(data.id) : null
+  return data?.id
+    ? {
+        id: String(data.id),
+        templateId: String(data.template_id),
+      }
+    : null
 }
 
 function encodeMissionResultAnswer(value: unknown): string | null {
@@ -210,7 +215,8 @@ export async function GET(request: Request) {
     if (!missionAccess.ok) return missionAccess.response
 
     const admin = getAdminSupabaseClient()
-    const activeRunId = await loadActiveChecklistRunId(missionId)
+    const activeRun = await loadActiveChecklistRun(missionId)
+    const activeRunId = activeRun?.id ?? null
 
     let query = admin
       .from('mission_results')
@@ -274,6 +280,7 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as {
       mission_id?: unknown
+      checklist_run_id?: unknown
       results?: unknown
     }
 
@@ -317,6 +324,33 @@ export async function POST(request: Request) {
     }
 
     const admin = getAdminSupabaseClient()
+    const activeRun = await loadActiveChecklistRun(missionId)
+    const requestedRunId =
+      typeof body.checklist_run_id === 'string'
+        ? body.checklist_run_id
+        : null
+
+    if (!activeRun) {
+      return NextResponse.json(
+        {
+          error:
+            'جلسة الاستمارة غير متاحة. أعد تحميل صفحة المأمورية قبل الحفظ.',
+          code: 'CHECKLIST_RUN_REQUIRED',
+        },
+        { status: 409 }
+      )
+    }
+
+    if (requestedRunId && requestedRunId !== activeRun.id) {
+      return NextResponse.json(
+        {
+          error:
+            'تم تغيير استمارة المأمورية أثناء فتح هذه الصفحة. أعد تحميل الصفحة قبل تسجيل أي إجابات جديدة.',
+          code: 'CHECKLIST_RUN_CHANGED',
+        },
+        { status: 409 }
+      )
+    }
 
     const rawIds = [
       ...new Set(
@@ -340,6 +374,7 @@ export async function POST(request: Request) {
         ? admin
             .from('form_criteria')
             .select('id')
+            .eq('template_id', activeRun.templateId)
             .in('id', rawIds)
         : Promise.resolve({ data: [], error: null }),
     ])
@@ -363,6 +398,24 @@ export async function POST(request: Request) {
     const validFormCriterionIds = new Set(
       (validCriteria ?? []).map((item) => String(item.id))
     )
+
+    const submittedModernIds = rawIds.filter(
+      (id) => !validLegacyItemIds.has(id)
+    )
+    const invalidModernIds = submittedModernIds.filter(
+      (id) => !validFormCriterionIds.has(id)
+    )
+
+    if (invalidModernIds.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            'تحتوي الإجابات على بنود لا تنتمي إلى الاستمارة النشطة. أعد تحميل الصفحة قبل الحفظ.',
+          code: 'CHECKLIST_ITEMS_STALE',
+        },
+        { status: 409 }
+      )
+    }
 
     const payload = (body.results as MissionResultInput[]).map((result) =>
       normalizeResultInput(
