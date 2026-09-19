@@ -62,6 +62,7 @@ type OptionsPayload = {
   inspectors?: InspectorOption[]
   templates?: TemplateOption[]
   canApprove?: boolean
+  preparationMode?: 'secretariat' | 'issuer'
   error?: string
 }
 
@@ -151,6 +152,9 @@ export function MissionAssignmentForm() {
   const [inspectors, setInspectors] = useState<InspectorOption[]>([])
   const [templates, setTemplates] = useState<TemplateOption[]>([])
   const [canApprove, setCanApprove] = useState(false)
+  const [preparationMode, setPreparationMode] = useState<
+    'secretariat' | 'issuer'
+  >('issuer')
 
   const [facilitySearch, setFacilitySearch] = useState('')
   const [inspectorSearch, setInspectorSearch] = useState('')
@@ -192,6 +196,7 @@ export function MissionAssignmentForm() {
         setInspectors(payload.inspectors ?? [])
         setTemplates(nextTemplates)
         setCanApprove(payload.canApprove === true)
+        setPreparationMode(payload.preparationMode ?? 'issuer')
 
         const baseTemplate =
           nextTemplates.find((template) => template.is_base) ??
@@ -964,12 +969,16 @@ export function MissionAssignmentForm() {
                 <p className="text-xs font-extrabold text-slate-900">
                   {canApprove
                     ? 'سيصدر التكليف معتمدًا'
-                    : 'سيصدر التكليف بانتظار الاعتماد'}
+                    : preparationMode === 'secretariat'
+                      ? 'سيتم إرسال التكليف للاعتماد'
+                      : 'سيصدر التكليف بانتظار الاعتماد'}
                 </p>
                 <p className="mt-1 text-[10px] leading-5 text-slate-500">
                   {canApprove
                     ? 'حسابك يملك صلاحية اعتماد المأموريات داخل هذا النطاق.'
-                    : 'حسابك يستطيع الإنشاء والتكليف، لكن الاعتماد النهائي يحتاج جهة مخولة.'}
+                    : preparationMode === 'secretariat'
+                      ? 'أنت تعد نموذج التكليف وتقترح الفريق فقط؛ لا يصبح التكليف نافذًا ولا تصل إشعارات للفريق قبل اعتماد جهة مخولة.'
+                      : 'حسابك يستطيع الإنشاء والتكليف، لكن الاعتماد النهائي يحتاج جهة مخولة.'}
                 </p>
               </div>
             </div>
