@@ -1470,6 +1470,9 @@ export function MissionAssignmentForm() {
                           className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1.5 text-[10px] font-bold text-teal-800 ring-1 ring-teal-100"
                         >
                           {facility.name}
+                          {facility.governorate
+                            ? ' · ' + facility.governorate
+                            : ''}
                           <X className="h-3 w-3" />
                         </button>
                       ))}
