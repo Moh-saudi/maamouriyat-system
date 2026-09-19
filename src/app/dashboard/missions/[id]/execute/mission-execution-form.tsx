@@ -1384,7 +1384,11 @@ export function MissionExecutionForm({
   function validateChecklistCompletion(): { valid: boolean; error?: string; targetItemId?: string; targetSectionId?: string } {
     const allSections = checklistSections
     if (!allSections || allSections.length === 0) {
-      return { valid: true }
+      return {
+        valid: false,
+        error:
+          'لا يمكن إنهاء المأمورية لأن الاستمارة المعتمدة لم تُحمّل أو لا تحتوي على بنود تنفيذ. أعد تحميل الصفحة أو راجع مركز المعلومات قبل المتابعة.'
+      }
     }
 
     const unansweredList: { id: string; text: string; sectionName: string; sectionId: string }[] = []
