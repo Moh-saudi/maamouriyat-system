@@ -36,11 +36,38 @@ function callerRoleCodes(
   return new Set(access.roles.map((role) => role.roleCode))
 }
 
+function isSystemRoleCompatibleWithOrganization(input: {
+  roleCode: string
+  organizationTypeCode: string | null
+}): boolean {
+  const { roleCode, organizationTypeCode } = input
+
+  if (!organizationTypeCode) return false
+
+  const exactLeadershipType: Record<string, string> = {
+    system_techadmin: 'ministry',
+    system_superadmin: 'ministry',
+    sector_manager: 'sector',
+    central_admin_manager: 'central_administration',
+    general_admin_manager: 'general_administration',
+    directorate_manager: 'health_directorate',
+    health_admin_manager: 'health_administration',
+  }
+
+  const requiredType = exactLeadershipType[roleCode]
+  if (requiredType) return organizationTypeCode === requiredType
+
+  // Operational roles remain flexible and are constrained by RBAC scope and
+  // delegation checks. This supports Information Center units represented as
+  // administration/department/section nodes in the organization tree.
+  return roleCode === 'information_center' || roleCode === 'field_inspector'
+}
+
 async function loadOrganizationResource(organizationId: string) {
   const admin = getAdminSupabaseClient()
   const { data, error } = await admin
     .from('organizations')
-    .select('id, level, sector_id, governorate')
+    .select('id, level, organization_type_code, sector_id, governorate')
     .eq('id', organizationId)
     .maybeSingle()
 
@@ -52,8 +79,12 @@ async function loadOrganizationResource(organizationId: string) {
 
   return {
     organizationId: String(data.id),
+    organizationTypeCode:
+      typeof data.organization_type_code === 'string'
+        ? data.organization_type_code
+        : null,
     sectorId:
-      Number(data.level) === 2
+      data.organization_type_code === 'sector'
         ? String(data.id)
         : data.sector_id
           ? String(data.sector_id)
@@ -68,30 +99,60 @@ export async function GET(request: Request) {
     const gate = await requireV2Permission('users.assign_role')
     if (!gate.ok) return gate.response
 
-    const userId = new URL(request.url).searchParams.get('user_id')
-    if (!userId) {
+    const params = new URL(request.url).searchParams
+    const userId = params.get('user_id')
+    const previewOrganizationId = params.get('preview_organization_id')
+
+    if (!userId && !previewOrganizationId) {
       return NextResponse.json(
-        { error: 'معرف المستخدم مطلوب' },
+        { error: 'معرف المستخدم أو الجهة مطلوب' },
         { status: 400 }
       )
     }
 
-    const target = await loadUserAuthorizationResource(userId)
-    if (!target) {
+    const target = userId
+      ? await loadUserAuthorizationResource(userId)
+      : null
+
+    if (userId && !target) {
       return NextResponse.json(
         { error: 'المستخدم غير موجود' },
         { status: 404 }
       )
     }
 
-    const decision = await checkV2ResourceAccess({
+    const targetOrganizationId =
+      target?.profile.organization_id ?? previewOrganizationId
+
+    if (!targetOrganizationId) {
+      return NextResponse.json(
+        { error: 'لا توجد جهة تنظيمية موثوقة لتحديد أنواع العمل المتاحة' },
+        { status: 400 }
+      )
+    }
+
+    const organizationResource =
+      await loadOrganizationResource(targetOrganizationId)
+
+    if (!organizationResource) {
+      return NextResponse.json(
+        { error: 'الجهة التنظيمية غير موجودة' },
+        { status: 404 }
+      )
+    }
+
+    const resourceDecision = await checkV2ResourceAccess({
       user: gate.user,
       snapshot: gate.access,
       permissionKey: 'users.assign_role',
-      resource: target.resource,
+      resource: {
+        organizationId: organizationResource.organizationId,
+        sectorId: organizationResource.sectorId,
+        governorate: organizationResource.governorate,
+      },
     })
 
-    if (!decision.allowed) {
+    if (!resourceDecision.allowed) {
       return NextResponse.json(
         { error: 'لا يمكنك إدارة أدوار مستخدم خارج نطاقك', code: 'SCOPE_DENIED' },
         { status: 403 }
@@ -100,24 +161,38 @@ export async function GET(request: Request) {
 
     const admin = getAdminSupabaseClient()
 
-    const [{ data: roleRows, error: rolesError }, { data: assignments, error: assignmentsError }] =
-      await Promise.all([
-        admin
-          .from('roles')
-          .select('id, code, name_ar, description_ar, owner_organization_id, is_system, is_active, priority')
-          .eq('is_active', true)
-          .order('priority'),
-        admin
-          .from('user_roles')
-          .select('id, role_id, assignment_org_id, is_active, valid_from, valid_until, assigned_by')
-          .eq('user_id', userId)
-          .order('created_at'),
-      ])
+    const [
+      { data: roleRows, error: rolesError },
+      { data: assignments, error: assignmentsError },
+      { data: grantRows, error: grantsError },
+    ] = await Promise.all([
+      admin
+        .from('roles')
+        .select(
+          'id, code, name_ar, description_ar, owner_organization_id, is_system, is_active, priority'
+        )
+        .eq('is_active', true)
+        .order('priority'),
+      userId
+        ? admin
+            .from('user_roles')
+            .select(
+              'id, role_id, assignment_org_id, is_active, valid_from, valid_until, assigned_by'
+            )
+            .eq('user_id', userId)
+            .order('created_at')
+        : Promise.resolve({ data: [], error: null }),
+      admin
+        .from('role_permission_grants')
+        .select('role_id, permission_key, scope_type'),
+    ])
 
-    if (rolesError || assignmentsError) {
+    if (rolesError || assignmentsError || grantsError) {
       console.error(
         '[user-roles:GET] query failed:',
-        rolesError?.message || assignmentsError?.message
+        rolesError?.message ||
+          assignmentsError?.message ||
+          grantsError?.message
       )
       return NextResponse.json(
         { error: 'تعذر تحميل الأدوار' },
@@ -126,22 +201,89 @@ export async function GET(request: Request) {
     }
 
     const callerRoles = callerRoleCodes(gate.access)
+    const grantsByRole = new Map<string, GrantRow[]>()
+
+    for (const grant of (grantRows ?? []) as GrantRow[]) {
+      const current = grantsByRole.get(grant.role_id) ?? []
+      current.push(grant)
+      grantsByRole.set(grant.role_id, current)
+    }
+
+    const customOwnerIds = [
+      ...new Set(
+        ((roleRows ?? []) as RoleRow[])
+          .filter(
+            (role) =>
+              !role.is_system &&
+              typeof role.owner_organization_id === 'string'
+          )
+          .map((role) => role.owner_organization_id as string)
+      ),
+    ]
+
+    const facts =
+      customOwnerIds.length > 0
+        ? await loadV2OrganizationFacts([
+            targetOrganizationId,
+            ...customOwnerIds,
+          ])
+        : null
+
     const roles = ((roleRows ?? []) as RoleRow[]).filter((role) => {
-      if (role.code === 'system_techadmin') {
-        return callerRoles.has('system_techadmin')
+      if (
+        role.code === 'system_techadmin' &&
+        !callerRoles.has('system_techadmin')
+      ) {
+        return false
       }
-      return true
+
+      if (
+        role.is_system &&
+        !isSystemRoleCompatibleWithOrganization({
+          roleCode: role.code,
+          organizationTypeCode:
+            organizationResource.organizationTypeCode,
+        })
+      ) {
+        return false
+      }
+
+      if (!role.is_system && role.owner_organization_id) {
+        if (!facts) return false
+
+        const insideOwnerTree = isOrganizationWithinTree({
+          resourceOrganizationId: targetOrganizationId,
+          anchorOrganizationId: role.owner_organization_id,
+          facts,
+        })
+
+        if (!insideOwnerTree) return false
+      }
+
+      const grants = grantsByRole.get(role.id) ?? []
+      if (grants.length === 0) return false
+
+      return canDelegateV2RoleGrants({
+        snapshot: gate.access,
+        grants: grants.map((grant) => ({
+          permissionKey: grant.permission_key,
+          scopeType: grant.scope_type as V2ScopeType,
+        })),
+      })
     })
 
     return NextResponse.json({
-      user: {
-        id: target.profile.id,
-        full_name: target.profile.full_name,
-        organization_id: target.profile.organization_id,
-        org_level: target.profile.org_level ?? target.profile.level,
-      },
+      user: target
+        ? {
+            id: target.profile.id,
+            full_name: target.profile.full_name,
+            organization_id: target.profile.organization_id,
+            org_level: target.profile.org_level ?? target.profile.level,
+          }
+        : null,
       roles: roles.map((role) => ({
         id: role.id,
+        code: role.code,
         name_ar: role.name_ar,
         description_ar: role.description_ar,
         is_system: role.is_system,
