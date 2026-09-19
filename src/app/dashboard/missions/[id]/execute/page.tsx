@@ -8,6 +8,19 @@ import styles from './execute.module.css'
 
 type PageProps = {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ returnTo?: string }>
+}
+
+function safeReturnHref(value: string | undefined) {
+  if (
+    value &&
+    value.startsWith('/v2/missions/assignments/') &&
+    value.endsWith('/execute')
+  ) {
+    return value
+  }
+
+  return '/v2/missions'
 }
 
 const EGYPTIAN_GOVERNORATES = [
@@ -40,8 +53,13 @@ const EGYPTIAN_GOVERNORATES = [
   { id: 'port_said', name: 'بورسعيد' }
 ]
 
-export default async function ExecuteMissionPage({ params }: PageProps) {
+export default async function ExecuteMissionPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { id } = await params
+  const query = await searchParams
+  const returnHref = safeReturnHref(query.returnTo)
   const supabase = await createServerSupabaseClient()
 
   if (!supabase) {
@@ -62,6 +80,7 @@ export default async function ExecuteMissionPage({ params }: PageProps) {
       .from('missions')
       .select(`
         id,
+        assignment_batch_id,
         serial_number,
         status,
         scheduled_date,
@@ -159,7 +178,7 @@ export default async function ExecuteMissionPage({ params }: PageProps) {
             </p>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
               <Link
-                href="/dashboard/missions"
+                href={returnHref}
                 style={{
                   background: 'var(--brand)',
                   color: 'white',
@@ -202,7 +221,7 @@ export default async function ExecuteMissionPage({ params }: PageProps) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span>{missionResult.data.scheduled_date}</span>
             <Link
-              href="/dashboard/missions"
+              href={returnHref}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -231,6 +250,7 @@ export default async function ExecuteMissionPage({ params }: PageProps) {
           facilities={facilitiesResult.data ?? []}
           governorates={EGYPTIAN_GOVERNORATES}
           mission={mission}
+          returnHref={returnHref}
           users={liveUsers}
           currentUserLevel={profileResult.data.level}
           savedResults={savedResultsResult.data || []}
