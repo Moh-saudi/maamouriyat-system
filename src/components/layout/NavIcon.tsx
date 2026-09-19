@@ -40,6 +40,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   LogOut,
   X,
   ShieldAlert,
+  HelpCircle,
 }
 
 interface NavIconProps {
