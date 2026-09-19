@@ -18,6 +18,10 @@ export default async function V2OrganizationsPage() {
         canCreate={hasV2Permission(access, 'organizations.create')}
         canEdit={hasV2Permission(access, 'organizations.edit')}
         canDelete={hasV2Permission(access, 'organizations.delete')}
+        canManageCapabilities={hasV2Permission(
+          access,
+          'organizations.manage_capabilities'
+        )}
       />
     </V2PageContainer>
   )
