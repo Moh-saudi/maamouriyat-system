@@ -2708,6 +2708,54 @@ export function MissionExecutionForm({
                       : 'السماح للفريق بالتغيير'}
                 </button>
               </div>
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '10px',
+              padding: '10px 12px'
+            }}>
+              <strong style={{
+                display: 'block',
+                fontSize: '11px',
+                color: '#334155',
+                marginBottom: '6px'
+              }}>
+                طريقة الإجابة على بنود الاستمارة
+              </strong>
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '6px',
+                fontSize: '10px',
+                color: '#475569'
+              }}>
+                <span style={{
+                  background: '#ecfdf5',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '999px',
+                  padding: '4px 8px'
+                }}>
+                  البنود الثنائية: نعم / مطابق — لا / غير مطابق — لا ينطبق
+                </span>
+                <span style={{
+                  background: '#fffbeb',
+                  border: '1px solid #fde68a',
+                  borderRadius: '999px',
+                  padding: '4px 8px'
+                }}>
+                  البنود الثلاثية: مطابق — مطابق جزئيًا — غير مطابق — لا ينطبق
+                </span>
+                <span style={{
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '999px',
+                  padding: '4px 8px'
+                }}>
+                  عند وجود علامة 📷 أو 📝 تصبح الصورة أو الملاحظة إلزامية قبل الإنهاء
+                </span>
+              </div>
+            </div>
+
             )}
           </div>
 
