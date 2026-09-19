@@ -222,7 +222,9 @@ function LoginScreen() {
         sessionStorage.setItem('mohp_pending_token', result.data.session.access_token)
       }
 
-      router.push('/dashboard')
+      // V2 is the canonical post-login entry point. Its protected layout
+      // performs the server-side password-change and authorization gates.
+      router.push('/v2/dashboard')
     } catch (err: any) {
       setLoading(false)
       console.error('Supabase auth connection error:', err)
