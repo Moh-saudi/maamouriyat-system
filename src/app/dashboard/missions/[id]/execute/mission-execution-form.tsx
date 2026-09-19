@@ -704,16 +704,53 @@ export function MissionExecutionForm({
   useEffect(() => {
     const loadCustomChecklists = async () => {
       try {
-        const apiRes = await fetch('/api/admin/checklists')
-        if (!apiRes.ok) {
-          console.error('Error fetching checklists from server API')
+        const [policyRes, apiRes] = await Promise.all([
+          fetch('/api/v2/missions/' + mission.id + '/checklist', {
+            cache: 'no-store',
+            credentials: 'same-origin',
+          }),
+          fetch('/api/admin/checklists', {
+            cache: 'no-store',
+            credentials: 'same-origin',
+          }),
+        ])
+
+        if (!policyRes.ok) {
+          const policyError = await policyRes.json().catch(() => ({}))
+          setError(
+            policyError.error ||
+              'تعذر تحميل الاستمارة المعتمدة لهذه المأمورية.'
+          )
           return
         }
+
+        if (!apiRes.ok) {
+          setError('تعذر تحميل بنود الاستمارة المعتمدة.')
+          return
+        }
+
+        const policy = await policyRes.json()
         const resData = await apiRes.json()
-        const templates = resData.templates || (Array.isArray(resData) ? resData : [])
+        const templates =
+          resData.templates || (Array.isArray(resData) ? resData : [])
+        const allowedTemplateIds = new Set(
+          (policy.templates || []).map((item: any) => String(item.id))
+        )
+
+        setChecklistRunId(policy.active_run?.id || null)
+        setCanChangeTemplate(policy.can_change === true)
+        setCanManageTemplatePolicy(policy.can_manage === true)
+        setTeamTemplateChangeAllowed(
+          policy.team_template_change_allowed === true
+        )
+        setChecklistAnswerCount(Number(policy.answer_count || 0))
 
         const mappedTemplates: any[] = []
-        templates.forEach((tmpl: any) => {
+        templates
+          .filter((tmpl: any) =>
+            allowedTemplateIds.has(String(tmpl.id))
+          )
+          .forEach((tmpl: any) => {
           const mappedSections: any[] = []
           ;(tmpl.sections || []).forEach((sec: any) => {
             const items = (sec.criteria || sec.checklist_items || [])
@@ -804,16 +841,29 @@ export function MissionExecutionForm({
 
         if (mappedTemplates.length > 0) {
           setAvailableTemplates(mappedTemplates)
-          const baseTmpl = mappedTemplates.find((t: any) => t.is_base) || mappedTemplates[0]
-          setSelectedTemplateId(prev => prev || baseTmpl.id)
-          setLocalCustomChecklists(baseTmpl.sections || [])
+          const currentTemplate =
+            mappedTemplates.find(
+              (template: any) =>
+                String(template.id) ===
+                String(policy.current_template_id || '')
+            ) || mappedTemplates[0]
+
+          setSelectedTemplateId(String(currentTemplate.id))
+          setPendingTemplateId(String(currentTemplate.id))
+          setLocalCustomChecklists(currentTemplate.sections || [])
+        } else {
+          setAvailableTemplates([])
+          setLocalCustomChecklists([])
+          setError(
+            'الاستمارة المرتبطة بالمأمورية غير متاحة أو لا تحتوي على بنود قابلة للتنفيذ.'
+          )
         }
       } catch (e) {
         console.error('Error loading official checklist items:', e)
       }
     }
     loadCustomChecklists()
-  }, [])
+  }, [mission.id])
 
   // Memoized filter for allowed organizational units recursively matching user profile
   const allowedOrgUnits = useMemo(() => {
