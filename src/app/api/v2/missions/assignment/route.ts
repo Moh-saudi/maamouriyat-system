@@ -691,9 +691,21 @@ export async function POST(request: Request) {
       typeof body.notes === 'string'
         ? body.notes.trim().slice(0, 4000)
         : ''
+    const selectionSource =
+      body.selection_source === 'target' || body.selection_source === 'program'
+        ? body.selection_source
+        : 'manual'
     const sourceTargetId =
-      typeof body.source_target_id === 'string' && body.source_target_id.trim()
+      selectionSource === 'target' &&
+      typeof body.source_target_id === 'string' &&
+      body.source_target_id.trim()
         ? body.source_target_id.trim()
+        : null
+    const sourceProgramId =
+      selectionSource === 'program' &&
+      typeof body.source_program_id === 'string' &&
+      body.source_program_id.trim()
+        ? body.source_program_id.trim()
         : null
 
     if (
@@ -703,7 +715,9 @@ export async function POST(request: Request) {
       !teamUserIds.includes(primaryUserId) ||
       !templateId ||
       !scheduledDate ||
-      !visitPurpose
+      !visitPurpose ||
+      (selectionSource === 'target' && !sourceTargetId) ||
+      (selectionSource === 'program' && !sourceProgramId)
     ) {
       return NextResponse.json(
         { error: 'بيانات التكليف الأساسية غير مكتملة' },
@@ -762,7 +776,7 @@ export async function POST(request: Request) {
       admin
         .from('form_templates')
         .select(
-          'id, name, version, description, created_by_org, applicable_sectors, applicable_levels, applicable_facility_types, is_base, is_active'
+          'id, name, version, description, created_by_org, created_by_user_id, visibility, applicable_sectors, applicable_levels, applicable_facility_types, is_base, is_active'
         )
         .eq('id', templateId)
         .eq('is_active', true)
@@ -877,6 +891,50 @@ export async function POST(request: Request) {
     }
 
     const templateRow = template as TemplateRow
+
+    if (
+      templateRow.visibility === 'private' &&
+      templateRow.created_by_user_id !== gate.user.profileId
+    ) {
+      return NextResponse.json(
+        {
+          error: 'هذه الاستمارة خاصة بمستخدم آخر ولا يمكن استخدامها في التكليف',
+          code: 'PRIVATE_TEMPLATE_DENIED',
+        },
+        { status: 403 }
+      )
+    }
+
+    if (
+      templateRow.visibility === 'organization' &&
+      templateRow.created_by_org
+    ) {
+      const templateOrganization = organizationById.get(
+        templateRow.created_by_org
+      )
+
+      if (
+        !templateOrganization ||
+        !resourceAllowed({
+          user: gate.user,
+          access: gate.access,
+          permissionKey: resourcePermissionKey,
+          organizationFacts,
+          organizationId: templateOrganization.id,
+          sectorId: templateOrganization.sector_id,
+          governorate: templateOrganization.governorate,
+        })
+      ) {
+        return NextResponse.json(
+          {
+            error: 'الاستمارة التنظيمية المختارة خارج نطاقك',
+            code: 'TEMPLATE_SCOPE_DENIED',
+          },
+          { status: 403 }
+        )
+      }
+    }
+
     if (
       Array.isArray(templateRow.applicable_facility_types) &&
       templateRow.applicable_facility_types.length > 0
@@ -899,10 +957,12 @@ export async function POST(request: Request) {
       }
     }
 
-    if (sourceTargetId) {
+    if (selectionSource === 'target' && sourceTargetId) {
       const { data: target, error: targetError } = await admin
         .from('mission_targets')
-        .select('id, status, start_date, end_date')
+        .select(
+          'id, status, start_date, end_date, assigned_user_id, target_type'
+        )
         .eq('id', sourceTargetId)
         .eq('status', 'active')
         .maybeSingle()
@@ -916,13 +976,55 @@ export async function POST(request: Request) {
 
       if (
         !target ||
+        target.target_type !== 'specific_facilities' ||
         scheduledDate < String(target.start_date) ||
         scheduledDate > String(target.end_date)
       ) {
         return NextResponse.json(
           {
-            error: 'المستهدف غير نشط أو تاريخ المأمورية خارج فترة المستهدف',
+            error:
+              'المستهدف غير نشط أو غير محدد المنشآت أو تاريخ المأمورية خارج فترته',
             code: 'TARGET_DATE_MISMATCH',
+          },
+          { status: 400 }
+        )
+      }
+
+      if (
+        target.assigned_user_id &&
+        !teamUserIds.includes(String(target.assigned_user_id))
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'المستهدف مرتبط بمستخدم محدد ويجب أن يكون ضمن فريق المأمورية',
+            code: 'TARGET_ASSIGNEE_REQUIRED',
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    if (selectionSource === 'program' && sourceProgramId) {
+      const { data: program, error: programError } = await admin
+        .from('facility_programs')
+        .select('id, is_active')
+        .eq('id', sourceProgramId)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (programError) {
+        return NextResponse.json(
+          { error: 'تعذر التحقق من المشروع أو المبادرة' },
+          { status: 500 }
+        )
+      }
+
+      if (!program) {
+        return NextResponse.json(
+          {
+            error: 'المشروع أو المبادرة غير موجودة أو غير نشطة',
+            code: 'PROGRAM_NOT_AVAILABLE',
           },
           { status: 400 }
         )
@@ -954,6 +1056,8 @@ export async function POST(request: Request) {
         p_requires_hotel_booking: body.requires_hotel_booking === true,
         p_status: initialStatus,
         p_source_target_id: sourceTargetId,
+        p_source_program_id: sourceProgramId,
+        p_selection_source: selectionSource,
       }
     )
 
