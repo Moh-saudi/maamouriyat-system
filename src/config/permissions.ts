@@ -18,6 +18,8 @@ export function filterV2NavigationItems(
   snapshot: V2AuthorizationSnapshot
 ): NavItem[] {
   return items.filter((item) => {
+    if (item.id === 'help') return true
+
     const permissionKey = V2_NAV_PERMISSION_BY_ID[item.id]
     if (!permissionKey) return false
     return snapshot.permissions[permissionKey]?.granted === true
