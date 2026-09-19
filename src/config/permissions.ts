@@ -9,7 +9,11 @@ export const V2_NAV_PERMISSION_BY_ID: Readonly<
   violations: 'violations.view',
   facilities: 'facilities.view',
   targets: 'targets.view',
-  checklists: 'checklists.design',
+  checklists: [
+    'checklists.library',
+    'checklists.design',
+    'checklists.view',
+  ],
   organizations: 'organizations.view',
   users: 'users.view',
   finance: 'finance.view',
