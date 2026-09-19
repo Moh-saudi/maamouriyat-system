@@ -150,8 +150,28 @@ async function loadExecutionEligibleUserIds(): Promise<Set<string>> {
     )
   }
 
-  const userIds = [
+  const roleUserIds = [
     ...new Set((assignments ?? []).map((row) => String(row.user_id))),
+  ]
+
+  const { data: allowOverrides, error: allowOverridesError } = await admin
+    .from('user_permission_overrides')
+    .select('user_id')
+    .eq('permission_key', 'missions.execute')
+    .eq('effect', 'allow')
+    .eq('is_active', true)
+
+  if (allowOverridesError) {
+    throw new Error(
+      `[V2 Mission Assignment] Failed to load execute allow overrides: ${allowOverridesError.message}`
+    )
+  }
+
+  const userIds = [
+    ...new Set([
+      ...roleUserIds,
+      ...(allowOverrides ?? []).map((row) => String(row.user_id)),
+    ]),
   ]
 
   if (userIds.length === 0) return new Set()
@@ -322,7 +342,12 @@ function parseDate(value: unknown): string {
 }
 
 function dateOnlyToday(): string {
-  return new Date().toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
 }
 
 export async function GET() {
