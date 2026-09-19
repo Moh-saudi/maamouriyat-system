@@ -2843,6 +2843,67 @@ export function MissionExecutionForm({
                 />
               </div>
 
+              <div style={{
+                display: 'grid',
+                gap: '8px',
+                marginBottom: '12px',
+                padding: '10px 12px',
+                border: '1px solid #dbeafe',
+                background: '#f8fbff',
+                borderRadius: '10px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  alignItems: 'center',
+                  flexWrap: 'wrap'
+                }}>
+                  <strong style={{ fontSize: '11px', color: '#1e3a5f' }}>
+                    طريقة الإجابة على بنود الاستمارة
+                  </strong>
+                  <span style={{
+                    borderRadius: '999px',
+                    background: answeredStats.answered === liveScoreStats.totalCount && liveScoreStats.totalCount > 0
+                      ? '#dcfce7'
+                      : '#e0f2fe',
+                    color: answeredStats.answered === liveScoreStats.totalCount && liveScoreStats.totalCount > 0
+                      ? '#166534'
+                      : '#075985',
+                    padding: '4px 9px',
+                    fontSize: '10px',
+                    fontWeight: 'bold'
+                  }}>
+                    تمت الإجابة على {answeredStats.answered.toLocaleString('en-US')} من{' '}
+                    {liveScoreStats.totalCount.toLocaleString('en-US')} بند
+                  </span>
+                </div>
+
+                <div style={{
+                  display: 'flex',
+                  gap: '6px',
+                  flexWrap: 'wrap',
+                  fontSize: '10px',
+                  color: '#475569'
+                }}>
+                  <span style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '4px 7px' }}>
+                    نعم / لا / لا ينطبق
+                  </span>
+                  <span style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '4px 7px' }}>
+                    مطابق / جزئي / غير مطابق
+                  </span>
+                  <span style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '4px 7px' }}>
+                    تقييم 1–5 نجوم
+                  </span>
+                  <span style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '7px', padding: '4px 7px' }}>
+                    نسبة مئوية
+                  </span>
+                  <span style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '7px', padding: '4px 7px', color: '#9a3412' }}>
+                    البنود غير المطابقة تُحتسب كملاحظة/مخالفة حسب إعداد النموذج
+                  </span>
+                </div>
+              </div>
+
               {/* Accordion Sections List */}
               <div className={styles.checklistGrid}>
                 {filteredSections.map((section: any, sIdx: number) => {
