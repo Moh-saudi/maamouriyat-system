@@ -1000,19 +1000,21 @@ export function MissionWorkspacePanel({
 
                   {group.batch_id && (
                     <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-2.5">
-                      {group.relations.executable_mission_count > 0 && (
-                        <Link
-                          href={
-                            '/v2/missions/assignments/' +
-                            group.batch_id +
-                            '/execute'
-                          }
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-[9px] font-black text-white hover:bg-teal-800"
-                        >
-                          <ClipboardCheck className="h-3.5 w-3.5" />
-                          تنفيذ التكليف
-                        </Link>
-                      )}
+                      <Link
+                        href={
+                          '/v2/missions/assignments/' +
+                          group.batch_id +
+                          '/execute'
+                        }
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-[9px] font-black text-white hover:bg-teal-800"
+                      >
+                        <ClipboardCheck className="h-3.5 w-3.5" />
+                        {group.relations.executable_mission_count > 0
+                          ? 'تنفيذ التكليف'
+                          : group.completed_count === group.mission_count
+                            ? 'متابعة إنهاء التكليف'
+                            : 'متابعة التكليف'}
+                      </Link>
                       {group.governorates.length > 1 ? (
                         <>
                           <span className="ml-auto text-[9px] font-bold text-rose-600">
