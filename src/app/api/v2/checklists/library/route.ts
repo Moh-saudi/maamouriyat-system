@@ -84,9 +84,18 @@ export async function GET() {
     ])
     if (!gate.ok) return gate.response
 
-    const permissionKey = hasV2Permission(gate.access, 'checklists.library')
+    // Capture the narrowed authorized context before declaring nested async
+    // helpers. TypeScript does not preserve the discriminated-union narrowing
+    // of `gate` reliably inside the closure below.
+    const authorizedUser = gate.user
+    const authorizedAccess = gate.access
+
+    const permissionKey = hasV2Permission(
+      authorizedAccess,
+      'checklists.library'
+    )
       ? 'checklists.library'
-      : hasV2Permission(gate.access, 'checklists.design')
+      : hasV2Permission(authorizedAccess, 'checklists.design')
         ? 'checklists.design'
         : 'checklists.view'
 
@@ -109,7 +118,7 @@ export async function GET() {
       admin
         .from('user_template_library')
         .select('template_id, source_type, is_default')
-        .eq('user_id', gate.user.profileId),
+        .eq('user_id', authorizedUser.profileId),
       admin
         .from('form_sections')
         .select('id, template_id')
@@ -195,8 +204,8 @@ export async function GET() {
 
       return (
         await checkV2ResourceAccess({
-          user: gate.user,
-          snapshot: gate.access,
+          user: authorizedUser,
+          snapshot: authorizedAccess,
           permissionKey,
           resource: {
             organizationId: organization.id,
@@ -220,7 +229,7 @@ export async function GET() {
           : 'system'
 
       const createdByMe =
-        template.created_by_user_id === gate.user.profileId
+        template.created_by_user_id === authorizedUser.profileId
 
       let allowed = visibility === 'system' || createdByMe
 
@@ -265,9 +274,9 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      can_design: hasV2Permission(gate.access, 'checklists.design'),
+      can_design: hasV2Permission(authorizedAccess, 'checklists.design'),
       can_manage_library: hasV2Permission(
-        gate.access,
+        authorizedAccess,
         'checklists.library'
       ),
       templates,
