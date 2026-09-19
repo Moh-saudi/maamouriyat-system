@@ -1332,6 +1332,10 @@ export function MissionExecutionForm({
   function validateActualTimingForCompletion() {
     setCompletionTimingError('')
 
+    if (isGroupedExecution) {
+      return true
+    }
+
     if (!actualStartDate || !actualEndDate) {
       setCompletionTimingError('يجب تحديد تاريخ البداية والنهاية الفعليين.')
       return false
@@ -1595,7 +1599,11 @@ export function MissionExecutionForm({
       missionUpdatePayload.checkin_time = now
     }
 
-    if (status === 'in_progress' && !mission.actual_start_date) {
+    if (
+      !isGroupedExecution &&
+      status === 'in_progress' &&
+      !mission.actual_start_date
+    ) {
       missionUpdatePayload.actual_start_date = todayDate
       missionUpdatePayload.actual_timing_confirmed_by = currentUserId
       missionUpdatePayload.actual_timing_confirmed_at = now
@@ -1611,15 +1619,19 @@ export function MissionExecutionForm({
     if (status === 'completed') {
       missionUpdatePayload.completed_at = now
       missionUpdatePayload.checkout_time = now
-      missionUpdatePayload.actual_start_date = actualStartDate
-      missionUpdatePayload.actual_end_date = actualEndDate
-      missionUpdatePayload.actual_overnight_nights = actualOvernightNights
-      missionUpdatePayload.completion_disposition = completionDisposition
-      missionUpdatePayload.timing_adjustment_reason = timingChanged
-        ? timingAdjustmentReason.trim()
-        : null
-      missionUpdatePayload.actual_timing_confirmed_by = currentUserId
-      missionUpdatePayload.actual_timing_confirmed_at = now
+
+      if (!isGroupedExecution) {
+        missionUpdatePayload.actual_start_date = actualStartDate
+        missionUpdatePayload.actual_end_date = actualEndDate
+        missionUpdatePayload.actual_overnight_nights = actualOvernightNights
+        missionUpdatePayload.completion_disposition = completionDisposition
+        missionUpdatePayload.timing_adjustment_reason = timingChanged
+          ? timingAdjustmentReason.trim()
+          : null
+        missionUpdatePayload.actual_timing_confirmed_by = currentUserId
+        missionUpdatePayload.actual_timing_confirmed_at = now
+      }
+
       if (inspectorLat !== null && inspectorLat !== undefined) {
         missionUpdatePayload.checkout_lat = inspectorLat
       }
@@ -3569,18 +3581,41 @@ export function MissionExecutionForm({
 
             <div>
               <h2 style={{ fontSize: '19px', fontWeight: 'bold', color: '#0f172a', margin: '0 0 6px' }}>
-                تأكيد اعتماد التقرير وإغلاق المأمورية
+                {isGroupedExecution
+                  ? 'تأكيد إنهاء المرور على هذه المنشأة'
+                  : 'تأكيد اعتماد التقرير وإغلاق المأمورية'}
               </h2>
               <p style={{ fontSize: '13px', color: '#475569', margin: 0, lineHeight: '1.6' }}>
-                هل أنت متأكد من رغبتك في اعتماد وإغلاق تقرير المأمورية نهائياً؟
+                {isGroupedExecution
+                  ? 'سيتم حفظ نتائج هذه المنشأة كجزء من التكليف المجمع، ثم تعود لاستكمال باقي المنشآت.'
+                  : 'هل أنت متأكد من رغبتك في اعتماد وإغلاق تقرير المأمورية نهائياً؟'}
                 <br />
                 <span style={{ color: '#006d77', fontWeight: 'bold' }}>
-                  أم ترغب في مراجعة بنود أخرى أو تقييم استمارات إضافية لنفس المنشأة؟
+                  {isGroupedExecution
+                    ? 'لن يتم تثبيت المدة الفعلية أو إرسال الاستحقاق للمالية إلا بعد اكتمال التكليف كله.'
+                    : 'أم ترغب في مراجعة بنود أخرى أو تقييم استمارات إضافية لنفس المنشأة؟'}
                 </span>
               </p>
             </div>
 
-            <div style={{
+            {isGroupedExecution ? (
+              <div style={{
+                border: '1px solid #99f6e4',
+                background: '#f0fdfa',
+                borderRadius: '12px',
+                padding: '14px',
+                textAlign: 'right',
+                fontSize: '11px',
+                lineHeight: '1.7',
+                color: '#115e59'
+              }}>
+                <strong style={{ display: 'block', fontSize: '13px', marginBottom: '4px' }}>
+                  ⏱️ المدة الفعلية تخص التكليف المجمع
+                </strong>
+                أكمل نتائج هذه المنشأة فقط. بعد انتهاء جميع المنشآت سيطلب النظام من رئيس الفريق تثبيت بداية ونهاية التكليف الفعلية وليالي المبيت مرة واحدة.
+              </div>
+            ) : (
+              <div style={{
               border: timingChanged ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
               background: timingChanged ? '#fffbeb' : '#f8fafc',
               borderRadius: '12px',
@@ -3699,6 +3734,7 @@ export function MissionExecutionForm({
                 تعتمد الشئون المالية الأيام وليالي المبيت الفعلية المثبتة هنا، مع بقاء مدة التكليف الأصلية محفوظة للمراجعة.
               </div>
             </div>
+            )}
 
             {/* Quick Status Pill */}
             <div style={{
