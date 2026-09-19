@@ -34,6 +34,12 @@ export async function GET(request: Request) {
     const gate = await requireV2Permission('missions.view')
     if (!gate.ok) return gate.response
 
+    // Preserve the narrowed authorized context for nested functions and
+    // callbacks. TypeScript does not reliably retain the discriminated-union
+    // narrowing of `gate` across those closure boundaries.
+    const authorizedUser = authorizedUser
+    const authorizedAccess = authorizedAccess
+
     const url = new URL(request.url)
     const groupKey = url.searchParams.get('group_key') || ''
     const rawMode = url.searchParams.get('mode') || ''
@@ -78,9 +84,9 @@ export async function GET(request: Request) {
     )
 
     const factIds = new Set<string>()
-    if (gate.user.organizationId) factIds.add(gate.user.organizationId)
+    if (authorizedUser.organizationId) factIds.add(authorizedUser.organizationId)
 
-    for (const role of gate.access.roles) {
+    for (const role of authorizedAccess.roles) {
       if (role.assignmentOrganizationId) {
         factIds.add(role.assignmentOrganizationId)
       }
@@ -109,8 +115,8 @@ export async function GET(request: Request) {
     }
 
     const users = await loadWorkspaceUsers([...userIds])
-    const canApprove = hasV2Permission(gate.access, 'missions.approve')
-    const canExecute = hasV2Permission(gate.access, 'missions.execute')
+    const canApprove = hasV2Permission(authorizedAccess, 'missions.approve')
+    const canExecute = hasV2Permission(authorizedAccess, 'missions.execute')
 
     function relationAllowed(
       mission: MissionWorkspaceMissionRow,
@@ -127,8 +133,8 @@ export async function GET(request: Request) {
       ].filter((value): value is string => Boolean(value))
 
       return evaluateV2ResourceScope({
-        user: gate.user,
-        snapshot: gate.access,
+        user: authorizedUser,
+        snapshot: authorizedAccess,
         permissionKey,
         organizationFacts,
         resource: {
@@ -147,10 +153,10 @@ export async function GET(request: Request) {
         const facility = facilities.get(mission.facility_id)
         const team = teamByMission.get(mission.id) ?? []
         const assignedToMe =
-          mission.assigned_user_id === gate.user.profileId ||
-          mission.primary_inspector_id === gate.user.profileId ||
+          mission.assigned_user_id === authorizedUser.profileId ||
+          mission.primary_inspector_id === authorizedUser.profileId ||
           team.some(
-            (member) => member.user_id === gate.user.profileId
+            (member) => member.user_id === authorizedUser.profileId
           )
         const status = normalizeMissionWorkspaceStatus(mission.status)
         const creator = mission.created_by
@@ -205,7 +211,7 @@ export async function GET(request: Request) {
           }),
           relations: {
             assigned_to_me: assignedToMe,
-            issued_by_me: mission.created_by === gate.user.profileId,
+            issued_by_me: mission.created_by === authorizedUser.profileId,
             can_approve:
               canApprove &&
               status === 'pending_approval' &&
