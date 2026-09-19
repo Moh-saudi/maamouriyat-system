@@ -28,6 +28,30 @@ type Governorate = {
   name: string
 }
 
+type CompletionDisposition = 'return_to_base' | 'next_mission' | 'other'
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function dateKeyFromTimestamp(value?: string | null) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10)
+  return localDateKey(date)
+}
+
+function inclusiveDays(start?: string | null, end?: string | null) {
+  if (!start || !end) return 0
+  const startTime = new Date(start + 'T00:00:00').getTime()
+  const endTime = new Date(end + 'T00:00:00').getTime()
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return 0
+  return Math.floor((endTime - startTime) / 86400000) + 1
+}
+
 type Mission = {
   id: string
   serial_number: string
@@ -46,6 +70,15 @@ type Mission = {
   started_at?: string | null
   notes?: string | null
   scheduled_date?: string | null
+  expected_end_date?: string | null
+  expected_nights?: number | null
+  checkin_time?: string | null
+  actual_start_date?: string | null
+  actual_end_date?: string | null
+  actual_duration_days?: number | null
+  actual_overnight_nights?: number | null
+  completion_disposition?: CompletionDisposition | null
+  timing_adjustment_reason?: string | null
 }
 
 // Global list of facility categories for unregistered quick creation
@@ -87,6 +120,38 @@ export function MissionExecutionForm({
   const router = useRouter()
   const [bypassLock, setBypassLock] = useState(false)
   const supabase = createBrowserSupabaseClient()
+  const todayDate = localDateKey()
+  const initialActualStartDate =
+    mission.actual_start_date ??
+    dateKeyFromTimestamp(mission.checkin_time) ??
+    mission.scheduled_date ??
+    todayDate
+  const initialActualEndDate = mission.actual_end_date ?? todayDate
+  const initialActualDuration = Math.max(
+    1,
+    inclusiveDays(initialActualStartDate, initialActualEndDate)
+  )
+  const [actualStartDate, setActualStartDate] = useState(
+    initialActualStartDate
+  )
+  const [actualEndDate, setActualEndDate] = useState(
+    initialActualEndDate
+  )
+  const [actualOvernightNights, setActualOvernightNights] = useState(
+    mission.actual_overnight_nights ??
+      Math.min(
+        Math.max(0, mission.expected_nights ?? 0),
+        Math.max(0, initialActualDuration - 1)
+      )
+  )
+  const [completionDisposition, setCompletionDisposition] =
+    useState<CompletionDisposition | ''>(
+      mission.completion_disposition ?? ''
+    )
+  const [timingAdjustmentReason, setTimingAdjustmentReason] = useState(
+    mission.timing_adjustment_reason ?? ''
+  )
+  const [completionTimingError, setCompletionTimingError] = useState('')
   const [destinationType, setDestinationType] = useState<'facility' | 'governorate'>(
     (mission.destination_type as 'facility' | 'governorate') ?? 'facility',
   )
@@ -323,6 +388,19 @@ export function MissionExecutionForm({
   const [showLiveScoreModal, setShowLiveScoreModal] = useState<boolean>(false)
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false)
   const [showConfirmSubmitModal, setShowConfirmSubmitModal] = useState<boolean>(false)
+  const plannedEndDate = mission.expected_end_date ?? mission.scheduled_date ?? ''
+  const plannedDurationDays = Math.max(
+    1,
+    inclusiveDays(mission.scheduled_date, plannedEndDate)
+  )
+  const actualDurationDays = Math.max(
+    0,
+    inclusiveDays(actualStartDate, actualEndDate)
+  )
+  const timingChanged =
+    Boolean(mission.scheduled_date) &&
+    (actualStartDate !== mission.scheduled_date ||
+      actualEndDate !== plannedEndDate)
 
   // --- Dynamic Client-Side Leaflet Ingestion ---
   useEffect(() => {
