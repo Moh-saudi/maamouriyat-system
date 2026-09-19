@@ -62,6 +62,38 @@ async function loadAllActiveFacilities(): Promise<FacilityRow[]> {
   return rows
 }
 
+async function loadActiveFacilityOrganizationsByIds(
+  facilityIds: readonly string[]
+): Promise<Array<{ id: string; organization_id: string }>> {
+  const admin = getAdminSupabaseClient()
+  const rows: Array<{ id: string; organization_id: string }> = []
+  const chunkSize = 500
+
+  for (let index = 0; index < facilityIds.length; index += chunkSize) {
+    const chunk = facilityIds.slice(index, index + chunkSize)
+    const { data, error } = await admin
+      .from('facilities')
+      .select('id, organization_id')
+      .in('id', chunk)
+      .eq('is_active', true)
+
+    if (error) {
+      throw new Error(
+        `[facility-programs] failed to validate facility chunk: ${error.message}`
+      )
+    }
+
+    rows.push(
+      ...(data ?? []).map((row) => ({
+        id: String(row.id),
+        organization_id: String(row.organization_id),
+      }))
+    )
+  }
+
+  return rows
+}
+
 async function loadAllProgramFacilityLinks(): Promise<
   Array<{ program_id: string; facility_id: string }>
 > {
@@ -425,13 +457,9 @@ export async function POST(request: Request) {
     }
 
     if (facilityIds.length > 0) {
-      const { data: rows, error: facilityError } = await admin
-        .from('facilities')
-        .select('id, organization_id')
-        .in('id', facilityIds)
-        .eq('is_active', true)
+      const rows = await loadActiveFacilityOrganizationsByIds(facilityIds)
 
-      if (facilityError || (rows ?? []).length !== facilityIds.length) {
+      if (rows.length !== facilityIds.length) {
         return NextResponse.json(
           { error: 'توجد منشأة غير صحيحة ضمن الاختيار' },
           { status: 400 }
@@ -440,14 +468,14 @@ export async function POST(request: Request) {
 
       const facts = await loadFactsFor(
         gate,
-        (rows ?? []).map((row) => String(row.organization_id))
+        rows.map((row) => row.organization_id)
       )
 
-      for (const row of rows ?? []) {
+      for (const row of rows) {
         if (
           !organizationAllowed({
             gate,
-            organizationId: String(row.organization_id),
+            organizationId: row.organization_id,
             facts,
           })
         ) {
