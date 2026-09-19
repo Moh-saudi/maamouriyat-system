@@ -18,6 +18,8 @@ import {
   X,
   ShieldAlert,
   HelpCircle,
+  WalletCards,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -41,6 +43,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   X,
   ShieldAlert,
   HelpCircle,
+  WalletCards,
+  BarChart3,
 }
 
 interface NavIconProps {
