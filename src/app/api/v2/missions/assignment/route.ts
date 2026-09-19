@@ -448,7 +448,12 @@ async function loadAssignmentOptions(input: {
         ).length,
       }
     })
-    .filter((target) => target.facility_count > 0)
+    .filter(
+      (target) =>
+        target.facility_count > 0 &&
+        (!target.assigned_user_id ||
+          inspectorById.has(target.assigned_user_id))
+    )
 
   const programFacilityIds = new Map<string, string[]>()
   for (const link of programLinkRows ?? []) {
