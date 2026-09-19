@@ -560,6 +560,12 @@ export function FacilitiesExplorer({
   async function confirmFacilityStatusChange() {
     if (!statusFacility) return
 
+    const reason = statusReason.trim()
+    if (!reason) {
+      setStatusError('سبب الإجراء مطلوب لحفظ سجل المراجعة')
+      return
+    }
+
     const action = statusFacility.isActive ? 'deactivate' : 'reactivate'
 
     setSaving(true)
@@ -573,7 +579,7 @@ export function FacilitiesExplorer({
         body: JSON.stringify({
           facility_id: statusFacility.id,
           action,
-          reason: statusReason.trim() || null,
+          reason,
         }),
       })
 
@@ -1365,9 +1371,7 @@ export function FacilitiesExplorer({
               <label className="block">
                 <span className="mb-1.5 block text-xs font-bold text-slate-600">
                   سبب {statusFacility.isActive ? 'الإيقاف' : 'إعادة التفعيل'}
-                  <span className="mr-1 font-normal text-slate-400">
-                    (اختياري)
-                  </span>
+                  <span className="mr-1 text-red-500">*</span>
                 </span>
                 <textarea
                   value={statusReason}
@@ -1398,7 +1402,7 @@ export function FacilitiesExplorer({
               </button>
               <button
                 type="button"
-                disabled={saving}
+                disabled={saving || !statusReason.trim()}
                 onClick={() => void confirmFacilityStatusChange()}
                 className={`inline-flex h-10 items-center gap-2 rounded-xl px-5 text-sm font-bold text-white disabled:opacity-50 ${
                   statusFacility.isActive
