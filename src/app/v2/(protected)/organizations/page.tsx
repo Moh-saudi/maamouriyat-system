@@ -22,6 +22,14 @@ export default async function V2OrganizationsPage() {
           access,
           'organizations.manage_capabilities'
         )}
+        canViewCorrectionSpecialties={hasV2Permission(
+          access,
+          'organizations.view_correction_specialties'
+        )}
+        canManageCorrectionSpecialties={hasV2Permission(
+          access,
+          'organizations.manage_correction_specialties'
+        )}
       />
     </V2PageContainer>
   )
