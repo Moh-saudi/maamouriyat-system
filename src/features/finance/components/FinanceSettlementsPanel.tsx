@@ -39,6 +39,13 @@ type Settlement = {
   health_admin: string | null
   governorate: string | null
   scheduled_date: string | null
+  expected_end_date: string | null
+  actual_start_date: string | null
+  actual_end_date: string | null
+  actual_duration_days: number | null
+  actual_overnight_nights: number | null
+  completion_disposition: string | null
+  timing_adjustment_reason: string | null
   completed_at: string | null
   checkin_time: string | null
   checkout_time: string | null
@@ -422,6 +429,49 @@ export function FinanceSettlementsPanel() {
                     : 'غير مسجلة'}
                 </p>
               </div>
+            </div>
+
+            <div className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400">المدة المقدرة بالتكليف</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {selected.scheduled_date || '—'} ← {selected.expected_end_date || selected.scheduled_date || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-emerald-600">المدة الفعلية المعتمدة</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-emerald-800">
+                    {selected.actual_start_date || '—'} ← {selected.actual_end_date || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400">الاستحقاق الزمني</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {(selected.actual_duration_days ?? selected.mission_days).toLocaleString('en-US')} يوم
+                    {' · '}
+                    {(selected.actual_overnight_nights ?? selected.overnight_nights).toLocaleString('en-US')} ليلة
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400">بعد انتهاء المأمورية</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {selected.completion_disposition === 'return_to_base'
+                      ? 'العودة لمقر العمل'
+                      : selected.completion_disposition === 'next_mission'
+                        ? 'الانتقال لمأمورية أخرى'
+                        : selected.completion_disposition === 'other'
+                          ? 'إجراء آخر'
+                          : 'غير محدد'}
+                  </p>
+                </div>
+              </div>
+              {selected.timing_adjustment_reason && (
+                <p className="mt-2 border-t border-emerald-100 pt-2 text-[10px] text-amber-800">
+                  <span className="font-black">سبب تعديل المدة:</span>{' '}
+                  {selected.timing_adjustment_reason}
+                </p>
+              )}
             </div>
 
             {permissions.prepare &&
