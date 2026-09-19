@@ -20,6 +20,7 @@ import {
   CascadingOrganizationSelect,
   type CascadingOrganizationOption,
 } from '@/components/ui/CascadingOrganizationSelect'
+import { OrganizationCorrectionSpecialties } from './OrganizationCorrectionSpecialties'
 
 type OrganizationUsage = {
   usersTotal: number
@@ -83,6 +84,8 @@ interface OrganizationManagementPanelProps {
   canEdit: boolean
   canDelete: boolean
   canManageCapabilities: boolean
+  canViewCorrectionSpecialties: boolean
+  canManageCorrectionSpecialties: boolean
 }
 
 function descendantsOf(
@@ -144,6 +147,8 @@ export function OrganizationManagementPanel({
   canEdit,
   canDelete,
   canManageCapabilities,
+  canViewCorrectionSpecialties,
+  canManageCorrectionSpecialties,
 }: OrganizationManagementPanelProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [organizationTypes, setOrganizationTypes] = useState<
@@ -1006,6 +1011,19 @@ export function OrganizationManagementPanel({
                   </p>
                 </div>
               </div>
+
+              {canViewCorrectionSpecialties && (
+                <OrganizationCorrectionSpecialties
+                  organizationId={detailsOrganization.id}
+                  organizationName={detailsOrganization.name}
+                  organizations={organizations.map((organization) => ({
+                    id: organization.id,
+                    name: organization.name,
+                    parent_id: organization.parent_id,
+                  }))}
+                  canManage={canManageCorrectionSpecialties}
+                />
+              )}
 
               <div className="mt-5">
                 <div className="mb-2 flex items-center justify-between gap-3">
