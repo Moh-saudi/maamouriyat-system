@@ -1318,6 +1318,54 @@ export function MissionExecutionForm({
     actualFacilityId !== (mission.target_facility_id ?? '') ||
     actualGovernorateId !== (mission.target_governorate_id ?? '')
 
+  function validateActualTimingForCompletion() {
+    setCompletionTimingError('')
+
+    if (!actualStartDate || !actualEndDate) {
+      setCompletionTimingError('يجب تحديد تاريخ البداية والنهاية الفعليين.')
+      return false
+    }
+
+    if (actualEndDate < actualStartDate || actualDurationDays < 1) {
+      setCompletionTimingError(
+        'تاريخ النهاية الفعلي لا يمكن أن يسبق تاريخ البداية.'
+      )
+      return false
+    }
+
+    if (
+      actualOvernightNights < 0 ||
+      actualOvernightNights > Math.max(0, actualDurationDays - 1)
+    ) {
+      setCompletionTimingError(
+        'عدد ليالي المبيت الفعلية يجب أن يتناسب مع المدة الفعلية للمأمورية.'
+      )
+      return false
+    }
+
+    if (!completionDisposition) {
+      setCompletionTimingError(
+        'حدد ما حدث بعد انتهاء المأمورية: العودة للمقر أو الانتقال لمأمورية أخرى.'
+      )
+      return false
+    }
+
+    if (timingChanged && !timingAdjustmentReason.trim()) {
+      setCompletionTimingError(
+        'المدة الفعلية تختلف عن المدة المقدرة؛ اكتب سبب التعديل باختصار.'
+      )
+      return false
+    }
+
+    return true
+  }
+
+  function handleConfirmCompletion() {
+    if (!validateActualTimingForCompletion()) return
+    setShowConfirmSubmitModal(false)
+    void save('completed')
+  }
+
   function handleInitiateComplete() {
     setError('')
     if (destinationType === 'facility' && !isUnregisteredFacility && !actualFacilityId) {
@@ -1419,6 +1467,10 @@ export function MissionExecutionForm({
 
     // Strict enforcement on final completion
     if (status === 'completed') {
+      if (!validateActualTimingForCompletion()) {
+        return
+      }
+
       const validation = validateChecklistCompletion()
       if (!validation.valid) {
         setError(validation.error || 'لا يمكن اعتماد المأمورية كمنتهية قبل الإجابة على جميع المعايير.')
@@ -1532,6 +1584,12 @@ export function MissionExecutionForm({
       missionUpdatePayload.checkin_time = now
     }
 
+    if (status === 'in_progress' && !mission.actual_start_date) {
+      missionUpdatePayload.actual_start_date = todayDate
+      missionUpdatePayload.actual_timing_confirmed_by = currentUserId
+      missionUpdatePayload.actual_timing_confirmed_at = now
+    }
+
     if (inspectorLat !== null && inspectorLat !== undefined) {
       missionUpdatePayload.checkin_lat = inspectorLat
     }
@@ -1542,6 +1600,15 @@ export function MissionExecutionForm({
     if (status === 'completed') {
       missionUpdatePayload.completed_at = now
       missionUpdatePayload.checkout_time = now
+      missionUpdatePayload.actual_start_date = actualStartDate
+      missionUpdatePayload.actual_end_date = actualEndDate
+      missionUpdatePayload.actual_overnight_nights = actualOvernightNights
+      missionUpdatePayload.completion_disposition = completionDisposition
+      missionUpdatePayload.timing_adjustment_reason = timingChanged
+        ? timingAdjustmentReason.trim()
+        : null
+      missionUpdatePayload.actual_timing_confirmed_by = currentUserId
+      missionUpdatePayload.actual_timing_confirmed_at = now
       if (inspectorLat !== null && inspectorLat !== undefined) {
         missionUpdatePayload.checkout_lat = inspectorLat
       }
@@ -1557,7 +1624,12 @@ export function MissionExecutionForm({
 
     if (updateError) {
       setLoading(false)
-      setError(updateError.message)
+      const updateMessage = updateError.message || ''
+      setError(
+        updateMessage.includes('overlaps mission')
+          ? 'لا يمكن اعتماد هذه المدة: يوجد تداخل فعلي لنفس عضو الفريق مع مأمورية في محافظة أخرى.'
+          : updateMessage
+      )
       return
     }
 
@@ -1677,7 +1749,9 @@ export function MissionExecutionForm({
 
     setLoading(false)
     if (status === 'completed') {
-      setSuccess('تم اعتماد المأمورية وتوثيق الحضور والنتائج بنجاح.')
+      setSuccess(
+        `تم اعتماد المأمورية بالمدة الفعلية (${actualDurationDays} يوم) وتجهيزها للمراجعة المالية.`
+      )
       setShowSuccessModal(true)
     } else {
       setSuccess('تم حفظ مسودة نتائج المأمورية بنجاح.')
@@ -3493,6 +3567,126 @@ export function MissionExecutionForm({
               </p>
             </div>
 
+            <div style={{
+              border: timingChanged ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
+              background: timingChanged ? '#fffbeb' : '#f8fafc',
+              borderRadius: '12px',
+              padding: '14px',
+              textAlign: 'right',
+              display: 'grid',
+              gap: '12px'
+            }}>
+              <div>
+                <strong style={{ display: 'block', fontSize: '13px', color: '#0f172a' }}>
+                  ⏱️ تثبيت المدة الفعلية للمأمورية
+                </strong>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>
+                  المدة المقدرة: {mission.scheduled_date || '—'} ← {plannedEndDate || '—'} ({plannedDurationDays} يوم)
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 120px', gap: '8px' }}>
+                <label style={{ display: 'grid', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  البداية الفعلية
+                  <input
+                    type="date"
+                    value={actualStartDate}
+                    onChange={(event) => setActualStartDate(event.target.value)}
+                    style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px', fontFamily: 'inherit' }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  النهاية الفعلية
+                  <input
+                    type="date"
+                    value={actualEndDate}
+                    onChange={(event) => setActualEndDate(event.target.value)}
+                    style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px', fontFamily: 'inherit' }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  ليالي المبيت
+                  <input
+                    type="number"
+                    min={0}
+                    max={Math.max(0, actualDurationDays - 1)}
+                    value={actualOvernightNights}
+                    onChange={(event) =>
+                      setActualOvernightNights(
+                        Math.max(0, Number(event.target.value) || 0)
+                      )
+                    }
+                    style={{ width: '100%', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '8px', fontFamily: 'inherit' }}
+                  />
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: timingChanged ? '#b45309' : '#047857' }}>
+                  المدة الفعلية: {actualDurationDays > 0 ? actualDurationDays : '—'} يوم
+                  {timingChanged ? ' · مختلفة عن التقدير' : ' · مطابقة للتقدير'}
+                </span>
+              </div>
+
+              <div>
+                <span style={{ display: 'block', marginBottom: '6px', fontSize: '11px', fontWeight: 'bold', color: '#475569' }}>
+                  ماذا حدث بعد إنهاء المأمورية؟
+                </span>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '7px' }}>
+                  {[
+                    ['return_to_base', '🏢 العودة لمقر العمل'],
+                    ['next_mission', '➡️ الانتقال لمأمورية أخرى'],
+                    ['other', '📝 إجراء آخر']
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() =>
+                        setCompletionDisposition(value as CompletionDisposition)
+                      }
+                      style={{
+                        border: completionDisposition === value ? '1.5px solid #0f766e' : '1px solid #cbd5e1',
+                        background: completionDisposition === value ? '#f0fdfa' : 'white',
+                        color: completionDisposition === value ? '#115e59' : '#475569',
+                        borderRadius: '8px',
+                        padding: '8px 6px',
+                        fontSize: '10.5px',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {timingChanged && (
+                <label style={{ display: 'grid', gap: '4px', fontSize: '11px', color: '#475569' }}>
+                  سبب اختلاف المدة الفعلية عن التكليف *
+                  <textarea
+                    value={timingAdjustmentReason}
+                    onChange={(event) =>
+                      setTimingAdjustmentReason(event.target.value)
+                    }
+                    placeholder="مثال: تم استكمال جميع أعمال المرور قبل الموعد المقدر."
+                    rows={2}
+                    style={{ width: '100%', resize: 'vertical', border: '1px solid #f59e0b', borderRadius: '8px', padding: '8px', fontFamily: 'inherit' }}
+                  />
+                </label>
+              )}
+
+              {completionTimingError && (
+                <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '8px', padding: '8px 10px', fontSize: '11px', fontWeight: 'bold' }}>
+                  {completionTimingError}
+                </div>
+              )}
+
+              <div style={{ fontSize: '10px', lineHeight: '1.6', color: '#64748b' }}>
+                تعتمد الشئون المالية الأيام وليالي المبيت الفعلية المثبتة هنا، مع بقاء مدة التكليف الأصلية محفوظة للمراجعة.
+              </div>
+            </div>
+
             {/* Quick Status Pill */}
             <div style={{
               display: 'grid',
@@ -3529,8 +3723,7 @@ export function MissionExecutionForm({
                 type="button"
                 disabled={loading}
                 onClick={() => {
-                  setShowConfirmSubmitModal(false)
-                  save('completed')
+                  handleConfirmCompletion()
                 }}
                 style={{
                   background: '#006d77',
