@@ -406,7 +406,19 @@ function MissionDetailRow({
         )}
         {mission.relations.can_execute && (
           <Link
-            href={'/dashboard/missions/' + mission.id + '/execute'}
+            href={
+              '/v2/missions/' +
+              mission.id +
+              '/execute' +
+              (batchId
+                ? '?returnTo=' +
+                  encodeURIComponent(
+                    '/v2/missions/assignments/' +
+                      batchId +
+                      '/execute'
+                  )
+                : '')
+            }
             className="inline-flex h-8 items-center gap-1 rounded-lg bg-teal-700 px-2.5 text-[9px] font-bold text-white hover:bg-teal-800"
           >
             <ClipboardCheck className="h-3.5 w-3.5" />
