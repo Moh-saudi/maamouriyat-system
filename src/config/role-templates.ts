@@ -3,6 +3,9 @@ export type RoleTemplateId =
   | 'field_inspector'
   | 'correction_unit_manager'
   | 'correction_unit_member'
+  | 'mission_secretariat'
+  | 'finance_officer'
+  | 'finance_approver'
   | 'sector_manager'
   | 'central_admin_manager'
   | 'general_admin_manager'
@@ -39,6 +42,27 @@ export const ROLE_TEMPLATE_CATALOG: readonly RoleTemplateDefinition[] = [
     description:
       'استلام الملاحظات الموجهة إلى الجهة وتنفيذ التصحيح وتوثيقه دون صلاحية التحقق النهائي أو الإغلاق.',
     sourceSystemRoleCode: 'correction_unit_member',
+  },
+  {
+    id: 'mission_secretariat',
+    label: 'سكرتارية المأموريات',
+    description:
+      'إعداد نماذج تكليف المأموريات واقتراح الفرق وإرسالها للاعتماد دون تنفيذ أو اعتماد المأموريات.',
+    sourceSystemRoleCode: 'mission_secretariat',
+  },
+  {
+    id: 'finance_officer',
+    label: 'مسؤول الاستحقاقات المالية للمأموريات',
+    description:
+      'مراجعة المأموريات المنفذة وإعداد البدلات والمكافآت والتسويات والتقارير المالية.',
+    sourceSystemRoleCode: 'finance_officer',
+  },
+  {
+    id: 'finance_approver',
+    label: 'معتمد الاستحقاقات المالية',
+    description:
+      'اعتماد أو رفض التسويات المالية وتسجيل الصرف بعد المراجعة.',
+    sourceSystemRoleCode: 'finance_approver',
   },
   {
     id: 'field_inspector',
