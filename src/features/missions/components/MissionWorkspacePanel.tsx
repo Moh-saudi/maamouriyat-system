@@ -802,9 +802,11 @@ export function MissionWorkspacePanel({
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-[9px] font-black text-teal-800">
                             <Layers3 className="h-3 w-3" />
-                            {group.batch_id
-                              ? 'تكليف مجمع'
-                              : 'تكليف منفرد'}
+                            {group.governorates.length > 1
+                              ? 'سجل قديم مجمع'
+                              : group.batch_id
+                                ? 'تكليف مجمع'
+                                : 'تكليف منفرد'}
                           </span>
                           <span
                             className={
@@ -841,11 +843,16 @@ export function MissionWorkspacePanel({
                         </div>
 
                         <h2 className="mt-2 text-sm font-black text-slate-900">
-                          {group.mission_count > 1
+                          {group.governorates.length > 1
                             ? group.facility_count.toLocaleString('en-US') +
-                              ' منشأة ضمن تكليف واحد'
-                            : group.sample_facilities[0] ??
-                              'تكليف مأمورية'}
+                              ' منشأة موزعة على ' +
+                              group.governorates.length.toLocaleString('en-US') +
+                              ' محافظات — يلزم الفصل'
+                            : group.mission_count > 1
+                              ? group.facility_count.toLocaleString('en-US') +
+                                ' منشأة ضمن تكليف واحد'
+                              : group.sample_facilities[0] ??
+                                'تكليف مأمورية'}
                         </h2>
 
                         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">
@@ -991,6 +998,44 @@ export function MissionWorkspacePanel({
                     </div>
                   </button>
 
+                  {group.batch_id && (
+                    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-white px-4 py-2.5">
+                      {group.governorates.length > 1 ? (
+                        <>
+                          <span className="ml-auto text-[9px] font-bold text-rose-600">
+                            السجل قديم؛ الطباعة مفصولة حسب المحافظة
+                          </span>
+                          {group.governorates.map((governorate) => (
+                            <Link
+                              key={governorate}
+                              href={
+                                '/v2/print/missions/assignments/' +
+                                group.batch_id +
+                                '?governorate=' +
+                                encodeURIComponent(governorate)
+                              }
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 text-[9px] font-bold text-rose-700 hover:bg-rose-100"
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                              طباعة {governorate}
+                            </Link>
+                          ))}
+                        </>
+                      ) : (
+                        <Link
+                          href={
+                            '/v2/print/missions/assignments/' +
+                            group.batch_id
+                          }
+                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-[9px] font-bold text-teal-800 hover:bg-teal-100"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                          طباعة التكليف المجمع
+                        </Link>
+                      )}
+                    </div>
+                  )}
+
                   {opened && (
                     <div className="border-t border-teal-100 bg-slate-50/60 p-3 sm:p-4">
                       {loadingDetails ? (
@@ -1045,38 +1090,6 @@ export function MissionWorkspacePanel({
                           ))}
                         </div>
                       )}
-
-                      <div className="mt-3 flex flex-wrap justify-end gap-2">
-                        {group.batch_id &&
-                          (group.governorates.length > 1 ? (
-                            group.governorates.map((governorate) => (
-                              <Link
-                                key={governorate}
-                                href={
-                                  '/v2/print/missions/assignments/' +
-                                  group.batch_id +
-                                  '?governorate=' +
-                                  encodeURIComponent(governorate)
-                                }
-                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 text-[9px] font-bold text-rose-700 hover:bg-rose-50"
-                              >
-                                <Printer className="h-3.5 w-3.5" />
-                                طباعة تكليف {governorate}
-                              </Link>
-                            ))
-                          ) : (
-                            <Link
-                              href={
-                                '/v2/print/missions/assignments/' +
-                                group.batch_id
-                              }
-                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 text-[9px] font-bold text-teal-800 hover:bg-teal-50"
-                            >
-                              <Printer className="h-3.5 w-3.5" />
-                              طباعة التكليف المجمع
-                            </Link>
-                          ))}
-                      </div>
 
                       {group.relations.can_approve && (
                         <div className="mt-3 flex justify-end">
