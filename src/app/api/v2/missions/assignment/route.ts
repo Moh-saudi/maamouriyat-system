@@ -960,6 +960,39 @@ export async function POST(request: Request) {
     const facilityRows = (facilities ?? []) as FacilityRow[]
     const userRows = (users ?? []) as UserRow[]
 
+    const selectedGovernorates = [
+      ...new Set(
+        facilityRows
+          .map((facility) => facility.governorate?.trim() || '')
+          .filter(Boolean)
+      ),
+    ]
+
+    if (
+      facilityRows.some((facility) => !facility.governorate?.trim())
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'توجد منشأة بلا محافظة معتمدة. يجب استكمال بيانات المنشأة قبل إصدار التكليف.',
+          code: 'FACILITY_GOVERNORATE_REQUIRED',
+        },
+        { status: 400 }
+      )
+    }
+
+    if (selectedGovernorates.length > 1) {
+      return NextResponse.json(
+        {
+          error:
+            'لا يمكن إصدار تكليف رسمي واحد لمنشآت من أكثر من محافظة. افصل كل محافظة في تكليف ومدة مستقلين.',
+          code: 'MULTI_GOVERNORATE_ASSIGNMENT_DENIED',
+          governorates: selectedGovernorates,
+        },
+        { status: 400 }
+      )
+    }
+
     if (facilityRows.length !== facilityIds.length) {
       return NextResponse.json(
         { error: 'توجد منشأة غير موجودة أو غير نشطة ضمن التكليف' },
@@ -1297,6 +1330,30 @@ export async function POST(request: Request) {
         '[v2-mission-assignment:POST] RPC failed:',
         createError.message
       )
+      const createMessage = createError.message || ''
+
+      if (createMessage.includes('MISSION_MULTI_GOVERNORATE_DENIED')) {
+        return NextResponse.json(
+          {
+            error:
+              'لا يمكن إصدار تكليف رسمي واحد لمنشآت من أكثر من محافظة. افصل كل محافظة في تكليف ومدة مستقلين.',
+            code: 'MULTI_GOVERNORATE_ASSIGNMENT_DENIED',
+          },
+          { status: 400 }
+        )
+      }
+
+      if (createMessage.includes('MISSION_GOVERNORATE_REQUIRED')) {
+        return NextResponse.json(
+          {
+            error:
+              'توجد منشأة بلا محافظة معتمدة. يجب استكمال بياناتها قبل إصدار التكليف.',
+            code: 'FACILITY_GOVERNORATE_REQUIRED',
+          },
+          { status: 400 }
+        )
+      }
+
       return NextResponse.json(
         { error: 'تعذر إصدار تكليف المأموريات' },
         { status: 500 }
