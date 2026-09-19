@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server'
 import {
+  MISSION_OPERATIONAL_STATE,
+  resolveMissionOperationalState,
+  type MissionOperationalState,
+} from '@/config/mission-lifecycle'
+import {
   evaluateV2ResourceScope,
   hasV2Permission,
 } from '@/server/authorization'
@@ -113,6 +118,12 @@ function completedCount(counts: StatusCounts) {
 function formatGroup(group: GroupAccumulator) {
   const completed = completedCount(group.status_counts)
   const missionCount = Math.max(1, group.mission_count)
+  const derivedStatus = deriveOverallStatus(group.status_counts)
+  const operationalState = resolveMissionOperationalState({
+    status: derivedStatus,
+    scheduledDate: group.scheduled_date,
+    expectedEndDate: group.expected_end_date,
+  })
 
   return {
     group_key: group.group_key,
@@ -120,7 +131,8 @@ function formatGroup(group: GroupAccumulator) {
     legacy_mission_id: group.legacy_mission_id,
     mission_count: group.mission_count,
     facility_count: group.facility_ids.size,
-    status: deriveOverallStatus(group.status_counts),
+    status: derivedStatus,
+    operational_state: operationalState.key,
     status_counts: group.status_counts,
     completed_count: completed,
     remaining_count: Math.max(0, group.mission_count - completed),
@@ -484,9 +496,16 @@ export async function GET(request: Request) {
     let rows = formatted.filter((row) => matchesMode(row, mode))
 
     if (statusFilter !== 'all') {
-      rows = rows.filter(
-        (row) => (row.status_counts[statusFilter] ?? 0) > 0
-      )
+      const lifecycleFilter = statusFilter as MissionOperationalState
+      if (lifecycleFilter in MISSION_OPERATIONAL_STATE) {
+        rows = rows.filter(
+          (row) => row.operational_state === lifecycleFilter
+        )
+      } else {
+        rows = rows.filter(
+          (row) => (row.status_counts[statusFilter] ?? 0) > 0
+        )
+      }
     }
 
     if (query) {
