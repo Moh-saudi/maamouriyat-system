@@ -1786,11 +1786,11 @@ export function MissionExecutionForm({
 
   const sDate = parseLocalDate(targetStartDate);
   const eDate = parseLocalDate(expectedEndDate);
-  const todayDate = new Date();
-  todayDate.setHours(0, 0, 0, 0);
+  const currentDayDate = new Date();
+  currentDayDate.setHours(0, 0, 0, 0);
 
-  const isBefore = sDate ? todayDate < sDate : false;
-  const isAfter = eDate ? todayDate > eDate : false;
+  const isBefore = sDate ? currentDayDate < sDate : false;
+  const isAfter = eDate ? currentDayDate > eDate : false;
   const isLocked = isBefore || isAfter;
 
   if (isLocked && currentUserLevel === 7 && !bypassLock) {
