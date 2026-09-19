@@ -264,12 +264,7 @@ export function OrganizationManagementPanel({
   ).length
 
   function hasRecordedActivity(organization: Organization): boolean {
-    return (
-      organization.usage.usersActive > 0 ||
-      organization.usage.activeRoleAssignments > 0 ||
-      organization.usage.missionsCreated > 0 ||
-      organization.usage.missionsInspector > 0
-    )
+    return linkedRecordCount(organization) > 0
   }
 
   function linkedRecordCount(organization: Organization): number {
@@ -766,35 +761,44 @@ export function OrganizationManagementPanel({
                       </p>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="space-y-1 text-[10px] text-slate-500">
-                        <div className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          <span>
-                            {organization.usage.usersActive.toLocaleString('en-US')} حساب نشط
-                          </span>
-                        </div>
-                        <div>
-                          {(
-                            organization.usage.missionsCreated +
-                            organization.usage.missionsInspector
-                          ).toLocaleString('en-US')}{' '}
-                          مأمورية ·{' '}
-                          {organization.usage.childOrganizationsTotal.toLocaleString(
+                      <div className="space-y-1.5 text-[10px] text-slate-500">
+                        <p className="font-extrabold text-slate-700">
+                          إجمالي{' '}
+                          {linkedRecordCount(organization).toLocaleString(
                             'en-US'
                           )}{' '}
-                          جهة تابعة
+                          ارتباط
+                        </p>
+                        <div className="flex flex-wrap gap-x-2 gap-y-1">
+                          <span className="inline-flex items-center gap-1">
+                            <Building2 className="h-3 w-3" />
+                            {organization.usage.facilitiesTotal.toLocaleString(
+                              'en-US'
+                            )}{' '}
+                            منشأة
+                          </span>
+                          <span>
+                            {organization.usage.childOrganizationsTotal.toLocaleString(
+                              'en-US'
+                            )}{' '}
+                            جهة تابعة
+                          </span>
                         </div>
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-bold ${
-                            hasRecordedActivity(organization)
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : 'bg-slate-100 text-slate-500'
-                          }`}
-                        >
-                          {hasRecordedActivity(organization)
-                            ? 'نشاط مسجل'
-                            : 'لا نشاط مسجل'}
-                        </span>
+                        <div className="flex flex-wrap gap-x-2 gap-y-1 text-slate-400">
+                          <span>
+                            {organization.usage.usersActive.toLocaleString(
+                              'en-US'
+                            )}{' '}
+                            حساب نشط
+                          </span>
+                          <span>
+                            {(
+                              organization.usage.missionsCreated +
+                              organization.usage.missionsInspector
+                            ).toLocaleString('en-US')}{' '}
+                            مأمورية
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -873,15 +877,17 @@ export function OrganizationManagementPanel({
 
                 <div className="grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-3 text-[10px] text-slate-500">
                   <div>
-                    <span className="block text-slate-400">أضيفت</span>
+                    <span className="block text-slate-400">إجمالي المنشآت</span>
                     <strong className="text-slate-700">
-                      {formatDate(organization.created_at)}
+                      {organization.usage.facilitiesTotal.toLocaleString(
+                        'en-US'
+                      )}
                     </strong>
                   </div>
                   <div>
-                    <span className="block text-slate-400">الحسابات النشطة</span>
+                    <span className="block text-slate-400">إجمالي الارتباطات</span>
                     <strong className="text-slate-700">
-                      {organization.usage.usersActive.toLocaleString('en-US')}
+                      {linkedRecordCount(organization).toLocaleString('en-US')}
                     </strong>
                   </div>
                 </div>
@@ -1009,28 +1015,28 @@ export function OrganizationManagementPanel({
                       السجلات والملفات المرتبطة
                     </h3>
                     <p className="mt-0.5 text-[10px] text-slate-400">
-                      ارتباطات مباشرة بهذه الجهة داخل المنظومة.
+                      إجماليات تراكمية للجهة نفسها وكل الجهات التابعة لها داخل المنظومة.
                     </p>
                   </div>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">
                     {linkedRecordCount(detailsOrganization).toLocaleString(
                       'en-US'
                     )}{' '}
-                    ارتباط
+                    إجمالي ارتباط
                   </span>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {[
                     {
-                      label: 'المستخدمون',
+                      label: 'إجمالي المستخدمين',
                       value: detailsOrganization.usage.usersTotal,
                       note: `${detailsOrganization.usage.usersActive.toLocaleString(
                         'en-US'
                       )} نشط`,
                     },
                     {
-                      label: 'الجهات التابعة',
+                      label: 'إجمالي الجهات التابعة',
                       value:
                         detailsOrganization.usage.childOrganizationsTotal,
                       note: `${detailsOrganization.usage.childOrganizationsActive.toLocaleString(
@@ -1038,7 +1044,7 @@ export function OrganizationManagementPanel({
                       )} نشطة`,
                     },
                     {
-                      label: 'المنشآت المرتبطة',
+                      label: 'إجمالي المنشآت',
                       value: detailsOrganization.usage.facilitiesTotal,
                       note: `${detailsOrganization.usage.facilitiesActive.toLocaleString(
                         'en-US'
