@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
-import { checkV2ResourceAccess } from '@/server/authorization'
-import { requireV2Permission } from '@/server/authorization/http-guard'
+import {
+  checkV2ResourceAccess,
+  hasV2Permission,
+} from '@/server/authorization'
+import {
+  requireAnyV2Permission,
+  requireV2Permission,
+} from '@/server/authorization/http-guard'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 async function canUseTemplate(input: {
@@ -67,6 +73,212 @@ async function canUseTemplate(input: {
   }
 
   return false
+}
+
+export async function GET() {
+  try {
+    const gate = await requireAnyV2Permission([
+      'checklists.library',
+      'checklists.design',
+      'checklists.view',
+    ])
+    if (!gate.ok) return gate.response
+
+    const permissionKey = hasV2Permission(gate.access, 'checklists.library')
+      ? 'checklists.library'
+      : hasV2Permission(gate.access, 'checklists.design')
+        ? 'checklists.design'
+        : 'checklists.view'
+
+    const admin = getAdminSupabaseClient()
+
+    const [
+      { data: templateRows, error: templatesError },
+      { data: libraryRows, error: libraryError },
+      { data: sectionRows, error: sectionsError },
+      { data: criteriaRows, error: criteriaError },
+    ] = await Promise.all([
+      admin
+        .from('form_templates')
+        .select(
+          'id, name, version, description, created_by_org, created_by_user_id, visibility, applicable_facility_types, is_base, is_active, created_at, updated_at'
+        )
+        .eq('is_active', true)
+        .order('is_base', { ascending: false })
+        .order('updated_at', { ascending: false }),
+      admin
+        .from('user_template_library')
+        .select('template_id, source_type, is_default')
+        .eq('user_id', gate.user.profileId),
+      admin
+        .from('form_sections')
+        .select('id, template_id')
+        .eq('is_active', true),
+      admin
+        .from('form_criteria')
+        .select('id, template_id')
+        .eq('is_active', true),
+    ])
+
+    const firstError =
+      templatesError || libraryError || sectionsError || criteriaError
+
+    if (firstError) {
+      throw new Error(firstError.message)
+    }
+
+    const libraryById = new Map(
+      (libraryRows ?? []).map((row) => [
+        String(row.template_id),
+        {
+          source_type: String(row.source_type),
+          is_default: row.is_default === true,
+        },
+      ])
+    )
+
+    const sectionCount = new Map<string, number>()
+    for (const row of sectionRows ?? []) {
+      const id = String(row.template_id)
+      sectionCount.set(id, (sectionCount.get(id) ?? 0) + 1)
+    }
+
+    const criteriaCount = new Map<string, number>()
+    for (const row of criteriaRows ?? []) {
+      const id = String(row.template_id)
+      criteriaCount.set(id, (criteriaCount.get(id) ?? 0) + 1)
+    }
+
+    const organizationCache = new Map<
+      string,
+      {
+        id: string
+        sector_id: string | null
+        governorate: string | null
+        organization_type_code: string | null
+      } | null
+    >()
+
+    async function organizationTemplateAllowed(
+      organizationId: string
+    ): Promise<boolean> {
+      if (!organizationCache.has(organizationId)) {
+        const { data } = await admin
+          .from('organizations')
+          .select('id, sector_id, governorate, organization_type_code')
+          .eq('id', organizationId)
+          .maybeSingle()
+
+        organizationCache.set(
+          organizationId,
+          data
+            ? {
+                id: String(data.id),
+                sector_id: data.sector_id
+                  ? String(data.sector_id)
+                  : null,
+                governorate:
+                  typeof data.governorate === 'string'
+                    ? data.governorate
+                    : null,
+                organization_type_code:
+                  typeof data.organization_type_code === 'string'
+                    ? data.organization_type_code
+                    : null,
+              }
+            : null
+        )
+      }
+
+      const organization = organizationCache.get(organizationId)
+      if (!organization) return false
+
+      return (
+        await checkV2ResourceAccess({
+          user: gate.user,
+          snapshot: gate.access,
+          permissionKey,
+          resource: {
+            organizationId: organization.id,
+            sectorId:
+              organization.organization_type_code === 'sector'
+                ? organization.id
+                : organization.sector_id,
+            governorate: organization.governorate,
+          },
+        })
+      ).allowed
+    }
+
+    const templates = []
+
+    for (const template of templateRows ?? []) {
+      const visibility =
+        template.visibility === 'private' ||
+        template.visibility === 'organization'
+          ? template.visibility
+          : 'system'
+
+      const createdByMe =
+        template.created_by_user_id === gate.user.profileId
+
+      let allowed = visibility === 'system' || createdByMe
+
+      if (
+        !allowed &&
+        visibility === 'organization' &&
+        typeof template.created_by_org === 'string'
+      ) {
+        allowed = await organizationTemplateAllowed(template.created_by_org)
+      }
+
+      if (!allowed) continue
+
+      const templateId = String(template.id)
+      const library = libraryById.get(templateId)
+
+      templates.push({
+        id: templateId,
+        name: String(template.name),
+        version:
+          typeof template.version === 'string' ? template.version : null,
+        description:
+          typeof template.description === 'string'
+            ? template.description
+            : null,
+        visibility,
+        is_base: template.is_base === true,
+        created_by_me: createdByMe,
+        in_my_library: Boolean(library) || createdByMe,
+        library_source:
+          library?.source_type ?? (createdByMe ? 'created' : null),
+        is_default: library?.is_default ?? false,
+        section_count: sectionCount.get(templateId) ?? 0,
+        criteria_count: criteriaCount.get(templateId) ?? 0,
+        applicable_facility_types: Array.isArray(
+          template.applicable_facility_types
+        )
+          ? template.applicable_facility_types
+          : null,
+        updated_at: template.updated_at ?? template.created_at ?? null,
+      })
+    }
+
+    return NextResponse.json({
+      can_design: hasV2Permission(gate.access, 'checklists.design'),
+      can_manage_library: hasV2Permission(
+        gate.access,
+        'checklists.library'
+      ),
+      templates,
+    })
+  } catch (error) {
+    console.error('[template-library:GET] unexpected error:', error)
+    return NextResponse.json(
+      { error: 'تعذر تحميل مكتبة الاستمارات' },
+      { status: 500 }
+    )
+  }
 }
 
 export async function POST(request: Request) {
