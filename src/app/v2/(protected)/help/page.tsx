@@ -1,17 +1,12 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import {
-  AlertTriangle,
-  Building2,
   CheckCircle2,
   ClipboardList,
   Clock3,
   HelpCircle,
-  KeyRound,
   Network,
-  Route,
   ShieldCheck,
-  Users,
   Wrench,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -21,6 +16,7 @@ import {
   V2_TERMINOLOGY,
 } from '@/config/terminology'
 import { getV2AccessState, hasV2Permission } from '@/server/authorization'
+import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
 
 type SearchParams = Promise<{
   from?: string
@@ -68,12 +64,7 @@ const PAGE_GUIDES = [
 ] as const
 
 function hasAnyPermission(
-  access: Awaited<ReturnType<typeof getV2AccessState>> extends {
-    status: 'authorized'
-    access: infer T
-  }
-    ? T
-    : never,
+  access: V2AuthorizationSnapshot,
   keys: string[]
 ): boolean {
   return keys.some((key) => hasV2Permission(access, key))
