@@ -17,6 +17,7 @@ type Role = {
   code?: string
   name_ar: string
   description_ar: string | null
+  can_assign?: boolean
 }
 
 type RoleAssignmentResponse = {
@@ -129,8 +130,11 @@ export function CreateUserDialog({
         }
 
         if (!cancelled) {
-          setRoles(payload.roles)
-          setSelectedRoleId(payload.roles[0]?.id ?? '')
+          const assignableRoles = payload.roles.filter(
+            (role) => role.can_assign !== false
+          )
+          setRoles(assignableRoles)
+          setSelectedRoleId(assignableRoles[0]?.id ?? '')
         }
       })
       .catch((loadError) => {
