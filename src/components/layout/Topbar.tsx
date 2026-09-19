@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Bell } from 'lucide-react'
+import { Bell, HelpCircle } from 'lucide-react'
 import { UserMenu, type UserMenuProps } from './UserMenu'
 import { BRANDING } from '@/config/branding'
 import {
@@ -65,6 +65,18 @@ export function Topbar({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
+        <Link
+          href={`/v2/help?from=${encodeURIComponent(pathname)}`}
+          aria-label="شرح هذه الصفحة"
+          title="شرح هذه الصفحة"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 text-slate-500 transition hover:bg-slate-50 hover:text-teal-800"
+        >
+          <HelpCircle className="h-4 w-4" />
+          <span className="hidden text-[11px] font-bold lg:inline">
+            شرح الصفحة
+          </span>
+        </Link>
+
         <button
           type="button"
           aria-label="التنبيهات"
