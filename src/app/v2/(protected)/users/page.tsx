@@ -2,7 +2,6 @@ import Link from 'next/link'
 import {
   ChevronLeft,
   ChevronRight,
-  Search,
   UserCheck,
   Users,
 } from 'lucide-react'
@@ -10,6 +9,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { V2PageContainer } from '@/components/ui/V2PageContainer'
 import { UserRolesManager } from '@/features/users/components/UserRolesManager'
 import { CreateUserDialog } from '@/features/users/components/CreateUserDialog'
+import { UsersSearch } from '@/features/users/components/UsersSearch'
 import { hasV2Permission } from '@/server/authorization'
 import { requireV2PagePermission } from '@/server/authorization/page-guard'
 import { listV2Users } from '@/server/services/users/list-users'
@@ -101,36 +101,7 @@ export default async function V2UsersPage({
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 p-4">
-          <form
-            action="/v2/users"
-            method="get"
-            className="flex flex-col gap-2 sm:flex-row"
-          >
-            <label className="relative flex-1">
-              <span className="sr-only">البحث عن مستخدم</span>
-              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                name="q"
-                defaultValue={search}
-                placeholder="ابحث بالاسم أو البريد أو المسمى الوظيفي..."
-                className="h-9 w-full rounded-lg border border-slate-200 bg-white pr-9 pl-3 text-xs outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-              />
-            </label>
-            <button
-              type="submit"
-              className="h-9 rounded-lg bg-teal-700 px-4 text-xs font-bold text-white hover:bg-teal-800"
-            >
-              بحث
-            </button>
-            {search && (
-              <Link
-                href="/v2/users"
-                className="flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50"
-              >
-                مسح
-              </Link>
-            )}
-          </form>
+          <UsersSearch initialSearch={search} />
         </div>
 
         {result.items.length === 0 ? (
