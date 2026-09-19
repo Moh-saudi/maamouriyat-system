@@ -1,60 +1,25 @@
 import { NextResponse } from 'next/server'
 import {
-  checkV2ResourceAccess,
+  evaluateV2ResourceScope,
   hasV2Permission,
 } from '@/server/authorization'
 import { requireAnyV2Permission } from '@/server/authorization/http-guard'
+import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
-type OrgScopeRow = {
-  id: string
-  sector_id: string | null
-  governorate: string | null
-  organization_type_code: string | null
-}
-
-async function loadOrgScope(orgId: string): Promise<OrgScopeRow | null> {
-  const admin = getAdminSupabaseClient()
-  const { data, error } = await admin
-    .from('organizations')
-    .select('id, sector_id, governorate, organization_type_code')
-    .eq('id', orgId)
-    .maybeSingle()
-
-  if (error) {
-    throw new Error(`Failed to load report organization scope: ${error.message}`)
-  }
-
-  return (data as OrgScopeRow | null) ?? null
-}
-
-async function allowedForOrg(input: {
-  orgId: string
-  permissionKey: string
-  gate: Extract<
-    Awaited<ReturnType<typeof requireAnyV2Permission>>,
-    { ok: true }
-  >
+function collectAuthorizationFactIds(input: {
+  userOrganizationId: string | null
+  roleAnchors: Array<string | null>
+  resourceOrgIds: string[]
 }) {
-  const org = await loadOrgScope(input.orgId)
-  if (!org) return false
-
-  const decision = await checkV2ResourceAccess({
-    user: input.gate.user,
-    snapshot: input.gate.access,
-    permissionKey: input.permissionKey,
-    resource: {
-      organizationId: org.id,
-      sectorId:
-        org.organization_type_code === 'sector'
-          ? org.id
-          : org.sector_id,
-      governorate: org.governorate,
-    },
-  })
-
-  return decision.allowed
+  const ids = new Set<string>(input.resourceOrgIds)
+  if (input.userOrganizationId) ids.add(input.userOrganizationId)
+  for (const anchor of input.roleAnchors) {
+    if (anchor) ids.add(anchor)
+  }
+  return [...ids]
 }
+
 
 export async function GET() {
   try {
@@ -119,22 +84,49 @@ export async function GET() {
         ])
       )
 
-      const visibleStatuses: string[] = []
+      const missionOrgIds = [
+        ...new Set(
+          (missions ?? [])
+            .map((mission) =>
+              facilityOrg.get(String(mission.facility_id))
+            )
+            .filter((value): value is string => Boolean(value))
+        ),
+      ]
 
-      for (const mission of missions ?? []) {
-        const orgId = facilityOrg.get(String(mission.facility_id))
-        if (!orgId) continue
+      const missionFacts = await loadV2OrganizationFacts(
+        collectAuthorizationFactIds({
+          userOrganizationId: gate.user.organizationId,
+          roleAnchors: gate.access.roles.map(
+            (role) => role.assignmentOrganizationId
+          ),
+          resourceOrgIds: missionOrgIds,
+        })
+      )
 
-        if (
-          await allowedForOrg({
-            orgId,
+      const visibleStatuses = (missions ?? [])
+        .filter((mission) => {
+          const orgId = facilityOrg.get(String(mission.facility_id))
+          if (!orgId) return false
+          const fact = missionFacts.get(orgId)
+          if (!fact) return false
+
+          return evaluateV2ResourceScope({
+            user: gate.user,
+            snapshot: gate.access,
             permissionKey: 'reports.missions_view',
-            gate,
-          })
-        ) {
-          visibleStatuses.push(String(mission.status || 'draft'))
-        }
-      }
+            organizationFacts: missionFacts,
+            resource: {
+              organizationId: orgId,
+              sectorId:
+                fact.organizationTypeCode === 'sector'
+                  ? fact.id
+                  : fact.sectorId,
+              governorate: fact.governorate,
+            },
+          }).allowed
+        })
+        .map((mission) => String(mission.status || 'draft'))
 
       missionSummary = {
         total: visibleStatuses.length,
@@ -176,22 +168,49 @@ export async function GET() {
         throw new Error(settlementsError.message)
       }
 
-      const visible: Array<{ status: string; total: number }> = []
+      const financeOrgIds = [
+        ...new Set(
+          (settlements ?? []).map((settlement) =>
+            String(settlement.scope_org_id)
+          )
+        ),
+      ]
 
-      for (const settlement of settlements ?? []) {
-        if (
-          await allowedForOrg({
-            orgId: String(settlement.scope_org_id),
+      const financeFacts = await loadV2OrganizationFacts(
+        collectAuthorizationFactIds({
+          userOrganizationId: gate.user.organizationId,
+          roleAnchors: gate.access.roles.map(
+            (role) => role.assignmentOrganizationId
+          ),
+          resourceOrgIds: financeOrgIds,
+        })
+      )
+
+      const visible = (settlements ?? [])
+        .filter((settlement) => {
+          const orgId = String(settlement.scope_org_id)
+          const fact = financeFacts.get(orgId)
+          if (!fact) return false
+
+          return evaluateV2ResourceScope({
+            user: gate.user,
+            snapshot: gate.access,
             permissionKey: 'reports.finance_view',
-            gate,
-          })
-        ) {
-          visible.push({
-            status: String(settlement.status),
-            total: Number(settlement.total_amount || 0),
-          })
-        }
-      }
+            organizationFacts: financeFacts,
+            resource: {
+              organizationId: orgId,
+              sectorId:
+                fact.organizationTypeCode === 'sector'
+                  ? fact.id
+                  : fact.sectorId,
+              governorate: fact.governorate,
+            },
+          }).allowed
+        })
+        .map((settlement) => ({
+          status: String(settlement.status),
+          total: Number(settlement.total_amount || 0),
+        }))
 
       financeSummary = {
         count: visible.length,
