@@ -341,6 +341,9 @@ export async function POST(request: Request) {
           name,
           version: version || '1.0',
           description: description || null,
+          created_by_org: gate.user.organizationId,
+          created_by_user_id: gate.user.profileId,
+          visibility: 'private',
           applicable_sectors: applicable_sectors || null,
           applicable_levels: [5, 6, 7],
           is_base: false,
@@ -349,7 +352,29 @@ export async function POST(request: Request) {
         .select()
         .single()
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 })
+      }
+
+      const { error: libraryError } = await adminClient
+        .from('user_template_library')
+        .upsert(
+          {
+            user_id: gate.user.profileId,
+            template_id: data.id,
+            source_type: 'created',
+            is_default: false,
+          },
+          { onConflict: 'user_id,template_id' }
+        )
+
+      if (libraryError) {
+        console.error(
+          '[Checklists POST create_template library Error]',
+          libraryError.message
+        )
+      }
+
       return NextResponse.json({ success: true, data })
     }
 
