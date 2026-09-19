@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Loader2, Plus, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import {
   CascadingOrganizationSelect,
   type CascadingOrganizationOption,
@@ -33,6 +34,7 @@ interface CreateUserDialogProps {
 export function CreateUserDialog({
   canAssignRole,
 }: CreateUserDialogProps) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [loadingOrganizations, setLoadingOrganizations] = useState(false)
@@ -129,6 +131,7 @@ export function CreateUserDialog({
       }
 
       setCreatedUserId(userId)
+      router.refresh()
 
       if (canAssignRole) {
         const roleResponse = await fetch(
@@ -181,7 +184,8 @@ export function CreateUserDialog({
         throw new Error(payload.error || 'تعذر تحديد نوع العمل')
       }
 
-      window.location.reload()
+      router.refresh()
+      resetAndClose()
     } catch (assignError) {
       setError(
         assignError instanceof Error
@@ -378,7 +382,10 @@ export function CreateUserDialog({
               ) : (
                 <button
                   type="button"
-                  onClick={() => window.location.reload()}
+                  onClick={() => {
+                    router.refresh()
+                    resetAndClose()
+                  }}
                   className="h-10 rounded-xl bg-teal-700 px-5 text-sm font-bold text-white"
                 >
                   تم
