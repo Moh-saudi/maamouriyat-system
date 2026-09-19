@@ -2,16 +2,13 @@ import Link from 'next/link'
 import { redirect, notFound } from 'next/navigation'
 import {
   ArrowRight,
-  Building2,
   CheckCircle2,
   ChevronLeft,
-  CircleDot,
   ClipboardCheck,
   Clock3,
   FileText,
   MapPin,
   ShieldAlert,
-  Users,
 } from 'lucide-react'
 import {
   evaluateV2ResourceScope,
@@ -34,6 +31,7 @@ import {
 } from '@/config/mission-lifecycle'
 import { getFacilityTypeLabel } from '@/config/facility-types'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
+import { GroupedAssignmentCompletionPanel } from '@/features/missions/components/GroupedAssignmentCompletionPanel'
 
 type PageProps = {
   params: Promise<{ batchId: string }>
@@ -50,6 +48,18 @@ type BatchRow = {
   notes: string | null
   mission_count: number | null
   status: string | null
+  actual_start_date: string | null
+  actual_end_date: string | null
+  actual_duration_days: number | null
+  actual_overnight_nights: number | null
+  completion_disposition:
+    | 'return_to_base'
+    | 'next_mission'
+    | 'other'
+    | null
+  timing_adjustment_reason: string | null
+  completed_by: string | null
+  completed_at: string | null
   created_at: string | null
 }
 
@@ -62,6 +72,15 @@ function formatDate(value: string | null | undefined) {
     month: '2-digit',
     year: 'numeric',
   }).format(date)
+}
+
+function dateKeyFromTimestamp(value: string | null | undefined) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value.length >= 10 ? value.slice(0, 10) : null
+  }
+  return date.toISOString().slice(0, 10)
 }
 
 function buildTeamMap(rows: MissionWorkspaceTeamRow[]) {
@@ -91,7 +110,7 @@ export default async function GroupedMissionExecutionPage({
   const { data: batchData, error: batchError } = await admin
     .from('mission_assignment_batches')
     .select(
-      'id, created_by, created_by_org, scheduled_date, expected_end_date, priority, visit_purpose, notes, mission_count, status, created_at'
+      'id, created_by, created_by_org, scheduled_date, expected_end_date, priority, visit_purpose, notes, mission_count, status, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, completed_by, completed_at, created_at'
     )
     .eq('id', batchId)
     .maybeSingle()
@@ -267,6 +286,54 @@ export default async function GroupedMissionExecutionPage({
     ),
   ]
 
+  const canFinalize =
+    canExecutePermission &&
+    (
+      visibleMissions.some(
+        (mission) =>
+          mission.primary_inspector_id === user.profileId
+      ) ||
+      teamRows.some(
+        (member) =>
+          member.user_id === user.profileId &&
+          member.is_primary === true
+      )
+    )
+
+  const startCandidates = visibleMissions
+    .map(
+      (mission) =>
+        mission.actual_start_date ||
+        dateKeyFromTimestamp(mission.checkin_time)
+    )
+    .filter((value): value is string => Boolean(value))
+    .sort()
+
+  const endCandidates = visibleMissions
+    .map(
+      (mission) =>
+        mission.actual_end_date ||
+        dateKeyFromTimestamp(
+          mission.checkout_time || mission.completed_at
+        )
+    )
+    .filter((value): value is string => Boolean(value))
+    .sort()
+
+  const suggestedStartDate =
+    batch.actual_start_date ||
+    startCandidates[0] ||
+    batch.scheduled_date
+  const suggestedEndDate =
+    batch.actual_end_date ||
+    endCandidates[endCandidates.length - 1] ||
+    batch.expected_end_date ||
+    batch.scheduled_date
+
+  const finalized =
+    Boolean(batch.actual_start_date && batch.actual_end_date) &&
+    (batch.status === 'completed' || batch.status === 'closed')
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -349,7 +416,7 @@ export default async function GroupedMissionExecutionPage({
                 style={{ width: progress + '%' }}
               />
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="rounded-xl bg-emerald-50 p-2.5 text-center">
                 <p className="text-[8px] font-bold text-emerald-700">منفذة</p>
                 <p className="mt-1 text-base font-black text-emerald-900">
@@ -363,8 +430,14 @@ export default async function GroupedMissionExecutionPage({
                 </p>
               </div>
               <div className="rounded-xl bg-sky-50 p-2.5 text-center">
-                <p className="text-[8px] font-bold text-sky-700">متبقية</p>
+                <p className="text-[8px] font-bold text-sky-700">قادمة</p>
                 <p className="mt-1 text-base font-black text-sky-900">
+                  {upcomingCount.toLocaleString('en-US')}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-100 p-2.5 text-center">
+                <p className="text-[8px] font-bold text-slate-600">متبقية</p>
+                <p className="mt-1 text-base font-black text-slate-900">
                   {remainingCount.toLocaleString('en-US')}
                 </p>
               </div>
@@ -500,51 +573,24 @@ export default async function GroupedMissionExecutionPage({
         </div>
       </section>
 
-      <section
-        className={
-          'rounded-2xl border p-4 sm:p-5 ' +
-          (allCompleted
-            ? 'border-emerald-200 bg-emerald-50'
-            : 'border-slate-200 bg-slate-50')
+      <GroupedAssignmentCompletionPanel
+        batchId={batchId}
+        allCompleted={allCompleted}
+        canFinalize={canFinalize}
+        plannedStartDate={batch.scheduled_date}
+        plannedEndDate={
+          batch.expected_end_date || batch.scheduled_date
         }
-      >
-        {allCompleted ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-                <CheckCircle2 className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-xs font-black text-emerald-900">
-                  اكتمل المرور على جميع منشآت التكليف
-                </h2>
-                <p className="mt-1 text-[9px] leading-5 text-emerald-700">
-                  أصبح التكليف جاهزًا للمرحلة التالية: تجميع نتائج المنشآت
-                  وإعداد التقرير النهائي للمأمورية.
-                </p>
-              </div>
-            </div>
-            <span className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-3 text-[10px] font-black text-emerald-700">
-              <FileText className="h-3.5 w-3.5" />
-              التقرير يُنشأ بعد اكتمال التنفيذ
-            </span>
-          </div>
-        ) : (
-          <div className="flex items-start gap-3">
-            <CircleDot className="mt-0.5 h-5 w-5 text-slate-400" />
-            <div>
-              <h2 className="text-xs font-black text-slate-700">
-                لا يمكن إنهاء التكليف بعد
-              </h2>
-              <p className="mt-1 text-[9px] leading-5 text-slate-500">
-                يتبقى {remainingCount.toLocaleString('en-US')} مأمورية. لا
-                يظهر التقرير النهائي ولا ينتقل التكليف للمرحلة التالية قبل
-                استكمال المرور المطلوب.
-              </p>
-            </div>
-          </div>
-        )}
-      </section>
+        suggestedStartDate={suggestedStartDate}
+        suggestedEndDate={suggestedEndDate}
+        actualStartDate={batch.actual_start_date}
+        actualEndDate={batch.actual_end_date}
+        actualOvernightNights={batch.actual_overnight_nights}
+        completionDisposition={batch.completion_disposition}
+        timingAdjustmentReason={batch.timing_adjustment_reason}
+        finalized={finalized}
+        actualDurationDays={batch.actual_duration_days}
+      />
     </div>
   )
 }
