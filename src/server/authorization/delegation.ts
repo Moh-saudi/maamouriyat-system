@@ -3,6 +3,16 @@ import type {
   V2ScopeType,
 } from './types'
 
+const INFORMATION_CENTER_DELEGABLE_SYSTEM_ROLES = new Set([
+  'sector_manager',
+  'central_admin_manager',
+  'general_admin_manager',
+  'directorate_manager',
+  'health_admin_manager',
+  'information_center',
+  'field_inspector',
+])
+
 export function canDelegateV2PermissionGrant(input: {
   snapshot: V2AuthorizationSnapshot
   permissionKey: string
@@ -34,4 +44,37 @@ export function canDelegateV2RoleGrants(input: {
       requestedScope: grant.scopeType,
     })
   )
+}
+
+export function canDelegateV2UserRole(input: {
+  snapshot: V2AuthorizationSnapshot
+  roleCode: string
+  isSystemRole: boolean
+  grants: readonly {
+    permissionKey: string
+    scopeType: V2ScopeType
+  }[]
+}): boolean {
+  const isInformationCenter = input.snapshot.roles.some(
+    (role) => role.roleCode === 'information_center'
+  )
+
+  // Information Center is an account-support operator inside its resolved
+  // organization scope. It may provision approved system work types without
+  // inheriting their operational permissions itself. Target scope and
+  // organization-role compatibility are enforced separately by user-roles.
+  if (
+    isInformationCenter &&
+    input.isSystemRole &&
+    INFORMATION_CENTER_DELEGABLE_SYSTEM_ROLES.has(input.roleCode)
+  ) {
+    return true
+  }
+
+  // Everyone else, and all custom roles, keep the strict anti-escalation rule:
+  // you can only delegate grants/scopes you already possess.
+  return canDelegateV2RoleGrants({
+    snapshot: input.snapshot,
+    grants: input.grants,
+  })
 }
