@@ -4,7 +4,7 @@ import {
   hasV2Permission,
 } from '@/server/authorization'
 import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
-import { requireV2Permission } from '@/server/authorization/http-guard'
+import { requireAnyV2Permission } from '@/server/authorization/http-guard'
 import {
   loadWorkspaceFacilities,
   loadWorkspaceMissionsForGroup,
@@ -32,7 +32,10 @@ function buildTeamMap(rows: MissionWorkspaceTeamRow[]) {
 
 export async function GET(request: Request) {
   try {
-    const gate = await requireV2Permission('missions.view')
+    const gate = await requireAnyV2Permission([
+      'missions.view',
+      'missions.checklist_change',
+    ])
     if (!gate.ok) return gate.response
 
     // Preserve the narrowed authorized context for nested functions and
@@ -125,8 +128,13 @@ export async function GET(request: Request) {
       loadWorkspaceUsers([...userIds]),
       loadWorkspaceOrganizations([...organizationIds]),
     ])
+    const canView = hasV2Permission(authorizedAccess, 'missions.view')
     const canApprove = hasV2Permission(authorizedAccess, 'missions.approve')
     const canExecute = hasV2Permission(authorizedAccess, 'missions.execute')
+    const canManageChecklists = hasV2Permission(
+      authorizedAccess,
+      'missions.checklist_change'
+    )
 
     function relationAllowed(
       mission: MissionWorkspaceMissionRow,
@@ -158,7 +166,15 @@ export async function GET(request: Request) {
     }
 
     const rows = missions
-      .filter((mission) => relationAllowed(mission, 'missions.view'))
+      .filter((mission) => {
+        const canViewResource =
+          canView && relationAllowed(mission, 'missions.view')
+        const canManageChecklistResource =
+          canManageChecklists &&
+          relationAllowed(mission, 'missions.checklist_change')
+
+        return canViewResource || canManageChecklistResource
+      })
       .map((mission) => {
         const facility = facilities.get(mission.facility_id)
         const team = teamByMission.get(mission.id) ?? []
@@ -242,6 +258,12 @@ export async function GET(request: Request) {
               assignedToMe &&
               canExecute &&
               relationAllowed(mission, 'missions.execute'),
+            can_manage_checklist:
+              canManageChecklists &&
+              relationAllowed(
+                mission,
+                'missions.checklist_change'
+              ),
           },
         }
       })
