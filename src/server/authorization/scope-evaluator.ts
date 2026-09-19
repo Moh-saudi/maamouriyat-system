@@ -24,20 +24,103 @@ function getRoleAssignmentsForSource(
   return roles.filter((role) => role.roleId === source.roleId)
 }
 
-function getSourceAnchors(input: {
+const INFORMATION_CENTER_MINISTRY_FALLBACK_BLOCKED_TYPES = new Set([
+  'sector',
+  'central_administration',
+  'general_administration',
+])
+
+function resolveInformationCenterAnchor(input: {
+  assignmentOrganizationId: string
+  facts: ReadonlyMap<string, V2OrganizationFact>
+}): string | null {
+  const { assignmentOrganizationId, facts } = input
+
+  let currentId: string | null = assignmentOrganizationId
+  let crossedCentralBranch = false
+  const visited = new Set<string>()
+
+  while (currentId) {
+    if (visited.has(currentId)) return null
+    visited.add(currentId)
+
+    const fact = facts.get(currentId)
+    if (!fact) return null
+
+    const organizationTypeCode = fact.organizationTypeCode
+
+    if (
+      organizationTypeCode === 'health_directorate' ||
+      organizationTypeCode === 'health_administration'
+    ) {
+      return fact.id
+    }
+
+    if (organizationTypeCode === 'ministry') {
+      // Ministry scope is allowed only when the Information Center assignment
+      // genuinely belongs to the ministry branch. Never climb through a
+      // sector/central/general-administration branch into national scope.
+      if (
+        currentId !== assignmentOrganizationId &&
+        crossedCentralBranch
+      ) {
+        return null
+      }
+
+      return fact.id
+    }
+
+    if (
+      organizationTypeCode &&
+      INFORMATION_CENTER_MINISTRY_FALLBACK_BLOCKED_TYPES.has(
+        organizationTypeCode
+      )
+    ) {
+      crossedCentralBranch = true
+    }
+
+    currentId = fact.parentId
+  }
+
+  return null
+}
+
+export function getV2PermissionSourceAnchors(input: {
   source: V2PermissionSource
   roles: readonly V2RoleAssignment[]
   userOrganizationId: string | null
+  organizationFacts: ReadonlyMap<string, V2OrganizationFact>
 }): string[] {
-  const { source, roles, userOrganizationId } = input
+  const {
+    source,
+    roles,
+    userOrganizationId,
+    organizationFacts,
+  } = input
 
   if (source.kind === 'user_override') {
     return userOrganizationId ? [userOrganizationId] : []
   }
 
-  const anchors = getRoleAssignmentsForSource(roles, source)
-    .map((assignment) => assignment.assignmentOrganizationId ?? userOrganizationId)
-    .filter((value): value is string => Boolean(value))
+  const anchors = getRoleAssignmentsForSource(roles, source).flatMap(
+    (assignment) => {
+      const assignmentOrganizationId =
+        assignment.assignmentOrganizationId ?? userOrganizationId
+
+      if (!assignmentOrganizationId) return []
+
+      if (assignment.roleCode !== 'information_center') {
+        return [assignmentOrganizationId]
+      }
+
+      const resolvedAnchor = resolveInformationCenterAnchor({
+        assignmentOrganizationId,
+        facts: organizationFacts,
+      })
+
+      return resolvedAnchor ? [resolvedAnchor] : []
+    }
+  )
 
   return [...new Set(anchors)]
 }
@@ -165,10 +248,11 @@ export function evaluateV2ResourceScope(input: {
       }
     }
 
-    const anchors = getSourceAnchors({
+    const anchors = getV2PermissionSourceAnchors({
       source,
       roles: snapshot.roles,
       userOrganizationId: user.organizationId,
+      organizationFacts,
     })
 
     for (const anchorOrganizationId of anchors) {
