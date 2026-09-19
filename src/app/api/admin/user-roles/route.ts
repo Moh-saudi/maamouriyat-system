@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { checkV2ResourceAccess } from '@/server/authorization'
-import { canDelegateV2RoleGrants } from '@/server/authorization/delegation'
+import { canDelegateV2UserRole } from '@/server/authorization/delegation'
 import { requireV2Permission } from '@/server/authorization/http-guard'
 import {
   isOrganizationWithinTree,
@@ -277,8 +277,10 @@ export async function GET(request: Request) {
         if (
           canAssign &&
           (grants.length === 0 ||
-            !canDelegateV2RoleGrants({
+            !canDelegateV2UserRole({
               snapshot: gate.access,
+              roleCode: role.code,
+              isSystemRole: role.is_system,
               grants: grants.map((grant) => ({
                 permissionKey: grant.permission_key,
                 scopeType: grant.scope_type as V2ScopeType,
@@ -443,8 +445,10 @@ export async function POST(request: Request) {
     }
 
     if (
-      !canDelegateV2RoleGrants({
+      !canDelegateV2UserRole({
         snapshot: gate.access,
+        roleCode: role.code,
+        isSystemRole: role.is_system,
         grants: grantRows.map((grant) => ({
           permissionKey: grant.permission_key,
           scopeType: grant.scope_type as V2ScopeType,
