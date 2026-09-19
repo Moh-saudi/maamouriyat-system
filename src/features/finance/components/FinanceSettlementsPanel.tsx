@@ -39,6 +39,11 @@ type Settlement = {
   health_admin: string | null
   governorate: string | null
   scheduled_date: string | null
+  completed_at: string | null
+  checkin_time: string | null
+  checkout_time: string | null
+  gps_verified: boolean
+  duration_minutes: number | null
 }
 
 type Permissions = {
@@ -383,6 +388,42 @@ export function FinanceSettlementsPanel() {
           </div>
 
           <div className="p-4">
+            <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <p className="text-[9px] font-bold text-slate-400">تنفيذ GPS</p>
+                <p className={
+                  'mt-1 text-[11px] font-extrabold ' +
+                  (selected.gps_verified ? 'text-emerald-700' : 'text-amber-700')
+                }>
+                  {selected.gps_verified ? 'تم التحقق' : 'غير موثق بالـ GPS'}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <p className="text-[9px] font-bold text-slate-400">بدء الزيارة</p>
+                <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                  {selected.checkin_time
+                    ? new Date(selected.checkin_time).toLocaleString('ar-EG')
+                    : 'غير مسجل'}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <p className="text-[9px] font-bold text-slate-400">انتهاء الزيارة</p>
+                <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                  {selected.checkout_time
+                    ? new Date(selected.checkout_time).toLocaleString('ar-EG')
+                    : 'غير مسجل'}
+                </p>
+              </div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                <p className="text-[9px] font-bold text-slate-400">مدة التنفيذ</p>
+                <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                  {selected.duration_minutes != null
+                    ? selected.duration_minutes.toLocaleString('en-US') + ' دقيقة'
+                    : 'غير مسجلة'}
+                </p>
+              </div>
+            </div>
+
             {permissions.prepare &&
               selected.status !== 'approved' &&
               selected.status !== 'paid' && (
