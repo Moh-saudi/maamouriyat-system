@@ -46,3 +46,39 @@ export async function requireV2PagePermission(
     access: state.access,
   }
 }
+
+
+export async function requireAnyV2PagePermission(
+  permissionKeys: readonly string[]
+): Promise<V2PageAccessContext> {
+  const state = await getV2AccessState()
+
+  if (state.status === 'unauthenticated') {
+    redirect('/login')
+  }
+
+  if (state.status === 'password_change_required') {
+    redirect('/v2/change-password')
+  }
+
+  if (
+    state.status === 'profile_missing' ||
+    state.status === 'inactive' ||
+    state.status === 'authorization_unavailable'
+  ) {
+    redirect('/v2/access-denied')
+  }
+
+  const granted = permissionKeys.some((permissionKey) =>
+    hasV2Permission(state.access, permissionKey)
+  )
+
+  if (!granted) {
+    redirect('/v2/access-denied')
+  }
+
+  return {
+    user: state.user,
+    access: state.access,
+  }
+}
