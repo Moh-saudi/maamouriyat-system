@@ -173,8 +173,12 @@ function formatDate(value: string | null) {
   }).format(date)
 }
 
-export function MissionWorkspacePanel() {
-  const [mode, setMode] = useState<MissionMode>('assigned')
+export function MissionWorkspacePanel({
+  defaultMode = 'assigned',
+}: {
+  defaultMode?: MissionMode
+}) {
+  const [mode, setMode] = useState<MissionMode>(defaultMode)
   const [status, setStatus] = useState('')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
