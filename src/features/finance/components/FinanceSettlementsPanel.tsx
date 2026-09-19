@@ -16,6 +16,10 @@ import {
 type Settlement = {
   id: string
   mission_id: string
+  assignment_batch_id: string | null
+  is_grouped: boolean
+  batch_mission_count: number
+  report_href: string | null
   user_id: string
   status: 'pending_review' | 'prepared' | 'approved' | 'rejected' | 'paid'
   currency: string
@@ -346,6 +350,7 @@ export function FinanceSettlementsPanel() {
                   </p>
                   <p className="mt-1 truncate text-[10px] text-slate-400">
                     {row.mission_serial_number} · {row.facility_name}
+                    {row.is_grouped ? ' · تسوية واحدة للتكليف' : ''}
                   </p>
                 </div>
                 <div className="min-w-0">
@@ -380,8 +385,21 @@ export function FinanceSettlementsPanel() {
               <p className="mt-1 text-[10px] text-slate-500">
                 {selected.mission_serial_number} · {selected.facility_name}
               </p>
+              {selected.is_grouped && (
+                <span className="mt-1 inline-flex rounded-full bg-violet-50 px-2 py-1 text-[8px] font-black text-violet-700">
+                  تكليف مجمع · استحقاق واحد لكل عضو فريق
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
+              {selected.report_href && (
+                <Link
+                  href={selected.report_href}
+                  className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  تقرير المأمورية
+                </Link>
+              )}
               <Link
                 href={'/v2/finance/report/' + selected.id}
                 className="inline-flex h-8 items-center rounded-lg border border-teal-200 bg-white px-2.5 text-[10px] font-bold text-teal-800 hover:bg-teal-50"
@@ -395,41 +413,70 @@ export function FinanceSettlementsPanel() {
           </div>
 
           <div className="p-4">
-            <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <p className="text-[9px] font-bold text-slate-400">تنفيذ GPS</p>
-                <p className={
-                  'mt-1 text-[11px] font-extrabold ' +
-                  (selected.gps_verified ? 'text-emerald-700' : 'text-amber-700')
-                }>
-                  {selected.gps_verified ? 'تم التحقق' : 'غير موثق بالـ GPS'}
-                </p>
+            {selected.is_grouped ? (
+              <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl bg-violet-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-violet-600">نوع التكليف</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-violet-800">
+                    مأمورية مجمعة
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-slate-400">عدد المنشآت</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {selected.batch_mission_count.toLocaleString('en-US')} منشأة
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-slate-400">المحافظة</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {selected.governorate || 'غير محددة'}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-emerald-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-emerald-600">مصدر الأيام</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-emerald-800">
+                    المدة الفعلية للتكليف
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <p className="text-[9px] font-bold text-slate-400">بدء الزيارة</p>
-                <p className="mt-1 text-[11px] font-extrabold text-slate-700">
-                  {selected.checkin_time
-                    ? new Date(selected.checkin_time).toLocaleString('ar-EG')
-                    : 'غير مسجل'}
-                </p>
+            ) : (
+              <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-slate-400">تنفيذ GPS</p>
+                  <p className={
+                    'mt-1 text-[11px] font-extrabold ' +
+                    (selected.gps_verified ? 'text-emerald-700' : 'text-amber-700')
+                  }>
+                    {selected.gps_verified ? 'تم التحقق' : 'غير موثق بالـ GPS'}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-slate-400">بدء الزيارة</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {selected.checkin_time
+                      ? new Date(selected.checkin_time).toLocaleString('ar-EG')
+                      : 'غير مسجل'}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-slate-400">انتهاء الزيارة</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {selected.checkout_time
+                      ? new Date(selected.checkout_time).toLocaleString('ar-EG')
+                      : 'غير مسجل'}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+                  <p className="text-[9px] font-bold text-slate-400">مدة التنفيذ</p>
+                  <p className="mt-1 text-[11px] font-extrabold text-slate-700">
+                    {selected.duration_minutes != null
+                      ? selected.duration_minutes.toLocaleString('en-US') + ' دقيقة'
+                      : 'غير مسجلة'}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <p className="text-[9px] font-bold text-slate-400">انتهاء الزيارة</p>
-                <p className="mt-1 text-[11px] font-extrabold text-slate-700">
-                  {selected.checkout_time
-                    ? new Date(selected.checkout_time).toLocaleString('ar-EG')
-                    : 'غير مسجل'}
-                </p>
-              </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5">
-                <p className="text-[9px] font-bold text-slate-400">مدة التنفيذ</p>
-                <p className="mt-1 text-[11px] font-extrabold text-slate-700">
-                  {selected.duration_minutes != null
-                    ? selected.duration_minutes.toLocaleString('en-US') + ' دقيقة'
-                    : 'غير مسجلة'}
-                </p>
-              </div>
-            </div>
+            )}
 
             <div className="mb-4 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
