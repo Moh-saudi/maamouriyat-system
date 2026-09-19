@@ -124,7 +124,6 @@ export function MissionExecutionForm({
   const initialActualStartDate =
     mission.actual_start_date ??
     dateKeyFromTimestamp(mission.checkin_time) ??
-    mission.scheduled_date ??
     todayDate
   const initialActualEndDate = mission.actual_end_date ?? todayDate
   const initialActualDuration = Math.max(
@@ -401,6 +400,13 @@ export function MissionExecutionForm({
     Boolean(mission.scheduled_date) &&
     (actualStartDate !== mission.scheduled_date ||
       actualEndDate !== plannedEndDate)
+
+  useEffect(() => {
+    const maxNights = Math.max(0, actualDurationDays - 1)
+    setActualOvernightNights((current) =>
+      Math.min(Math.max(0, current), maxNights)
+    )
+  }, [actualDurationDays])
 
   // --- Dynamic Client-Side Leaflet Ingestion ---
   useEffect(() => {
