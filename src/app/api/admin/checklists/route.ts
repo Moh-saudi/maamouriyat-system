@@ -398,6 +398,26 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Missing template_id or name' }, { status: 400 })
       }
 
+      const { data: currentTemplate } = await adminClient
+        .from('form_templates')
+        .select('id, visibility, created_by_user_id')
+        .eq('id', template_id)
+        .maybeSingle()
+
+      if (!currentTemplate) {
+        return NextResponse.json({ error: 'Template not found' }, { status: 404 })
+      }
+
+      if (
+        currentTemplate.visibility === 'private' &&
+        currentTemplate.created_by_user_id !== gate.user.profileId
+      ) {
+        return NextResponse.json(
+          { error: 'لا يمكنك تعديل استمارة خاصة بمستخدم آخر' },
+          { status: 403 }
+        )
+      }
+
       const updates: Record<string, unknown> = {
         name: name.trim(),
         updated_at: new Date().toISOString()
@@ -420,6 +440,26 @@ export async function POST(request: Request) {
     if (body.action === 'delete_template') {
       const { template_id } = body
       if (!template_id) return NextResponse.json({ error: 'Missing template_id' }, { status: 400 })
+
+      const { data: currentTemplate } = await adminClient
+        .from('form_templates')
+        .select('id, visibility, created_by_user_id')
+        .eq('id', template_id)
+        .maybeSingle()
+
+      if (!currentTemplate) {
+        return NextResponse.json({ error: 'Template not found' }, { status: 404 })
+      }
+
+      if (
+        currentTemplate.visibility === 'private' &&
+        currentTemplate.created_by_user_id !== gate.user.profileId
+      ) {
+        return NextResponse.json(
+          { error: 'لا يمكنك تعطيل استمارة خاصة بمستخدم آخر' },
+          { status: 403 }
+        )
+      }
 
       const { error } = await adminClient
         .from('form_templates')
