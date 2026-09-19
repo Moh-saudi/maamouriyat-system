@@ -21,6 +21,12 @@ export type MissionWorkspaceMissionRow = {
   checkout_time: string | null
   gps_verified: boolean | null
   completed_at: string | null
+  actual_start_date: string | null
+  actual_end_date: string | null
+  actual_duration_days: number | null
+  actual_overnight_nights: number | null
+  completion_disposition: string | null
+  timing_adjustment_reason: string | null
   created_at: string | null
   source_target_id: string | null
   source_program_id: string | null
@@ -65,7 +71,7 @@ export type MissionWorkspaceProgramRow = {
 }
 
 const MISSION_SELECT =
-  'id, assignment_batch_id, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, created_at, source_target_id, source_program_id'
+  'id, assignment_batch_id, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
 
 export async function loadAllWorkspaceMissions(): Promise<
   MissionWorkspaceMissionRow[]
