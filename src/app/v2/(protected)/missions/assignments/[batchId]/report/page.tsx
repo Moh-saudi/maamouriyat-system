@@ -21,13 +21,23 @@ import {
   loadWorkspaceTeamRows,
   loadWorkspaceUsers,
   normalizeMissionWorkspaceStatus,
+  type MissionWorkspaceFacilityRow,
   type MissionWorkspaceMissionRow,
   type MissionWorkspaceTeamRow,
+  type MissionWorkspaceUserRow,
 } from '@/server/services/missions/workspace-data'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 
 type PageProps = {
   params: Promise<{ batchId: string }>
+}
+
+type ReportFacilityRow = {
+  mission: MissionWorkspaceMissionRow
+  facility: MissionWorkspaceFacilityRow
+  organization: string
+  sector: string | null
+  recommendations: string | null
 }
 
 type BatchRow = {
@@ -210,7 +220,7 @@ export default async function GroupedMissionReportPage({
 
   const team = [...teamIds]
     .map((id) => users.get(id))
-    .filter((member): member is NonNullable<typeof member> => Boolean(member))
+    .filter((member): member is MissionWorkspaceUserRow => Boolean(member))
     .sort((a, b) => a.full_name.localeCompare(b.full_name, 'ar'))
 
   const rows = missions
@@ -228,7 +238,7 @@ export default async function GroupedMissionReportPage({
         recommendations: extractRecommendations(mission.notes),
       }
     })
-    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .filter((row): row is ReportFacilityRow => Boolean(row))
     .sort((a, b) => {
       const adminCompare = (a.facility.health_admin ?? '').localeCompare(
         b.facility.health_admin ?? '',
