@@ -36,7 +36,6 @@ type OrganizationRow = {
   level_label: string | null
   governorate: string | null
   health_admin: string | null
-  governorate_id: string | null
   parent_id: string | null
 }
 
@@ -96,7 +95,7 @@ async function loadAllOrganizations() {
     const { data, error } = await admin
       .from('organizations')
       .select(
-        'id, name, level, level_label, governorate, health_admin, governorate_id, parent_id'
+        'id, name, level, level_label, governorate, health_admin, parent_id'
       )
       .eq('is_active', true)
       .order('name')
