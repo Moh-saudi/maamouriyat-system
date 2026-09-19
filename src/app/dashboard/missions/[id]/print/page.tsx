@@ -46,6 +46,13 @@ function priorityText(value: string | null) {
   return value ?? 'عادية'
 }
 
+function completionDispositionText(value: string | null) {
+  if (value === 'return_to_base') return 'العودة إلى مقر العمل'
+  if (value === 'next_mission') return 'الانتقال إلى مأمورية أخرى'
+  if (value === 'other') return 'إجراء آخر'
+  return 'غير محدد'
+}
+
 function statusText(value: string | null) {
   const s = (value || '').toLowerCase()
   if (s === 'assigned') return 'مكلفة'
