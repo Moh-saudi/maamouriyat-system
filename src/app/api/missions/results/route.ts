@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import {
   checkV2ResourceAccess,
+  hasV2Permission,
 } from '@/server/authorization'
 import { requireV2Permission } from '@/server/authorization/http-guard'
 import { loadMissionResourceScope } from '@/server/authorization/resources/mission'
@@ -65,6 +66,71 @@ async function authorizeMissionResource(input: {
   return { ok: true as const }
 }
 
+async function loadMissionTeamState(
+  missionId: string,
+  userId: string
+) {
+  const admin = getAdminSupabaseClient()
+
+  const { data: mission, error: missionError } = await admin
+    .from('missions')
+    .select('assigned_user_id, primary_inspector_id')
+    .eq('id', missionId)
+    .maybeSingle()
+
+  if (missionError) {
+    throw new Error(
+      '[mission-results] failed to load mission team anchors: ' +
+        missionError.message
+    )
+  }
+
+  if (!mission) return { exists: false, isTeamMember: false }
+
+  const { data: teamMember, error: teamError } = await admin
+    .from('mission_team')
+    .select('user_id')
+    .eq('mission_id', missionId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (teamError) {
+    throw new Error(
+      '[mission-results] failed to load team member: ' +
+        teamError.message
+    )
+  }
+
+  return {
+    exists: true,
+    isTeamMember:
+      mission.assigned_user_id === userId ||
+      mission.primary_inspector_id === userId ||
+      Boolean(teamMember),
+  }
+}
+
+async function loadActiveChecklistRunId(missionId: string) {
+  const admin = getAdminSupabaseClient()
+  const { data, error } = await admin
+    .from('mission_checklist_runs')
+    .select('id')
+    .eq('mission_id', missionId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(
+      '[mission-results] failed to load active checklist run: ' +
+        error.message
+    )
+  }
+
+  return data?.id ? String(data.id) : null
+}
+
 function normalizeResultInput(
   result: MissionResultInput,
   validItemIds: ReadonlySet<string>,
@@ -113,10 +179,18 @@ export async function GET(request: Request) {
     if (!missionAccess.ok) return missionAccess.response
 
     const admin = getAdminSupabaseClient()
-    const { data, error } = await admin
+    const activeRunId = await loadActiveChecklistRunId(missionId)
+
+    let query = admin
       .from('mission_results')
       .select('checklist_item_id, answer, notes, photo_url')
       .eq('mission_id', missionId)
+
+    query = activeRunId
+      ? query.eq('checklist_run_id', activeRunId)
+      : query.is('checklist_run_id', null)
+
+    const { data, error } = await query
 
     if (error) {
       console.error('[mission-results:GET] query failed:', error.message)
@@ -190,6 +264,26 @@ export async function POST(request: Request) {
     })
 
     if (!missionAccess.ok) return missionAccess.response
+
+    const teamState = await loadMissionTeamState(
+      missionId,
+      gate.user.profileId
+    )
+
+    if (
+      !teamState.exists ||
+      !teamState.isTeamMember ||
+      !hasV2Permission(gate.access, 'missions.execute')
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'تسجيل إجابات الاستمارة متاح فقط لعضو فريق المأمورية المكلف بالتنفيذ.',
+          code: 'MISSION_TEAM_EXECUTION_REQUIRED',
+        },
+        { status: 403 }
+      )
+    }
 
     const admin = getAdminSupabaseClient()
 
