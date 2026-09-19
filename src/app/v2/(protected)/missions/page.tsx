@@ -15,8 +15,11 @@ import { requireV2PagePermission } from '@/server/authorization/page-guard'
 export default async function V2MissionsPage() {
   const { access } = await requireV2PagePermission('missions.view')
   const canCreate =
-    hasV2Permission(access, 'missions.create') &&
-    hasV2Permission(access, 'missions.assign')
+    (hasV2Permission(access, 'missions.create') &&
+      hasV2Permission(access, 'missions.assign')) ||
+    (hasV2Permission(access, 'missions.prepare') &&
+      hasV2Permission(access, 'missions.propose_team'))
+  const canApprove = hasV2Permission(access, 'missions.approve')
 
   return (
     <V2PageContainer>
@@ -24,14 +27,26 @@ export default async function V2MissionsPage() {
         title="المأموريات الميدانية"
         description="من هنا تبدأ دورة المرور: إصدار التكليف، اعتماد المأمورية، التنفيذ الميداني ثم تسجيل النتائج والملاحظات."
         actions={
-          canCreate ? (
-            <Link
-              href="/v2/missions/new"
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 text-[11px] font-bold text-white shadow-sm hover:bg-teal-800"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              تكليف مأمورية
-            </Link>
+          canCreate || canApprove ? (
+            <div className="flex flex-wrap gap-2">
+              {canApprove && (
+                <Link
+                  href="/v2/missions/approvals"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 text-[11px] font-bold text-amber-800 hover:bg-amber-100"
+                >
+                  اعتماد التكليفات
+                </Link>
+              )}
+              {canCreate && (
+                <Link
+                  href="/v2/missions/new"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-teal-700 px-3.5 text-[11px] font-bold text-white shadow-sm hover:bg-teal-800"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  إعداد تكليف
+                </Link>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -42,11 +57,11 @@ export default async function V2MissionsPage() {
             <ClipboardList className="h-5 w-5" />
           </div>
           <h2 className="mt-4 text-sm font-black text-slate-900">
-            تكليف المأموريات
+            إعداد تكليف المأموريات
           </h2>
           <p className="mt-1 text-[11px] leading-5 text-slate-500">
-            اختيار المنشآت ونموذج المرور والفريق والموعد، ثم إصدار دفعة تكليف
-            آمنة من السيرفر.
+            اختيار المنشآت ونموذج المرور والفريق والموعد. السكرتارية ترسلها
+            للاعتماد، والجهة المخولة تستطيع إصدارها مباشرة.
           </p>
 
           {canCreate ? (
@@ -54,7 +69,7 @@ export default async function V2MissionsPage() {
               href="/v2/missions/new"
               className="mt-4 inline-flex items-center gap-1 text-[11px] font-extrabold text-teal-800"
             >
-              فتح شاشة التكليف
+              فتح شاشة إعداد التكليف
               <ArrowLeft className="h-3.5 w-3.5" />
             </Link>
           ) : (
