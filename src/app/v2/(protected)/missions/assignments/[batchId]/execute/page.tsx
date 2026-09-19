@@ -74,6 +74,7 @@ type BatchRow = {
   timing_adjustment_reason: string | null
   completed_by: string | null
   completed_at: string | null
+  report_submitted_to_finance_at: string | null
   created_at: string | null
 }
 
@@ -124,7 +125,7 @@ export default async function GroupedMissionExecutionPage({
   const { data: batchData, error: batchError } = await admin
     .from('mission_assignment_batches')
     .select(
-      'id, created_by, created_by_org, scheduled_date, expected_end_date, priority, visit_purpose, notes, mission_count, status, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, completed_by, completed_at, created_at'
+      'id, created_by, created_by_org, scheduled_date, expected_end_date, priority, visit_purpose, notes, mission_count, status, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, completed_by, completed_at, report_submitted_to_finance_at, created_at'
     )
     .eq('id', batchId)
     .maybeSingle()
@@ -602,6 +603,7 @@ export default async function GroupedMissionExecutionPage({
         timingAdjustmentReason={batch.timing_adjustment_reason}
         finalized={finalized}
         actualDurationDays={batch.actual_duration_days}
+        reportSubmittedAt={batch.report_submitted_to_finance_at}
       />
     </div>
   )
