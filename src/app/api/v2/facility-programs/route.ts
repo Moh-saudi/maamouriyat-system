@@ -29,6 +29,71 @@ type ProgramRow = {
   sort_order: number
 }
 
+
+const SUPABASE_PAGE_SIZE = 1000
+
+async function loadAllActiveFacilities(): Promise<FacilityRow[]> {
+  const admin = getAdminSupabaseClient()
+  const rows: FacilityRow[] = []
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('facilities')
+      .select(
+        'id, name, facility_type, organization_id, sector_id, governorate, health_admin, village_city'
+      )
+      .eq('is_active', true)
+      .order('name')
+      .order('id')
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `[facility-programs] failed to load facilities page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []) as FacilityRow[]
+    rows.push(...page)
+
+    if (page.length < SUPABASE_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
+async function loadAllProgramFacilityLinks(): Promise<
+  Array<{ program_id: string; facility_id: string }>
+> {
+  const admin = getAdminSupabaseClient()
+  const rows: Array<{ program_id: string; facility_id: string }> = []
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('facility_program_facilities')
+      .select('program_id, facility_id')
+      .order('program_id')
+      .order('facility_id')
+      .range(from, from + SUPABASE_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `[facility-programs] failed to load program links page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []).map((row) => ({
+      program_id: String(row.program_id),
+      facility_id: String(row.facility_id),
+    }))
+    rows.push(...page)
+
+    if (page.length < SUPABASE_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
 function hasNationalManage(
   access: Parameters<typeof hasV2Permission>[0]
 ): boolean {
@@ -88,8 +153,8 @@ export async function GET() {
 
     const [
       { data: programRows, error: programsError },
-      { data: linkRows, error: linksError },
-      { data: facilityRows, error: facilitiesError },
+      linkRows,
+      facilities,
     ] = await Promise.all([
       admin
         .from('facility_programs')
@@ -98,25 +163,14 @@ export async function GET() {
         )
         .order('sort_order')
         .order('name'),
-      admin
-        .from('facility_program_facilities')
-        .select('program_id, facility_id'),
-      admin
-        .from('facilities')
-        .select(
-          'id, name, facility_type, organization_id, sector_id, governorate, health_admin, village_city'
-        )
-        .eq('is_active', true)
-        .order('name')
-        .limit(6000),
+      loadAllProgramFacilityLinks(),
+      loadAllActiveFacilities(),
     ])
 
-    const firstError = programsError || linksError || facilitiesError
-    if (firstError) {
-      throw new Error(firstError.message)
+    if (programsError) {
+      throw new Error(programsError.message)
     }
 
-    const facilities = (facilityRows ?? []) as FacilityRow[]
     const programs = (programRows ?? []) as ProgramRow[]
     const facts = await loadFactsFor(gate, [
       ...facilities.map((facility) => facility.organization_id),
@@ -140,7 +194,7 @@ export async function GET() {
     )
 
     const facilityIdsByProgram = new Map<string, string[]>()
-    for (const link of linkRows ?? []) {
+    for (const link of linkRows) {
       const programId = String(link.program_id)
       const facilityId = String(link.facility_id)
       const current = facilityIdsByProgram.get(programId) ?? []
