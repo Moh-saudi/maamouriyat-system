@@ -146,9 +146,12 @@ export async function GET(request: Request) {
       .map((mission) => {
         const facility = facilities.get(mission.facility_id)
         const team = teamByMission.get(mission.id) ?? []
-        const assignedToMe = team.some(
-          (member) => member.user_id === gate.user.profileId
-        )
+        const assignedToMe =
+          mission.assigned_user_id === gate.user.profileId ||
+          mission.primary_inspector_id === gate.user.profileId ||
+          team.some(
+            (member) => member.user_id === gate.user.profileId
+          )
         const status = normalizeMissionWorkspaceStatus(mission.status)
         const creator = mission.created_by
           ? users.get(mission.created_by)
