@@ -656,6 +656,13 @@ export default async function MissionPrintPage({ params }: PageProps) {
               </div>
             ))}
 
+            {isCompleted && mission.timing_adjustment_reason && (
+              <div style={{ display: 'flex', gap: '8px', fontSize: '12px', gridColumn: '1 / -1' }}>
+                <span style={{ color: '#64748b', minWidth: '120px', flexShrink: 0 }}>سبب تعديل المدة:</span>
+                <strong style={{ color: '#b45309' }}>{mission.timing_adjustment_reason}</strong>
+              </div>
+            )}
+
             {/* GPS Verification Status Row */}
             <div style={{ display: 'flex', gap: '8px', fontSize: '12px', alignItems: 'center' }}>
               <span style={{ color: '#64748b', minWidth: '120px', flexShrink: 0 }}>التوثيق الميداني (GPS):</span>
