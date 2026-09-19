@@ -3,7 +3,7 @@ import {
   evaluateV2ResourceScope,
   hasV2Permission,
 } from '@/server/authorization'
-import { requireV2Permission } from '@/server/authorization/http-guard'
+import { requireAnyV2Permission } from '@/server/authorization/http-guard'
 import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
 import type { V2AuthenticatedUser } from '@/server/auth/types'
 import type { V2OrganizationFact } from '@/server/authorization/scope-types'
@@ -200,6 +200,8 @@ async function loadExecutionEligibleUserIds(): Promise<Set<string>> {
 async function loadAssignmentOptions(input: {
   user: V2AuthenticatedUser
   access: V2AuthorizationSnapshot
+  resourcePermissionKey: 'missions.create' | 'missions.prepare'
+  teamPermissionKey: 'missions.assign' | 'missions.propose_team'
 }) {
   const admin = getAdminSupabaseClient()
   const organizations = await loadOrganizations()
@@ -258,7 +260,7 @@ async function loadAssignmentOptions(input: {
       resourceAllowed({
         user: input.user,
         access: input.access,
-        permissionKey: 'missions.create',
+        permissionKey: input.resourcePermissionKey,
         organizationFacts,
         organizationId: facility.organization_id,
         sectorId: facility.sector_id,
@@ -287,7 +289,7 @@ async function loadAssignmentOptions(input: {
       return resourceAllowed({
         user: input.user,
         access: input.access,
-        permissionKey: 'missions.assign',
+        permissionKey: input.teamPermissionKey,
         organizationFacts,
         organizationId: candidate.organization_id,
         sectorId:
@@ -320,7 +322,6 @@ async function loadAssignmentOptions(input: {
     facilities,
     inspectors,
     templates,
-    canApprove: hasV2Permission(input.access, 'missions.approve'),
   }
 }
 
@@ -352,14 +353,33 @@ function dateOnlyToday(): string {
 
 export async function GET() {
   try {
-    const gate = await requireV2Permission('missions.create')
+    const gate = await requireAnyV2Permission([
+      'missions.create',
+      'missions.prepare',
+    ])
     if (!gate.ok) return gate.response
 
-    if (!hasV2Permission(gate.access, 'missions.assign')) {
+    const resourcePermissionKey = hasV2Permission(
+      gate.access,
+      'missions.create'
+    )
+      ? 'missions.create'
+      : 'missions.prepare'
+
+    const teamPermissionKey = hasV2Permission(
+      gate.access,
+      'missions.assign'
+    )
+      ? 'missions.assign'
+      : hasV2Permission(gate.access, 'missions.propose_team')
+        ? 'missions.propose_team'
+        : null
+
+    if (!teamPermissionKey) {
       return NextResponse.json(
         {
-          error: 'إنشاء تكليف مأمورية يتطلب صلاحية تكليف فريق العمل',
-          code: 'ASSIGN_PERMISSION_REQUIRED',
+          error: 'إعداد التكليف يتطلب صلاحية اختيار أو اقتراح فريق العمل',
+          code: 'TEAM_PERMISSION_REQUIRED',
         },
         { status: 403 }
       )
@@ -368,6 +388,8 @@ export async function GET() {
     const options = await loadAssignmentOptions({
       user: gate.user,
       access: gate.access,
+      resourcePermissionKey,
+      teamPermissionKey,
     })
 
     return NextResponse.json({
@@ -379,6 +401,12 @@ export async function GET() {
         organization_name: gate.user.organizationName,
       },
       ...options,
+      canApprove:
+        hasV2Permission(gate.access, 'missions.create') &&
+        hasV2Permission(gate.access, 'missions.assign') &&
+        hasV2Permission(gate.access, 'missions.approve'),
+      preparationMode:
+        resourcePermissionKey === 'missions.prepare' ? 'secretariat' : 'issuer',
     })
   } catch (error) {
     console.error('[v2-mission-assignment:GET] unexpected error:', error)
@@ -391,14 +419,33 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const gate = await requireV2Permission('missions.create')
+    const gate = await requireAnyV2Permission([
+      'missions.create',
+      'missions.prepare',
+    ])
     if (!gate.ok) return gate.response
 
-    if (!hasV2Permission(gate.access, 'missions.assign')) {
+    const resourcePermissionKey = hasV2Permission(
+      gate.access,
+      'missions.create'
+    )
+      ? 'missions.create'
+      : 'missions.prepare'
+
+    const teamPermissionKey = hasV2Permission(
+      gate.access,
+      'missions.assign'
+    )
+      ? 'missions.assign'
+      : hasV2Permission(gate.access, 'missions.propose_team')
+        ? 'missions.propose_team'
+        : null
+
+    if (!teamPermissionKey) {
       return NextResponse.json(
         {
-          error: 'إنشاء تكليف مأمورية يتطلب صلاحية تكليف فريق العمل',
-          code: 'ASSIGN_PERMISSION_REQUIRED',
+          error: 'إعداد التكليف يتطلب صلاحية اختيار أو اقتراح فريق العمل',
+          code: 'TEAM_PERMISSION_REQUIRED',
         },
         { status: 403 }
       )
@@ -549,7 +596,7 @@ export async function POST(request: Request) {
         !resourceAllowed({
           user: gate.user,
           access: gate.access,
-          permissionKey: 'missions.create',
+          permissionKey: resourcePermissionKey,
           organizationFacts,
           organizationId: facility.organization_id,
           sectorId: facility.sector_id,
@@ -595,7 +642,7 @@ export async function POST(request: Request) {
         !resourceAllowed({
           user: gate.user,
           access: gate.access,
-          permissionKey: 'missions.assign',
+          permissionKey: teamPermissionKey,
           organizationFacts,
           organizationId: candidate.organization_id,
           sectorId:
@@ -667,12 +714,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const initialStatus = hasV2Permission(
-      gate.access,
-      'missions.approve'
-    )
-      ? 'approved'
-      : 'pending_approval'
+    const initialStatus =
+      hasV2Permission(gate.access, 'missions.create') &&
+      hasV2Permission(gate.access, 'missions.assign') &&
+      hasV2Permission(gate.access, 'missions.approve')
+        ? 'approved'
+        : 'pending_approval'
 
     const { data: created, error: createError } = await admin.rpc(
       'create_v2_mission_assignment_batch',
