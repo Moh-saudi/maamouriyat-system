@@ -261,17 +261,25 @@ export default async function V2MissionExecutePage({
   if (activeRun?.id) {
     const { data } = await admin
       .from('mission_results')
-      .select('checklist_item_id, answer, notes, photo_url')
+      .select('checklist_item_id, form_criterion_id, answer, notes, photo_url')
       .eq('mission_id', missionId)
       .eq('checklist_run_id', activeRun.id)
-    savedResults = data ?? []
+    savedResults = (data ?? []).map((row) => ({
+      ...row,
+      checklist_item_id:
+        row.form_criterion_id ?? row.checklist_item_id,
+    }))
   } else {
     const { data } = await admin
       .from('mission_results')
-      .select('checklist_item_id, answer, notes, photo_url')
+      .select('checklist_item_id, form_criterion_id, answer, notes, photo_url')
       .eq('mission_id', missionId)
       .is('checklist_run_id', null)
-    savedResults = data ?? []
+    savedResults = (data ?? []).map((row) => ({
+      ...row,
+      checklist_item_id:
+        row.form_criterion_id ?? row.checklist_item_id,
+    }))
   }
 
   const normalizedMission = {
