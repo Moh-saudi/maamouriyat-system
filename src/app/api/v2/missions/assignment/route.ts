@@ -267,17 +267,14 @@ async function loadAssignmentOptions(input: {
       .eq('is_active', true)
       .order('name')
       .limit(6000),
-    executeUserIds.size > 0
-      ? admin
-          .from('users')
-          .select(
-            'id, full_name, job_title, organization_id, sector_id, org_level, level, is_active'
-          )
-          .in('id', [...executeUserIds])
-          .eq('is_active', true)
-          .order('full_name')
-          .limit(2000)
-      : Promise.resolve({ data: [], error: null }),
+    admin
+      .from('users')
+      .select(
+        'id, full_name, job_title, organization_id, sector_id, org_level, level, is_active'
+      )
+      .eq('is_active', true)
+      .order('full_name')
+      .limit(2000),
     admin
       .from('form_templates')
       .select(
@@ -407,10 +404,16 @@ async function loadAssignmentOptions(input: {
           'جهة غير مسماة'
         : 'جهة غير محددة',
       org_level: candidate.org_level ?? candidate.level ?? 7,
+      can_execute: executeUserIds.has(candidate.id),
     }))
 
   const inspectorById = new Map(
     inspectors.map((inspector) => [inspector.id, inspector])
+  )
+  const eligibleInspectorById = new Map(
+    inspectors
+      .filter((inspector) => inspector.can_execute)
+      .map((inspector) => [inspector.id, inspector])
   )
 
   const targetFacilityIds = new Map<string, string[]>()
@@ -464,7 +467,7 @@ async function loadAssignmentOptions(input: {
       }
 
       const assigned = target.assigned_user_id
-        ? inspectorById.get(target.assigned_user_id)
+        ? eligibleInspectorById.get(target.assigned_user_id)
         : null
 
       return {
@@ -491,7 +494,7 @@ async function loadAssignmentOptions(input: {
       (target) =>
         target.facility_count > 0 &&
         (!target.assigned_user_id ||
-          inspectorById.has(target.assigned_user_id))
+          eligibleInspectorById.has(target.assigned_user_id))
     )
 
   const programFacilityIds = new Map<string, string[]>()
