@@ -1,3 +1,5 @@
+import { V2_TERMINOLOGY } from './terminology'
+
 // ══════════════════════════════════════════════════════════════
 // هيكل التنقل المركزي لمنظومة V2 (مستقل عن الصلاحيات القديمة)
 // Central Structural Navigation Definitions for V2 App Shell
@@ -45,7 +47,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
   },
   {
     id: 'violations',
-    label: 'الملاحظات والتصحيح',
+    label: V2_TERMINOLOGY.findingsModule,
     href: '/v2/violations',
     iconName: 'AlertTriangle',
     group: 'operations',
