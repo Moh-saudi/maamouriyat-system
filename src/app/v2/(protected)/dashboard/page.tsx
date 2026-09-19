@@ -4,6 +4,8 @@ import {
   ClipboardList,
   Network,
   Users,
+  WalletCards,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -50,6 +52,23 @@ export default async function V2DashboardPage() {
           description: 'إدارة الحسابات داخل نطاقك الإداري.',
           href: '/v2/users',
           icon: Users,
+        }
+      : null,
+    hasV2Permission(access, 'finance.view')
+      ? {
+          title: 'الاستحقاقات المالية',
+          description: 'مراجعة بدلات ومكافآت المأموريات المنفذة.',
+          href: '/v2/finance',
+          icon: WalletCards,
+        }
+      : null,
+    hasV2Permission(access, 'reports.missions_view') ||
+    hasV2Permission(access, 'reports.finance_view')
+      ? {
+          title: 'التقارير',
+          description: 'ملخصات تشغيلية ومالية حسب صلاحيات حسابك.',
+          href: '/v2/reports',
+          icon: BarChart3,
         }
       : null,
   ]
