@@ -229,48 +229,71 @@ export async function GET(request: Request) {
           ])
         : null
 
-    const roles = ((roleRows ?? []) as RoleRow[]).filter((role) => {
-      if (
-        role.code === 'system_techadmin' &&
-        !callerRoles.has('system_techadmin')
-      ) {
-        return false
-      }
+    const assignmentRoleIds = new Set(
+      (assignments ?? []).map((assignment) => String(assignment.role_id))
+    )
 
-      if (
-        role.is_system &&
-        !isSystemRoleCompatibleWithOrganization({
-          roleCode: role.code,
-          organizationTypeCode:
-            organizationResource.organizationTypeCode,
-        })
-      ) {
-        return false
-      }
+    const roles = ((roleRows ?? []) as RoleRow[])
+      .map((role) => {
+        let canAssign = true
 
-      if (!role.is_system && role.owner_organization_id) {
-        if (!facts) return false
+        if (
+          role.code === 'system_techadmin' &&
+          !callerRoles.has('system_techadmin')
+        ) {
+          canAssign = false
+        }
 
-        const insideOwnerTree = isOrganizationWithinTree({
-          resourceOrganizationId: targetOrganizationId,
-          anchorOrganizationId: role.owner_organization_id,
-          facts,
-        })
+        if (
+          canAssign &&
+          role.is_system &&
+          !isSystemRoleCompatibleWithOrganization({
+            roleCode: role.code,
+            organizationTypeCode:
+              organizationResource.organizationTypeCode,
+          })
+        ) {
+          canAssign = false
+        }
 
-        if (!insideOwnerTree) return false
-      }
+        if (
+          canAssign &&
+          !role.is_system &&
+          role.owner_organization_id
+        ) {
+          if (!facts) {
+            canAssign = false
+          } else {
+            canAssign = isOrganizationWithinTree({
+              resourceOrganizationId: targetOrganizationId,
+              anchorOrganizationId: role.owner_organization_id,
+              facts,
+            })
+          }
+        }
 
-      const grants = grantsByRole.get(role.id) ?? []
-      if (grants.length === 0) return false
+        const grants = grantsByRole.get(role.id) ?? []
 
-      return canDelegateV2RoleGrants({
-        snapshot: gate.access,
-        grants: grants.map((grant) => ({
-          permissionKey: grant.permission_key,
-          scopeType: grant.scope_type as V2ScopeType,
-        })),
+        if (
+          canAssign &&
+          (grants.length === 0 ||
+            !canDelegateV2RoleGrants({
+              snapshot: gate.access,
+              grants: grants.map((grant) => ({
+                permissionKey: grant.permission_key,
+                scopeType: grant.scope_type as V2ScopeType,
+              })),
+            }))
+        ) {
+          canAssign = false
+        }
+
+        return { role, canAssign }
       })
-    })
+      .filter(
+        ({ role, canAssign }) =>
+          canAssign || assignmentRoleIds.has(role.id)
+      )
 
     return NextResponse.json({
       user: target
@@ -281,7 +304,7 @@ export async function GET(request: Request) {
             org_level: target.profile.org_level ?? target.profile.level,
           }
         : null,
-      roles: roles.map((role) => ({
+      roles: roles.map(({ role, canAssign }) => ({
         id: role.id,
         code: role.code,
         name_ar: role.name_ar,
@@ -289,6 +312,7 @@ export async function GET(request: Request) {
         is_system: role.is_system,
         is_active: role.is_active,
         priority: role.priority,
+        can_assign: canAssign,
       })),
       assignments: assignments ?? [],
     })
