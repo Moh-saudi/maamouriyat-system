@@ -76,7 +76,7 @@ export function TargetsWorkspacePanel({
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/admin/mission-targets', {
+      const response = await fetch('/api/admin/mission-targets?workspace=true', {
         cache: 'no-store',
         credentials: 'same-origin',
       })
