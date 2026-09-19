@@ -5,6 +5,10 @@ export const MISSION_WORKSPACE_DB_PAGE_SIZE = 1000
 export type MissionWorkspaceMissionRow = {
   id: string
   assignment_batch_id: string | null
+  template_id: string | null
+  team_template_change_allowed: boolean
+  template_change_allowed_by: string | null
+  template_change_allowed_at: string | null
   serial_number: string
   facility_id: string
   primary_inspector_id: string
@@ -88,7 +92,7 @@ export type MissionWorkspaceProgramRow = {
 }
 
 const MISSION_SELECT =
-  'id, assignment_batch_id, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
+  'id, assignment_batch_id, template_id, team_template_change_allowed, template_change_allowed_by, template_change_allowed_at, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
 
 export async function loadAllWorkspaceMissions(): Promise<
   MissionWorkspaceMissionRow[]
