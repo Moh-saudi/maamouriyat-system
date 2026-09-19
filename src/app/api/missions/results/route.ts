@@ -131,6 +131,31 @@ async function loadActiveChecklistRunId(missionId: string) {
   return data?.id ? String(data.id) : null
 }
 
+function encodeMissionResultAnswer(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'string') return value
+
+  try {
+    return '__json__:' + JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function decodeMissionResultAnswer(value: string | null): unknown {
+  if (!value) return value
+
+  if (!value.startsWith('__json__:')) {
+    return value
+  }
+
+  try {
+    return JSON.parse(value.slice('__json__:'.length))
+  } catch {
+    return value
+  }
+}
+
 function normalizeResultInput(
   result: MissionResultInput,
   validItemIds: ReadonlySet<string>,
@@ -144,7 +169,7 @@ function normalizeResultInput(
   return {
     mission_id: missionId,
     checklist_item_id: isValidForeignKey ? rawId : null,
-    answer: typeof result.answer === 'string' ? result.answer : null,
+    answer: encodeMissionResultAnswer(result.answer),
     notes:
       !isValidForeignKey && rawId
         ? `__item_id__:${rawId}||${rawNotes}`
@@ -219,7 +244,7 @@ export async function GET(request: Request) {
       return {
         checklist_item_id: itemId,
         item_id: itemId,
-        answer: row.answer,
+        answer: decodeMissionResultAnswer(row.answer),
         notes,
         photo_url: row.photo_url || null,
       }
