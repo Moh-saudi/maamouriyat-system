@@ -91,9 +91,23 @@ export async function loadMissionResourceScope(
       (organizationData as OrganizationScopeRow | null)?.governorate ?? null
   }
 
+  const { data: teamRows, error: teamError } = await admin
+    .from('mission_team')
+    .select('user_id')
+    .eq('mission_id', missionId)
+
+  if (teamError) {
+    throw new Error(
+      `[V2 Scope] Failed to load mission team: ${teamError.message}`
+    )
+  }
+
   const assignedUserIds = [
     row.assigned_user_id,
     row.primary_inspector_id,
+    ...(teamRows ?? []).map((team) =>
+      typeof team.user_id === 'string' ? team.user_id : null
+    ),
   ].filter((value): value is string => Boolean(value))
 
   return {
