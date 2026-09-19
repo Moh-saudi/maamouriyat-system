@@ -143,6 +143,123 @@ async function loadMissionContext(missionId: string) {
   }
 }
 
+async function hydrateTemplateDefinitions(
+  templates: TemplateRow[]
+) {
+  if (templates.length === 0) return []
+
+  const admin = getAdminSupabaseClient()
+  const templateIds = templates.map((template) => template.id)
+
+  const { data: sectionsData, error: sectionsError } = await admin
+    .from('form_sections')
+    .select(
+      'id, template_id, name, section_number, max_score, sort_order, is_base, is_active'
+    )
+    .in('template_id', templateIds)
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
+  if (sectionsError) {
+    throw new Error(
+      '[mission-checklist] failed to load sections: ' +
+        sectionsError.message
+    )
+  }
+
+  const criteria: any[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin
+      .from('form_criteria')
+      .select(
+        'id, section_id, template_id, criterion_text, score_type, score_0_label, score_mid_label, score_mid_value, score_max_label, score_max_value, requires_photo, requires_note, sort_order, is_base, is_active'
+      )
+      .in('template_id', templateIds)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true })
+      .range(from, from + 999)
+
+    if (error) {
+      throw new Error(
+        '[mission-checklist] failed to load criteria: ' +
+          error.message
+      )
+    }
+
+    const page = data ?? []
+    criteria.push(...page)
+    if (page.length < 1000) break
+  }
+
+  const criteriaBySection = new Map<string, any[]>()
+
+  for (const criterion of criteria) {
+    const text = String(criterion.criterion_text || '').trim()
+    if (
+      text === 'المجموع' ||
+      text.startsWith('المجموع الكلي') ||
+      text.startsWith('المجموع') ||
+      text === 'المعيار' ||
+      text === 'الدرجة' ||
+      text.includes('إجمالي الدرجات') ||
+      text === 'ملاحظات' ||
+      text === 'البيان' ||
+      text === 'م'
+    ) {
+      continue
+    }
+
+    let detectedType = criterion.score_type
+    const rawMaxLabel = String(criterion.score_max_label || '')
+    if (rawMaxLabel.includes('[rating_5]')) detectedType = 'rating_5'
+    else if (rawMaxLabel.includes('[percentage]')) detectedType = 'percentage'
+    else if (rawMaxLabel.includes('[availability]')) detectedType = 'availability'
+    else if (rawMaxLabel.includes('[yes_no]')) detectedType = 'yes_no'
+    else if (rawMaxLabel.includes('[compliance_3level]')) {
+      detectedType = 'compliance_3level'
+    } else if (criterion.score_type === 'binary') {
+      detectedType = 'yes_no'
+    } else if (criterion.score_type === 'scale_3') {
+      detectedType = 'compliance_3level'
+    }
+
+    const processed = {
+      ...criterion,
+      score_type: detectedType,
+      score_max_label:
+        rawMaxLabel.replace(/\s*\[.*?\]/, '').trim() ||
+        (criterion.score_type === 'binary' ? 'نعم' : 'مطابق'),
+    }
+
+    const key = String(criterion.section_id)
+    if (!criteriaBySection.has(key)) {
+      criteriaBySection.set(key, [])
+    }
+    criteriaBySection.get(key)!.push(processed)
+  }
+
+  const sectionsByTemplate = new Map<string, any[]>()
+
+  for (const section of sectionsData ?? []) {
+    const row = {
+      ...section,
+      criteria:
+        criteriaBySection.get(String(section.id)) ?? [],
+    }
+    const key = String(section.template_id)
+    if (!sectionsByTemplate.has(key)) {
+      sectionsByTemplate.set(key, [])
+    }
+    sectionsByTemplate.get(key)!.push(row)
+  }
+
+  return templates.map((template) => ({
+    ...template,
+    sections:
+      sectionsByTemplate.get(template.id) ?? [],
+  }))
+}
+
 async function loadVisibleTemplates(input: {
   userId: string
   currentTemplateId: string | null
@@ -314,11 +431,12 @@ export async function GET(
     const currentTemplateId =
       activeRun?.template_id ?? loaded.mission.template_id
 
-    const templates = await loadVisibleTemplates({
+    const visibleTemplates = await loadVisibleTemplates({
       userId: authorizedUser.profileId,
       currentTemplateId,
       facilityType: loaded.facility.facility_type,
     })
+    const templates = await hydrateTemplateDefinitions(visibleTemplates)
 
     let answerCount = 0
     if (activeRun?.id) {
@@ -358,6 +476,7 @@ export async function GET(
         applicable_facility_types:
           template.applicable_facility_types,
         is_current: template.id === currentTemplateId,
+        sections: template.sections,
       })),
     })
   } catch (error) {
