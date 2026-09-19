@@ -3,9 +3,12 @@ import type {
   V2ScopeType,
 } from './types'
 
-const CORRECTION_UNIT_SYSTEM_ROLES = new Set([
+const SUPPORT_PROVISIONABLE_SYSTEM_ROLES = new Set([
   'correction_unit_manager',
   'correction_unit_member',
+  'mission_secretariat',
+  'finance_officer',
+  'finance_approver',
 ])
 
 const INFORMATION_CENTER_DELEGABLE_SYSTEM_ROLES = new Set([
@@ -17,6 +20,9 @@ const INFORMATION_CENTER_DELEGABLE_SYSTEM_ROLES = new Set([
   'information_center',
   'correction_unit_manager',
   'correction_unit_member',
+  'mission_secretariat',
+  'finance_officer',
+  'finance_approver',
   'field_inspector',
 ])
 
@@ -75,7 +81,7 @@ export function canDelegateV2UserRole(input: {
   if (
     isSystemAccountProvisioner &&
     input.isSystemRole &&
-    CORRECTION_UNIT_SYSTEM_ROLES.has(input.roleCode)
+    SUPPORT_PROVISIONABLE_SYSTEM_ROLES.has(input.roleCode)
   ) {
     return true
   }
