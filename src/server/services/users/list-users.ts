@@ -151,6 +151,7 @@ async function buildUserScopeFilter(input: {
       roles: input.snapshot.roles,
       userOrganizationId: input.user.organizationId,
       organizationFacts,
+      permissionKey: 'users.view',
     })
 
     for (const anchor of anchors) {
