@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   Clock3,
   FileText,
+  ListChecks,
   MapPin,
   ShieldAlert,
 } from 'lucide-react'
@@ -119,7 +120,7 @@ export default async function GroupedMissionExecutionPage({
   params,
 }: PageProps) {
   const { batchId } = await params
-  const { user, access } = await requireV2PagePermission('missions.view')
+  const { user, access } = await requireV2PagePermission('missions.execute')
   const admin = getAdminSupabaseClient()
 
   const { data: batchData, error: batchError } = await admin
@@ -140,6 +141,19 @@ export default async function GroupedMissionExecutionPage({
     missions.map((mission) => mission.id)
   )
   const teamByMission = buildTeamMap(teamRows)
+
+  const belongsToBatchTeam = missions.some(
+    (mission) =>
+      mission.assigned_user_id === user.profileId ||
+      mission.primary_inspector_id === user.profileId ||
+      (teamByMission.get(mission.id) ?? []).some(
+        (member) => member.user_id === user.profileId
+      )
+  )
+
+  if (!belongsToBatchTeam) {
+    redirect('/v2/access-denied')
+  }
   const facilities = await loadWorkspaceFacilities(
     missions.map((mission) => mission.facility_id)
   )
@@ -193,9 +207,15 @@ export default async function GroupedMissionExecutionPage({
     }).allowed
   }
 
-  const visibleMissions = missions.filter((mission) =>
-    resourceAllowed(mission, 'missions.view')
-  )
+  const visibleMissions = missions.filter((mission) => {
+    const team = teamByMission.get(mission.id) ?? []
+    const assignedToMe =
+      mission.assigned_user_id === user.profileId ||
+      mission.primary_inspector_id === user.profileId ||
+      team.some((member) => member.user_id === user.profileId)
+
+    return assignedToMe && resourceAllowed(mission, 'missions.execute')
+  })
 
   if (visibleMissions.length === 0) {
     redirect('/v2/access-denied')
@@ -349,6 +369,71 @@ export default async function GroupedMissionExecutionPage({
 
   return (
     <div className="space-y-4">
+      <div className="sticky top-2 z-40 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2.5 shadow-sm backdrop-blur">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/v2/missions"
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-black text-slate-700 hover:bg-slate-50"
+            >
+              <ArrowRight className="h-4 w-4" />
+              العودة للمأموريات
+            </Link>
+
+            <Link
+              href={
+                '/v2/missions/assignments/' +
+                batchId +
+                '/forms'
+              }
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-violet-200 bg-violet-50 px-3 text-[10px] font-black text-violet-800 hover:bg-violet-100"
+            >
+              <ListChecks className="h-4 w-4" />
+              استمارات التكليف
+            </Link>
+
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-bold text-slate-600">
+              التنفيذ {completedCount.toLocaleString('en-US')} /{' '}
+              {rows.length.toLocaleString('en-US')}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={'/v2/print/missions/assignments/' + batchId}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-bold text-slate-600"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              نموذج التكليف
+            </Link>
+
+            {allCompleted && canFinalize ? (
+              <a
+                href="#assignment-completion"
+                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-700 px-3 text-[10px] font-black text-white hover:bg-emerald-800"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                إنهاء التكليف
+              </a>
+            ) : (
+              <span
+                className="inline-flex h-9 cursor-not-allowed items-center gap-1.5 rounded-xl bg-slate-100 px-3 text-[10px] font-black text-slate-400"
+                title={
+                  canFinalize
+                    ? 'أكمل جميع المنشآت أولًا'
+                    : 'إنهاء التكليف متاح لرئيس الفريق'
+                }
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {canFinalize
+                  ? 'إنهاء التكليف · متبقي ' +
+                    remainingCount.toLocaleString('en-US')
+                  : 'إنهاء التكليف · رئيس الفريق'}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
@@ -559,7 +644,7 @@ export default async function GroupedMissionExecutionPage({
                 ) : row.canExecute ? (
                   <Link
                     href={
-                      '/dashboard/missions/' +
+                      '/v2/missions/' +
                       row.mission.id +
                       '/execute?returnTo=' +
                       encodeURIComponent(
@@ -586,7 +671,8 @@ export default async function GroupedMissionExecutionPage({
         </div>
       </section>
 
-      <GroupedAssignmentCompletionPanel
+      <div id="assignment-completion" className="scroll-mt-24">
+        <GroupedAssignmentCompletionPanel
         batchId={batchId}
         allCompleted={allCompleted}
         canFinalize={canFinalize}
@@ -604,7 +690,8 @@ export default async function GroupedMissionExecutionPage({
         finalized={finalized}
         actualDurationDays={batch.actual_duration_days}
         reportSubmittedAt={batch.report_submitted_to_finance_at}
-      />
+        />
+      </div>
     </div>
   )
 }
