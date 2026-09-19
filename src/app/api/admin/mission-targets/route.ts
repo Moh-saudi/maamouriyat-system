@@ -111,6 +111,67 @@ type TargetScopeResolution = {
   resource: V2ResourceScopeContext
 }
 
+
+const TARGET_EDITOR_PAGE_SIZE = 1000
+
+async function loadAllActiveTargetUsers(): Promise<UserRow[]> {
+  const admin = getAdminSupabaseClient()
+  const rows: UserRow[] = []
+
+  for (let from = 0; ; from += TARGET_EDITOR_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('users')
+      .select(
+        'id, full_name, job_title, org_level, organization_id, sector_id, is_active'
+      )
+      .eq('is_active', true)
+      .order('full_name')
+      .order('id')
+      .range(from, from + TARGET_EDITOR_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `Failed to load target users page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []) as UserRow[]
+    rows.push(...page)
+    if (page.length < TARGET_EDITOR_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
+async function loadAllActiveTargetFacilities(): Promise<FacilityRow[]> {
+  const admin = getAdminSupabaseClient()
+  const rows: FacilityRow[] = []
+
+  for (let from = 0; ; from += TARGET_EDITOR_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from('facilities')
+      .select(
+        'id, name, facility_type, organization_id, sector_id, governorate, health_admin, is_active'
+      )
+      .eq('is_active', true)
+      .order('name')
+      .order('id')
+      .range(from, from + TARGET_EDITOR_PAGE_SIZE - 1)
+
+    if (error) {
+      throw new Error(
+        `Failed to load target facilities page: ${error.message}`
+      )
+    }
+
+    const page = (data ?? []) as FacilityRow[]
+    rows.push(...page)
+    if (page.length < TARGET_EDITOR_PAGE_SIZE) break
+  }
+
+  return rows
+}
+
 function toOrganizationFacts(
   organizations: readonly OrganizationRow[]
 ): Map<string, V2OrganizationFact> {
@@ -635,22 +696,12 @@ export async function GET(request: Request) {
       !workspaceMode &&
       hasV2Permission(gate.access, 'targets.create')
     ) {
-      const [{ data: userRows }, { data: facilityRows }] = await Promise.all([
-        admin
-          .from('users')
-          .select('id, full_name, job_title, org_level, organization_id, sector_id, is_active')
-          .eq('is_active', true)
-          .order('full_name')
-          .limit(500),
-        admin
-          .from('facilities')
-          .select('id, name, facility_type, organization_id, sector_id, governorate, health_admin, is_active')
-          .eq('is_active', true)
-          .order('name')
-          .limit(5000),
+      const [userRows, facilityRows] = await Promise.all([
+        loadAllActiveTargetUsers(),
+        loadAllActiveTargetFacilities(),
       ])
 
-      users = ((userRows ?? []) as UserRow[]).filter((candidate) => {
+      users = userRows.filter((candidate) => {
         if (
           candidate.id !== gate.user.profileId &&
           candidate.org_level !== null &&
@@ -671,7 +722,7 @@ export async function GET(request: Request) {
       // Facilities are a ministry-wide shared inspection pool.
       // Organizational affiliation describes the facility; it is not an
       // authorization boundary for selecting an inspection target.
-      facilities = (facilityRows ?? []) as FacilityRow[]
+      facilities = facilityRows
     }
 
     let callerGov: string | null = null
