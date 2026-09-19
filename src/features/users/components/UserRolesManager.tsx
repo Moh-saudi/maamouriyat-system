@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Plus, UserCog, X } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 type Role = {
   id: string
@@ -45,6 +46,7 @@ export function UserRolesManager({
   userName,
   disabled = false,
 }: UserRolesManagerProps) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<RolesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -116,6 +118,7 @@ export function UserRolesManager({
       }
 
       await loadRoles()
+      router.refresh()
     } catch (assignError) {
       setError(
         assignError instanceof Error ? assignError.message : 'تعذر حفظ نوع العمل'
@@ -143,6 +146,7 @@ export function UserRolesManager({
       }
 
       await loadRoles()
+      router.refresh()
     } catch (revokeError) {
       setError(
         revokeError instanceof Error
