@@ -30,6 +30,7 @@ type Props = {
   timingAdjustmentReason: string | null
   finalized: boolean
   actualDurationDays: number | null
+  reportSubmittedAt: string | null
 }
 
 function inclusiveDays(start: string, end: string) {
@@ -55,6 +56,7 @@ export function GroupedAssignmentCompletionPanel({
   timingAdjustmentReason,
   finalized,
   actualDurationDays,
+  reportSubmittedAt,
 }: Props) {
   const router = useRouter()
   const [startDate, setStartDate] = useState(
@@ -134,8 +136,9 @@ export function GroupedAssignmentCompletionPanel({
                 {(actualOvernightNights ?? 0).toLocaleString('en-US')} ليلة
               </p>
               <p className="mt-1 text-[9px] text-emerald-700">
-                التقرير أصبح جاهزًا للمراجعة والطباعة والتوقيع. لن يظهر التكليف
-                للمالية قبل تأكيد إرسال التقرير الموقع.
+                {reportSubmittedAt
+                  ? 'تم إرسال التقرير الموقع إلى الشئون المالية.'
+                  : 'التقرير أصبح جاهزًا للمراجعة والطباعة والتوقيع. لن يظهر التكليف للمالية قبل تأكيد إرسال التقرير الموقع.'}
               </p>
             </div>
           </div>
