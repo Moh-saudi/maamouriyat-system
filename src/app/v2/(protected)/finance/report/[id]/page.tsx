@@ -33,7 +33,7 @@ export default async function FinanceSettlementReportPage({
   const { data: settlement, error } = await admin
     .from('mission_financial_settlements')
     .select(
-      'id, mission_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
+      'id, mission_id, assignment_batch_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
     )
     .eq('id', id)
     .maybeSingle()
@@ -78,6 +78,7 @@ export default async function FinanceSettlementReportPage({
   const [
     { data: mission },
     { data: beneficiary },
+    { data: batch },
   ] = await Promise.all([
     admin
       .from('missions')
@@ -91,6 +92,15 @@ export default async function FinanceSettlementReportPage({
       .select('id, full_name, job_title, organization_id')
       .eq('id', settlement.user_id)
       .maybeSingle(),
+    settlement.assignment_batch_id
+      ? admin
+          .from('mission_assignment_batches')
+          .select(
+            'id, scheduled_date, expected_end_date, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, mission_count, visit_purpose, status'
+          )
+          .eq('id', settlement.assignment_batch_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ])
 
   if (!mission || !beneficiary) notFound()
@@ -100,6 +110,27 @@ export default async function FinanceSettlementReportPage({
     .select('id, name, health_admin, governorate')
     .eq('id', mission.facility_id)
     .maybeSingle()
+
+  const isGrouped = Boolean(batch && settlement.assignment_batch_id)
+  const missionReference = isGrouped
+    ? 'تكليف مجمع ' +
+      String(settlement.assignment_batch_id).slice(0, 8).toUpperCase()
+    : String(mission.serial_number)
+  const plannedStart = isGrouped
+    ? String(batch?.scheduled_date || '')
+    : String(mission.scheduled_date || '')
+  const plannedEnd = isGrouped
+    ? String(batch?.expected_end_date || batch?.scheduled_date || '')
+    : String(mission.expected_end_date || mission.scheduled_date || '')
+  const actualStart = isGrouped
+    ? String(batch?.actual_start_date || '')
+    : ''
+  const actualEnd = isGrouped
+    ? String(batch?.actual_end_date || '')
+    : ''
+  const missionPurpose = isGrouped
+    ? String(batch?.visit_purpose || '')
+    : String(mission.visit_purpose || '')
 
   const lineItems = [
     {
@@ -160,7 +191,7 @@ export default async function FinanceSettlementReportPage({
             <h1 className="text-xl font-black">بيان استحقاق مالي لمأمورية</h1>
           </div>
           <p className="mt-2 text-xs text-slate-500">
-            رقم المأمورية: {mission.serial_number}
+            {isGrouped ? 'مرجع التكليف' : 'رقم المأمورية'}: {missionReference}
           </p>
         </header>
 
@@ -168,17 +199,34 @@ export default async function FinanceSettlementReportPage({
           {[
             ['المستفيد', beneficiary.full_name],
             ['المسمى الوظيفي', beneficiary.job_title || 'غير مسجل'],
-            ['المنشأة', facility?.name || 'غير متاح'],
+            [
+              isGrouped ? 'نوع التكليف' : 'المنشأة',
+              isGrouped
+                ? 'تكليف مجمع · ' +
+                  Number(batch?.mission_count || 0).toLocaleString('en-US') +
+                  ' منشأة'
+                : facility?.name || 'غير متاح',
+            ],
             [
               'النطاق',
-              facility?.health_admin ||
-                facility?.governorate ||
+              facility?.governorate ||
+                facility?.health_admin ||
                 'غير مسجل',
             ],
-            ['تاريخ المأمورية', String(mission.scheduled_date)],
+            ['المدة المقدرة من', plannedStart || '—'],
+            ['المدة المقدرة إلى', plannedEnd || '—'],
             [
-              'تاريخ الانتهاء',
-              String(mission.expected_end_date || mission.scheduled_date),
+              'المدة الفعلية',
+              isGrouped
+                ? (actualStart || '—') + ' ← ' + (actualEnd || '—')
+                : String(settlement.mission_days || 0) + ' يوم',
+            ],
+            [
+              'الأيام / ليالي المبيت',
+              Number(settlement.mission_days || 0).toLocaleString('en-US') +
+                ' يوم · ' +
+                Number(settlement.overnight_nights || 0).toLocaleString('en-US') +
+                ' ليلة',
             ],
             ['حالة التسوية', statusLabel(String(settlement.status))],
             ['العملة', 'الجنيه المصري (EGP)'],
@@ -255,14 +303,37 @@ export default async function FinanceSettlementReportPage({
           </table>
         </div>
 
-        {mission.visit_purpose && (
+        {missionPurpose && (
           <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-[10px] font-bold text-slate-400">
               غرض المأمورية
             </p>
             <p className="mt-1 text-xs leading-6 text-slate-700">
-              {mission.visit_purpose}
+              {missionPurpose}
             </p>
+          </div>
+        )}
+
+        {isGrouped && settlement.assignment_batch_id && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+            <div>
+              <p className="text-[10px] font-black text-violet-800">
+                هذا الاستحقاق يخص التكليف المجمع كله
+              </p>
+              <p className="mt-1 text-[9px] text-violet-700">
+                لا يتم تكرار الأيام أو البدلات لكل منشأة داخل التكليف.
+              </p>
+            </div>
+            <Link
+              href={
+                '/v2/missions/assignments/' +
+                settlement.assignment_batch_id +
+                '/report'
+              }
+              className="inline-flex h-8 items-center rounded-lg border border-violet-200 bg-white px-2.5 text-[10px] font-bold text-violet-800 print:hidden"
+            >
+              تقرير التكليف
+            </Link>
           </div>
         )}
 
