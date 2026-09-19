@@ -179,6 +179,33 @@ function formatVisitDate(value: string | null) {
   }).format(date)
 }
 
+
+function visitRecencyLabel(value: string | null) {
+  if (!value) return 'لم يتم المرور مطلقًا'
+
+  const time = new Date(value).getTime()
+  if (!Number.isFinite(time)) return null
+
+  const days = Math.max(
+    0,
+    Math.floor((Date.now() - time) / (24 * 60 * 60 * 1000))
+  )
+
+  if (days === 0) return 'آخر مرور اليوم'
+  if (days === 1) return 'آخر مرور منذ يوم'
+  if (days < 30) {
+    return 'آخر مرور منذ ' + days.toLocaleString('en-US') + ' يوم'
+  }
+
+  const months = Math.floor(days / 30)
+  if (months < 12) {
+    return 'آخر مرور منذ ' + months.toLocaleString('en-US') + ' شهر'
+  }
+
+  const years = Math.floor(months / 12)
+  return 'آخر مرور منذ ' + years.toLocaleString('en-US') + ' سنة'
+}
+
 function StepPill({
   number,
   label,
@@ -1483,9 +1510,31 @@ export function MissionAssignmentForm() {
                             </p>
                             <div className="mt-1.5 flex flex-wrap gap-2 text-[9px] text-slate-400">
                               <span>{getFacilityTypeLabel(facility.facility_type)}</span>
-                              {facility.last_visited_at && (
-                                <span>
-                                  آخر مرور: {formatVisitDate(facility.last_visited_at)}
+                              {facility.last_visited_at ? (
+                                <>
+                                  <span>
+                                    آخر مرور: {formatVisitDate(facility.last_visited_at)}
+                                  </span>
+                                  <span
+                                    className={
+                                      'font-bold ' +
+                                      (Date.now() -
+                                        new Date(
+                                          facility.last_visited_at
+                                        ).getTime() >=
+                                      180 * 24 * 60 * 60 * 1000
+                                        ? 'text-amber-700'
+                                        : 'text-slate-400')
+                                    }
+                                  >
+                                    {visitRecencyLabel(
+                                      facility.last_visited_at
+                                    )}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="font-bold text-rose-600">
+                                  لم يتم المرور مطلقًا
                                 </span>
                               )}
                               {facility.distinct_primary_inspectors > 0 && (
