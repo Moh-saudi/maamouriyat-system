@@ -134,7 +134,8 @@ export function GroupedAssignmentCompletionPanel({
                 {(actualOvernightNights ?? 0).toLocaleString('en-US')} ليلة
               </p>
               <p className="mt-1 text-[9px] text-emerald-700">
-                تم تجهيز استحقاق واحد لكل عضو فريق لهذا التكليف المجمع.
+                التقرير أصبح جاهزًا للمراجعة والطباعة والتوقيع. لن يظهر التكليف
+                للمالية قبل تأكيد إرسال التقرير الموقع.
               </p>
             </div>
           </div>
@@ -237,7 +238,7 @@ export function GroupedAssignmentCompletionPanel({
       }
 
       setSuccess(
-        'تم إنهاء التكليف وتثبيت المدة الفعلية وتجهيز الاستحقاقات المالية.'
+        'تم إنهاء التكليف وتثبيت المدة الفعلية. التقرير جاهز الآن للمراجعة والطباعة والتوقيع.'
       )
       router.refresh()
     } catch (finalizeError) {
