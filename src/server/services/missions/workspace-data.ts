@@ -15,6 +15,13 @@ export type MissionWorkspaceMissionRow = {
   scheduled_date: string
   expected_end_date: string | null
   visit_purpose: string | null
+  notes: string | null
+  total_score: number | null
+  max_score: number | null
+  score_pct: number | null
+  total_criteria: number | null
+  violations_count: number | null
+  violation_count: number | null
   requires_overnight: boolean | null
   requires_hotel_booking: boolean | null
   checkin_time: string | null
@@ -81,7 +88,7 @@ export type MissionWorkspaceProgramRow = {
 }
 
 const MISSION_SELECT =
-  'id, assignment_batch_id, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
+  'id, assignment_batch_id, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
 
 export async function loadAllWorkspaceMissions(): Promise<
   MissionWorkspaceMissionRow[]
