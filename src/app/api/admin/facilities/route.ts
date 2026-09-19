@@ -323,6 +323,17 @@ export async function PATCH(request: Request) {
     }
 
     const reason = cleanText(body.reason, 500)
+
+    if (action !== 'update' && !reason) {
+      return NextResponse.json(
+        {
+          error: 'سبب الإيقاف أو إعادة التفعيل مطلوب لحفظ سجل المراجعة',
+          code: 'FACILITY_STATUS_REASON_REQUIRED',
+        },
+        { status: 400 }
+      )
+    }
+
     const payload: Record<string, unknown> = {}
 
     if (action === 'update') {
