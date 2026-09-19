@@ -138,17 +138,17 @@ export function MissionAssignmentFormsPanel({
         )
       }
 
+      const nextAllowed = !row.teamTemplateChangeAllowed
+
       setRows((current) =>
         current.map((item) =>
           item.missionId === row.missionId
             ? {
                 ...item,
-                teamTemplateChangeAllowed:
-                  !row.teamTemplateChangeAllowed,
+                teamTemplateChangeAllowed: nextAllowed,
                 canChange:
                   item.canManage ||
-                  !row.teamTemplateChangeAllowed ||
-                  item.canChange,
+                  (item.canExecute && nextAllowed),
               }
             : item
         )
