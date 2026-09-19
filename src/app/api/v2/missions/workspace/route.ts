@@ -183,6 +183,15 @@ export async function GET(request: Request) {
         .map((row) => row.mission_id)
     )
 
+    for (const mission of missions) {
+      if (
+        mission.assigned_user_id === gate.user.profileId ||
+        mission.primary_inspector_id === gate.user.profileId
+      ) {
+        assignedMissionIds.add(mission.id)
+      }
+    }
+
     const allCountByGroup = new Map<string, number>()
     for (const mission of missions) {
       const key = groupKey(mission)
