@@ -66,6 +66,7 @@ type GroupAccumulator = {
   assigned_mission_count: number
   executable_mission_count: number
   approvable_mission_count: number
+  checklist_manage_mission_count: number
   issued_by_me: boolean
   overdue_count: number
   search_parts: string[]
@@ -156,6 +157,8 @@ function formatGroup(group: GroupAccumulator) {
         group.approvable_mission_count === group.mission_count &&
         group.mission_count > 0,
       executable_mission_count: group.executable_mission_count,
+      can_manage_checklists:
+        group.checklist_manage_mission_count > 0,
     },
     _search: group.search_parts.join(' ').toLocaleLowerCase('ar'),
   }
@@ -293,6 +296,10 @@ export async function GET(request: Request) {
 
     const canApprove = hasV2Permission(authorizedAccess, 'missions.approve')
     const canExecute = hasV2Permission(authorizedAccess, 'missions.execute')
+    const canManageChecklists = hasV2Permission(
+      authorizedAccess,
+      'missions.checklist_change'
+    )
     const today = new Date().toISOString().slice(0, 10)
     const groups = new Map<string, GroupAccumulator>()
 
@@ -362,6 +369,7 @@ export async function GET(request: Request) {
           assigned_mission_count: 0,
           executable_mission_count: 0,
           approvable_mission_count: 0,
+          checklist_manage_mission_count: 0,
           issued_by_me: mission.created_by === authorizedUser.profileId,
           overdue_count: 0,
           search_parts: [],
@@ -408,6 +416,13 @@ export async function GET(request: Request) {
         relationAllowed(mission, 'missions.execute')
       ) {
         group.executable_mission_count += 1
+      }
+
+      if (
+        canManageChecklists &&
+        relationAllowed(mission, 'missions.checklist_change')
+      ) {
+        group.checklist_manage_mission_count += 1
       }
 
       if (
