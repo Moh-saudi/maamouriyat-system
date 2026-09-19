@@ -24,8 +24,8 @@ export default async function V2NewMissionPage() {
   return (
     <V2PageContainer fluid>
       <PageHeader
-        title="تكليف بمأمورية جديدة"
-        description="إصدار تكليف ميداني آمن حسب نطاقك: اختر المنشآت، نموذج المرور، فريق العمل والموعد ثم راجع التكليف قبل الإصدار."
+        title="إعداد تكليف مأمورية"
+        description="ابدأ بمصدر المنشآت والمستهدف أو المشروع، ثم كوّن فريق المرور وحدد الموعد، وبعدها اختر الاستمارة والغرض قبل الإصدار."
         breadcrumbs={[
           { label: 'المأموريات الميدانية', href: '/v2/missions' },
           { label: 'تكليف جديد' },
