@@ -1,5 +1,5 @@
-import { SystemUI } from './system-ui'
+import { redirect } from 'next/navigation'
 
 export default function HomePage() {
-  return <SystemUI view="dashboard" />
+  redirect('/v2/dashboard')
 }
