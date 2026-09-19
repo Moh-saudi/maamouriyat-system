@@ -256,10 +256,8 @@ export async function POST(
         row && typeof row === 'object'
           ? Number((row as { actual_duration_days?: number }).actual_duration_days || 0)
           : 0,
-      settlement_count:
-        row && typeof row === 'object'
-          ? Number((row as { settlement_count?: number }).settlement_count || 0)
-          : 0,
+      settlement_count: 0,
+      report_ready: true,
     })
   } catch (error) {
     console.error('[mission-assignment-complete] unexpected error:', error)
