@@ -1083,7 +1083,7 @@ export function MissionAssignmentForm() {
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1.5 text-[9px]">
                             <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">
-                              تمت زيارة {target.visited_count.toLocaleString('en-US')}
+                              لها سجل مرور سابق: {target.visited_count.toLocaleString('en-US')}
                             </span>
                             {target.assigned_user_name && (
                               <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-800">
