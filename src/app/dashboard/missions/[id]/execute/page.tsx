@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { DashboardShell } from '@/app/system-ui'
 import { defaultCorrectionUnits, type CorrectionUnitOption } from '@/lib/correction-units'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import { MissionExecutionForm } from './mission-execution-form'
 import styles from './execute.module.css'
 
@@ -124,6 +125,14 @@ export default async function ExecuteMissionPage({
   }
 
   const currentUserId = profileResult.data.id
+  const admin = getAdminSupabaseClient()
+  const { data: teamMembership } = await admin
+    .from('mission_team')
+    .select('user_id')
+    .eq('mission_id', id)
+    .eq('user_id', currentUserId)
+    .maybeSingle()
+
   const userLevel = profileResult.data.level ?? (profileResult.data as any).org_level ?? 7
 
   const { orgLevelToRole } = await import('@/lib/roles')
@@ -133,6 +142,7 @@ export default async function ExecuteMissionPage({
   const isAssigned =
     rawMission.assigned_user_id === currentUserId ||
     rawMission.primary_inspector_id === currentUserId ||
+    Boolean(teamMembership) ||
     userLevel <= 2 ||
     (userLevel <= 4 && profileResult.data.sector_id === rawMission.sector_id)
 
