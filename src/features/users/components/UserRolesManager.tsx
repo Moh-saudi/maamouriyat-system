@@ -11,6 +11,7 @@ type Role = {
   is_system: boolean
   is_active: boolean
   priority: number
+  can_assign?: boolean
 }
 
 type Assignment = {
@@ -164,7 +165,10 @@ export function UserRolesManager({
     activeAssignments.map((assignment) => assignment.role_id)
   )
   const availableRoles =
-    data?.roles.filter((role) => !activeRoleIds.has(role.id)) ?? []
+    data?.roles.filter(
+      (role) =>
+        role.can_assign !== false && !activeRoleIds.has(role.id)
+    ) ?? []
 
   return (
     <>
