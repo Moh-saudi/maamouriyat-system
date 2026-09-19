@@ -299,9 +299,11 @@ function geographicGroups(rows: DetailMission[]) {
 function MissionDetailRow({
   mission,
   grouped,
+  batchId,
 }: {
   mission: DetailMission
   grouped: boolean
+  batchId: string | null
 }) {
   const status = statusMeta(mission.status)
   const lifecycle = resolveMissionOperationalState({
@@ -385,7 +387,13 @@ function MissionDetailRow({
           lifecycle.key === 'ended' ||
           !grouped) && (
           <Link
-            href={'/dashboard/missions/' + mission.id + '/print'}
+            href={
+              lifecycle.key === 'executed' || lifecycle.key === 'ended'
+                ? '/dashboard/missions/' + mission.id + '/print'
+                : batchId
+                  ? '/v2/print/missions/assignments/' + batchId
+                  : '/dashboard/missions/' + mission.id + '/print'
+            }
             className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50"
           >
             <Printer className="h-3.5 w-3.5" />
@@ -1018,6 +1026,7 @@ export function MissionWorkspacePanel({
                                     key={mission.id}
                                     mission={mission}
                                     grouped={group.mission_count > 1}
+                                    batchId={group.batch_id}
                                   />
                                 ))}
                               </div>
@@ -1031,21 +1040,42 @@ export function MissionWorkspacePanel({
                               key={mission.id}
                               mission={mission}
                               grouped={group.mission_count > 1}
+                              batchId={group.batch_id}
                             />
                           ))}
                         </div>
                       )}
 
                       <div className="mt-3 flex flex-wrap justify-end gap-2">
-                        {group.batch_id && (
-                          <Link
-                            href={'/v2/missions/assignments/' + group.batch_id + '/print'}
-                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 text-[9px] font-bold text-teal-800 hover:bg-teal-50"
-                          >
-                            <Printer className="h-3.5 w-3.5" />
-                            طباعة التكليف المجمع
-                          </Link>
-                        )}
+                        {group.batch_id &&
+                          (group.governorates.length > 1 ? (
+                            group.governorates.map((governorate) => (
+                              <Link
+                                key={governorate}
+                                href={
+                                  '/v2/print/missions/assignments/' +
+                                  group.batch_id +
+                                  '?governorate=' +
+                                  encodeURIComponent(governorate)
+                                }
+                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 text-[9px] font-bold text-rose-700 hover:bg-rose-50"
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                                طباعة تكليف {governorate}
+                              </Link>
+                            ))
+                          ) : (
+                            <Link
+                              href={
+                                '/v2/print/missions/assignments/' +
+                                group.batch_id
+                              }
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-200 bg-white px-2.5 text-[9px] font-bold text-teal-800 hover:bg-teal-50"
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                              طباعة التكليف المجمع
+                            </Link>
+                          ))}
                       </div>
 
                       {group.relations.can_approve && (
