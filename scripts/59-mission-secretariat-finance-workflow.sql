@@ -68,7 +68,7 @@ VALUES
     TRUE, TRUE, 630
   ),
   (
-    'reports.missions.view',
+    'reports.missions_view',
     'reports',
     'missions_view',
     'عرض تقارير المأموريات',
@@ -76,7 +76,7 @@ VALUES
     FALSE, TRUE, 700
   ),
   (
-    'reports.finance.view',
+    'reports.finance_view',
     'reports',
     'finance_view',
     'عرض التقارير المالية',
@@ -136,7 +136,7 @@ CROSS JOIN (
     ('missions.view'),
     ('missions.prepare'),
     ('missions.propose_team'),
-    ('reports.missions.view')
+    ('reports.missions_view')
 ) AS p(permission_key)
 WHERE r.code = 'mission_secretariat'
 ON CONFLICT (role_id, permission_key) DO UPDATE
@@ -152,7 +152,7 @@ CROSS JOIN (
     ('missions.view'),
     ('finance.view'),
     ('finance.prepare'),
-    ('reports.finance.view')
+    ('reports.finance_view')
 ) AS p(permission_key)
 WHERE r.code = 'finance_officer'
 ON CONFLICT (role_id, permission_key) DO UPDATE
@@ -170,7 +170,7 @@ CROSS JOIN (
     ('finance.approve'),
     ('finance.reject'),
     ('finance.mark_paid'),
-    ('reports.finance.view')
+    ('reports.finance_view')
 ) AS p(permission_key)
 WHERE r.code = 'finance_approver'
 ON CONFLICT (role_id, permission_key) DO UPDATE
@@ -187,8 +187,8 @@ CROSS JOIN (
     ('finance.approve'),
     ('finance.reject'),
     ('finance.mark_paid'),
-    ('reports.missions.view'),
-    ('reports.finance.view')
+    ('reports.missions_view'),
+    ('reports.finance_view')
 ) AS p(permission_key)
 WHERE r.code = 'system_superadmin'
 ON CONFLICT (role_id, permission_key) DO UPDATE
@@ -207,8 +207,8 @@ FROM public.roles r
 CROSS JOIN (
   VALUES
     ('finance.view'),
-    ('reports.missions.view'),
-    ('reports.finance.view')
+    ('reports.missions_view'),
+    ('reports.finance_view')
 ) AS p(permission_key)
 WHERE r.code IN ('directorate_manager', 'health_admin_manager')
 ON CONFLICT (role_id, permission_key) DO UPDATE
