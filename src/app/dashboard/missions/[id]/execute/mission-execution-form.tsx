@@ -2563,38 +2563,168 @@ export function MissionExecutionForm({
             </div>
           </div>
 
-          {/* Available Approved Templates Switcher Tabs */}
-          {availableTemplates.length > 1 && (
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
-              {availableTemplates.map((tpl) => {
-                const isSelected = selectedTemplateId === tpl.id;
-                return (
+          <div style={{
+            display: 'grid',
+            gap: '10px',
+            marginTop: '4px'
+          }}>
+            <div style={{
+              border: '1px solid #bae6fd',
+              background: '#f0f9ff',
+              borderRadius: '12px',
+              padding: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <span style={{
+                  display: 'block',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  color: '#0369a1'
+                }}>
+                  الاستمارة المعتمدة لهذه المأمورية
+                </span>
+                <strong style={{
+                  display: 'block',
+                  marginTop: '3px',
+                  fontSize: '13px',
+                  color: '#0f172a'
+                }}>
+                  {activeTemplate?.name || 'جارٍ تحميل الاستمارة...'}
+                </strong>
+                <span style={{
+                  display: 'block',
+                  marginTop: '3px',
+                  fontSize: '10px',
+                  color: '#64748b'
+                }}>
+                  {activeTemplate?.version
+                    ? 'الإصدار ' + activeTemplate.version + ' · '
+                    : ''}
+                  {checklistRunId
+                    ? 'جلسة تنفيذ موثقة'
+                    : 'جلسة التنفيذ قيد التجهيز'}
+                </span>
+              </div>
+
+              <div style={{
+                display: 'flex',
+                gap: '8px',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+              }}>
+                {canChangeTemplate ? (
                   <button
-                    key={tpl.id}
                     type="button"
-                    onClick={() => setSelectedTemplateId(tpl.id)}
+                    onClick={() => {
+                      setPendingTemplateId(selectedTemplateId)
+                      setTemplateChangeOpen(true)
+                    }}
                     style={{
-                      background: isSelected ? 'linear-gradient(135deg, #006d77 0%, #004d54 100%)' : '#f1f5f9',
-                      color: isSelected ? '#ffffff' : '#334155',
-                      border: isSelected ? '1px solid #006d77' : '1px solid #cbd5e1',
-                      borderRadius: '20px',
-                      padding: '6px 14px',
-                      fontSize: '12px',
-                      fontWeight: isSelected ? 'bold' : 'normal',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      transition: 'all 0.15s ease'
+                      background: '#ffffff',
+                      color: '#0f766e',
+                      border: '1px solid #99f6e4',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      fontSize: '11px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer'
                     }}
                   >
-                    <span>{tpl.type === 'infection_control' ? '🧪' : tpl.type === 'adolescent_health' ? '🩺' : '📋'}</span>
-                    <span>{tpl.name}</span>
+                    تغيير الاستمارة
                   </button>
-                );
-              })}
+                ) : (
+                  <span style={{
+                    borderRadius: '999px',
+                    background: '#f1f5f9',
+                    color: '#64748b',
+                    padding: '6px 10px',
+                    fontSize: '10px',
+                    fontWeight: 'bold'
+                  }}>
+                    التغيير غير متاح للفريق
+                  </span>
+                )}
+              </div>
             </div>
-          )}
+
+            {!canChangeTemplate && !canManageTemplatePolicy && (
+              <div style={{
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: '10px',
+                padding: '9px 11px',
+                fontSize: '10.5px',
+                lineHeight: '1.7',
+                color: '#92400e'
+              }}>
+                إذا كانت الاستمارة المختارة في التكليف غير صحيحة، تواصل مع مركز
+                المعلومات لفتح حق التغيير لهذه المأمورية أو لاستبدالها إداريًا.
+              </div>
+            )}
+
+            {canManageTemplatePolicy && (
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '10px',
+                padding: '10px 12px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: '12px',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+              }}>
+                <div>
+                  <strong style={{
+                    display: 'block',
+                    fontSize: '11px',
+                    color: '#334155'
+                  }}>
+                    صلاحية مرنة لأعضاء الفريق
+                  </strong>
+                  <span style={{
+                    fontSize: '10px',
+                    color: '#64748b'
+                  }}>
+                    مركز المعلومات يستطيع فتح أو إغلاق حق تغيير الاستمارة لهذه
+                    المأمورية فقط.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={templatePolicyBusy}
+                  onClick={() => void toggleTeamTemplateChange()}
+                  style={{
+                    background: teamTemplateChangeAllowed
+                      ? '#ecfdf5'
+                      : '#ffffff',
+                    color: teamTemplateChangeAllowed
+                      ? '#047857'
+                      : '#475569',
+                    border: teamTemplateChangeAllowed
+                      ? '1px solid #a7f3d0'
+                      : '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                    padding: '7px 11px',
+                    fontSize: '10.5px',
+                    fontWeight: 'bold',
+                    cursor: templatePolicyBusy ? 'wait' : 'pointer'
+                  }}
+                >
+                  {templatePolicyBusy
+                    ? 'جارٍ التحديث...'
+                    : teamTemplateChangeAllowed
+                      ? 'مسموح للفريق بالتغيير'
+                      : 'السماح للفريق بالتغيير'}
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Technical Support Notification Notice */}
           <div style={{
@@ -3718,6 +3848,171 @@ export function MissionExecutionForm({
           </button>
         </div>
       </div>
+
+      {templateChangeOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 120,
+          background: 'rgba(15, 23, 42, 0.62)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}>
+          <div style={{
+            width: 'min(560px, 100%)',
+            background: '#ffffff',
+            borderRadius: '16px',
+            padding: '18px',
+            boxShadow: '0 20px 50px rgba(15, 23, 42, 0.24)',
+            display: 'grid',
+            gap: '14px'
+          }}>
+            <div>
+              <h3 style={{
+                margin: 0,
+                fontSize: '17px',
+                color: '#0f172a'
+              }}>
+                تغيير استمارة المأمورية
+              </h3>
+              <p style={{
+                margin: '5px 0 0',
+                fontSize: '11px',
+                lineHeight: '1.7',
+                color: '#64748b'
+              }}>
+                التغيير يُسجل في سجل المأمورية، والاستمارة السابقة وإجاباتها
+                تظل محفوظة للمراجعة.
+              </p>
+            </div>
+
+            {checklistAnswerCount > 0 && (
+              <div style={{
+                background: '#fff7ed',
+                border: '1px solid #fed7aa',
+                borderRadius: '10px',
+                padding: '10px 12px',
+                fontSize: '10.5px',
+                lineHeight: '1.7',
+                color: '#9a3412'
+              }}>
+                توجد {checklistAnswerCount.toLocaleString('en-US')} إجابة محفوظة
+                على الاستمارة الحالية. لن تُحذف؛ سيؤرشفها النظام مع الجلسة
+                السابقة ويبدأ استمارة جديدة.
+              </div>
+            )}
+
+            <label style={{
+              display: 'grid',
+              gap: '5px',
+              fontSize: '11px',
+              color: '#475569'
+            }}>
+              الاستمارة الجديدة
+              <select
+                value={pendingTemplateId}
+                onChange={(event) =>
+                  setPendingTemplateId(event.target.value)
+                }
+                style={{
+                  height: '40px',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '9px',
+                  padding: '0 10px',
+                  background: '#ffffff',
+                  fontFamily: 'inherit'
+                }}
+              >
+                {availableTemplates.map((template: any) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                    {template.version
+                      ? ' — إصدار ' + template.version
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{
+              display: 'grid',
+              gap: '5px',
+              fontSize: '11px',
+              color: '#475569'
+            }}>
+              سبب التغيير *
+              <textarea
+                value={templateChangeReason}
+                onChange={(event) =>
+                  setTemplateChangeReason(event.target.value)
+                }
+                rows={3}
+                placeholder="مثال: الاستمارة المختارة في التكليف لا تتوافق مع نوع المنشأة."
+                style={{
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '9px',
+                  padding: '9px 10px',
+                  fontFamily: 'inherit',
+                  resize: 'vertical'
+                }}
+              />
+            </label>
+
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '8px'
+            }}>
+              <button
+                type="button"
+                disabled={templateChangeBusy}
+                onClick={() => setTemplateChangeOpen(false)}
+                style={{
+                  border: '1px solid #cbd5e1',
+                  background: '#ffffff',
+                  borderRadius: '8px',
+                  padding: '8px 13px',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={
+                  templateChangeBusy ||
+                  !pendingTemplateId ||
+                  pendingTemplateId === selectedTemplateId
+                }
+                onClick={() => void confirmTemplateChange()}
+                style={{
+                  border: 0,
+                  background: '#0f766e',
+                  color: '#ffffff',
+                  borderRadius: '8px',
+                  padding: '8px 13px',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  cursor: templateChangeBusy ? 'wait' : 'pointer',
+                  opacity:
+                    !pendingTemplateId ||
+                    pendingTemplateId === selectedTemplateId
+                      ? 0.5
+                      : 1
+                }}
+              >
+                {templateChangeBusy
+                  ? 'جارٍ التغيير...'
+                  : 'اعتماد الاستمارة الجديدة'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Before Final Completion Modal */}
       {showConfirmSubmitModal && (
