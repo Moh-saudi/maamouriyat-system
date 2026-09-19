@@ -18,7 +18,7 @@ INSERT INTO public.permissions (
 VALUES (
   'missions.checklist_change',
   'missions',
-  'checklist_manage',
+  'checklist_change',
   'إدارة استمارة المأمورية',
   'تغيير الاستمارة المرتبطة بالمأمورية أو السماح لأعضاء الفريق بتغييرها مع تسجيل سبب التغيير وسجل التدقيق.',
   FALSE,
