@@ -170,11 +170,20 @@ export function FacilityAuditDrawer({
                     </time>
                   </div>
 
-                  {entry.reason && (
-                    <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
-                      سبب التعديل: {entry.reason}
-                    </div>
-                  )}
+                  <div
+                    className={`mt-3 rounded-lg border px-3 py-2.5 ${
+                      entry.reason
+                        ? 'border-amber-100 bg-amber-50 text-amber-900'
+                        : 'border-slate-100 bg-slate-50 text-slate-500'
+                    }`}
+                  >
+                    <p className="text-[10px] font-bold">
+                      سبب الإجراء
+                    </p>
+                    <p className="mt-1 text-[10px] leading-5">
+                      {entry.reason || 'لم يتم تسجيل سبب لهذا الإجراء.'}
+                    </p>
+                  </div>
 
                   {entry.changes.length > 0 && (
                     <div className="mt-3 overflow-hidden rounded-lg border border-slate-100">
