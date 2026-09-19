@@ -1,11 +1,10 @@
 import 'server-only'
 
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
-import type {
-  V2AuthorizationSnapshot,
-  V2PermissionSource,
-} from '@/server/authorization/types'
+import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
 import type { V2AuthenticatedUser } from '@/server/auth/types'
+import type { V2OrganizationFact } from '@/server/authorization/scope-types'
+import { getV2PermissionSourceAnchors } from '@/server/authorization/scope-evaluator'
 
 const DEFAULT_PAGE_SIZE = 25
 const MAX_PAGE_SIZE = 50
@@ -39,27 +38,6 @@ type OrgRow = {
   governorate: string | null
   level: number
   organization_type_code: string | null
-}
-
-function assignmentAnchorsForSource(input: {
-  source: V2PermissionSource
-  snapshot: V2AuthorizationSnapshot
-  userOrganizationId: string | null
-}): string[] {
-  const { source, snapshot, userOrganizationId } = input
-
-  if (source.kind === 'user_override') {
-    return userOrganizationId ? [userOrganizationId] : []
-  }
-
-  return [
-    ...new Set(
-      snapshot.roles
-        .filter((role) => role.roleId === source.roleId)
-        .map((role) => role.assignmentOrganizationId ?? userOrganizationId)
-        .filter((value): value is string => Boolean(value))
-    ),
-  ]
 }
 
 function collectDescendants(
@@ -119,21 +97,9 @@ async function buildUserScopeFilter(input: {
     )
   )
 
-  const anchorIds = [
-    ...new Set(
-      organizationSources.flatMap((source) =>
-        assignmentAnchorsForSource({
-          source,
-          snapshot: input.snapshot,
-          userOrganizationId: input.user.organizationId,
-        })
-      )
-    ),
-  ]
-
   let organizations: OrgRow[] = []
 
-  if (anchorIds.length > 0) {
+  if (organizationSources.length > 0) {
     const { data, error } = await admin
       .from('organizations')
       .select('id, parent_id, sector_id, governorate, level, organization_type_code')
@@ -148,6 +114,19 @@ async function buildUserScopeFilter(input: {
   }
 
   const byId = new Map(organizations.map((org) => [org.id, org]))
+  const organizationFacts = new Map<string, V2OrganizationFact>(
+    organizations.map((organization) => [
+      organization.id,
+      {
+        id: organization.id,
+        parentId: organization.parent_id,
+        sectorId: organization.sector_id,
+        governorate: organization.governorate,
+        level: organization.level,
+        organizationTypeCode: organization.organization_type_code,
+      },
+    ])
+  )
   const sectorIds = new Set<string>()
   const organizationIds = new Set<string>()
   const selfOnlyIds = new Set<string>()
@@ -167,10 +146,11 @@ async function buildUserScopeFilter(input: {
       continue
     }
 
-    const anchors = assignmentAnchorsForSource({
+    const anchors = getV2PermissionSourceAnchors({
       source,
-      snapshot: input.snapshot,
+      roles: input.snapshot.roles,
       userOrganizationId: input.user.organizationId,
+      organizationFacts,
     })
 
     for (const anchor of anchors) {
