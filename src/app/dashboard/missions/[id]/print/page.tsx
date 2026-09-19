@@ -623,6 +623,32 @@ export default async function MissionPrintPage({ params }: PageProps) {
               ['نوع المنشأة', facilityType],
               ['الإدارة الصحية', healthAdmin],
               ['العنوان / الموقع', address],
+              [
+                'المدة المقدرة',
+                `${formatDate(mission.scheduled_date)} — ${formatDate(mission.expected_end_date || mission.scheduled_date)}`,
+              ],
+              ...(isCompleted
+                ? [
+                    [
+                      'المدة الفعلية',
+                      `${formatDate(mission.actual_start_date || mission.checkin_time)} — ${formatDate(mission.actual_end_date || mission.checkout_time || mission.completed_at)}`,
+                    ],
+                    [
+                      'الأيام الفعلية',
+                      mission.actual_duration_days ? `${mission.actual_duration_days} يوم` : 'غير محدد',
+                    ],
+                    [
+                      'ليالي المبيت الفعلية',
+                      mission.actual_overnight_nights !== null && mission.actual_overnight_nights !== undefined
+                        ? `${mission.actual_overnight_nights} ليلة`
+                        : 'غير محدد',
+                    ],
+                    [
+                      'بعد انتهاء المأمورية',
+                      completionDispositionText(mission.completion_disposition || null),
+                    ],
+                  ]
+                : []),
             ].map(([label, value]) => (
               <div key={label} style={{ display: 'flex', gap: '8px', fontSize: '12px' }}>
                 <span style={{ color: '#64748b', minWidth: '120px', flexShrink: 0 }}>{label}:</span>
