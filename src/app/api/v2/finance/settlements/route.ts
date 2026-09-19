@@ -14,6 +14,7 @@ import { getAdminSupabaseClient } from '@/server/supabase/admin'
 type SettlementRow = {
   id: string
   mission_id: string
+  assignment_batch_id: string | null
   user_id: string
   scope_org_id: string
   status: string
@@ -42,7 +43,7 @@ async function loadSettlement(settlementId: string) {
   const { data, error } = await admin
     .from('mission_financial_settlements')
     .select(
-      'id, mission_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
+      'id, mission_id, assignment_batch_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
     )
     .eq('id', settlementId)
     .maybeSingle()
@@ -108,7 +109,7 @@ export async function GET() {
     const { data: settlementRows, error } = await admin
       .from('mission_financial_settlements')
       .select(
-        'id, mission_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
+        'id, mission_id, assignment_batch_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
       )
       .order('created_at', { ascending: false })
       .limit(600)
@@ -165,10 +166,18 @@ export async function GET() {
     const userIds = [
       ...new Set(visible.map((settlement) => settlement.user_id)),
     ]
+    const batchIds = [
+      ...new Set(
+        visible
+          .map((settlement) => settlement.assignment_batch_id)
+          .filter((value): value is string => Boolean(value))
+      ),
+    ]
 
     const [
       { data: missions, error: missionsError },
       { data: users, error: usersError },
+      { data: batches, error: batchesError },
     ] = await Promise.all([
       missionIds.length
         ? admin
@@ -184,9 +193,17 @@ export async function GET() {
             .select('id, full_name, job_title, organization_id')
             .in('id', userIds)
         : Promise.resolve({ data: [], error: null }),
+      batchIds.length
+        ? admin
+            .from('mission_assignment_batches')
+            .select(
+              'id, scheduled_date, expected_end_date, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, completed_at, mission_count, status, visit_purpose'
+            )
+            .in('id', batchIds)
+        : Promise.resolve({ data: [], error: null }),
     ])
 
-    if (missionsError || usersError) {
+    if (missionsError || usersError || batchesError) {
       return NextResponse.json(
         { error: 'تعذر تحميل بيانات المأموريات أو المستحقين' },
         { status: 500 }
@@ -219,6 +236,9 @@ export async function GET() {
     const facilityById = new Map(
       (facilities ?? []).map((row) => [String(row.id), row])
     )
+    const batchById = new Map(
+      (batches ?? []).map((row) => [String(row.id), row])
+    )
 
     return NextResponse.json({
       permissions: {
@@ -233,28 +253,83 @@ export async function GET() {
         const facility = mission
           ? facilityById.get(String(mission.facility_id))
           : null
+        const batch = settlement.assignment_batch_id
+          ? batchById.get(settlement.assignment_batch_id)
+          : null
+        const isGrouped = Boolean(batch)
 
         return {
           ...settlement,
-          mission_serial_number: mission
-            ? String(mission.serial_number)
-            : 'غير متاح',
-          mission_status: mission ? mission.status : null,
-          scheduled_date: mission ? mission.scheduled_date : null,
-          expected_end_date: mission ? mission.expected_end_date : null,
-          actual_start_date: mission ? mission.actual_start_date : null,
-          actual_end_date: mission ? mission.actual_end_date : null,
-          actual_duration_days: mission ? mission.actual_duration_days : null,
-          actual_overnight_nights: mission
-            ? mission.actual_overnight_nights
-            : null,
-          completion_disposition: mission
-            ? mission.completion_disposition
-            : null,
-          timing_adjustment_reason: mission
-            ? mission.timing_adjustment_reason
-            : null,
-          completed_at: mission ? mission.completed_at : null,
+          is_grouped: isGrouped,
+          batch_mission_count: batch
+            ? Number(batch.mission_count || 0)
+            : 1,
+          report_href:
+            batch && settlement.assignment_batch_id
+              ? '/v2/missions/assignments/' +
+                settlement.assignment_batch_id +
+                '/report'
+              : mission
+                ? '/dashboard/missions/' +
+                  settlement.mission_id +
+                  '/print'
+                : null,
+          mission_serial_number: batch
+            ? 'تكليف مجمع ' +
+              String(settlement.assignment_batch_id).slice(0, 8).toUpperCase()
+            : mission
+              ? String(mission.serial_number)
+              : 'غير متاح',
+          mission_status: batch
+            ? batch.status
+            : mission
+              ? mission.status
+              : null,
+          scheduled_date: batch
+            ? batch.scheduled_date
+            : mission
+              ? mission.scheduled_date
+              : null,
+          expected_end_date: batch
+            ? batch.expected_end_date
+            : mission
+              ? mission.expected_end_date
+              : null,
+          actual_start_date: batch
+            ? batch.actual_start_date
+            : mission
+              ? mission.actual_start_date
+              : null,
+          actual_end_date: batch
+            ? batch.actual_end_date
+            : mission
+              ? mission.actual_end_date
+              : null,
+          actual_duration_days: batch
+            ? batch.actual_duration_days
+            : mission
+              ? mission.actual_duration_days
+              : null,
+          actual_overnight_nights: batch
+            ? batch.actual_overnight_nights
+            : mission
+              ? mission.actual_overnight_nights
+              : null,
+          completion_disposition: batch
+            ? batch.completion_disposition
+            : mission
+              ? mission.completion_disposition
+              : null,
+          timing_adjustment_reason: batch
+            ? batch.timing_adjustment_reason
+            : mission
+              ? mission.timing_adjustment_reason
+              : null,
+          completed_at: batch
+            ? batch.completed_at
+            : mission
+              ? mission.completed_at
+              : null,
           checkin_time: mission ? mission.checkin_time : null,
           checkout_time: mission ? mission.checkout_time : null,
           gps_verified: mission ? mission.gps_verified === true : false,
@@ -266,9 +341,13 @@ export async function GET() {
             user && typeof user.job_title === 'string'
               ? user.job_title
               : null,
-          facility_name: facility
-            ? String(facility.name)
-            : 'منشأة غير مسماة',
+          facility_name: batch
+            ? 'تكليف مجمع · ' +
+              Number(batch.mission_count || 0).toLocaleString('en-US') +
+              ' منشأة'
+            : facility
+              ? String(facility.name)
+              : 'منشأة غير مسماة',
           health_admin:
             facility && typeof facility.health_admin === 'string'
               ? facility.health_admin
