@@ -47,6 +47,7 @@ type Organization = CascadingOrganizationOption & {
   can_approve_missions: boolean
   can_view_all_governorate: boolean
   can_view_sector_facilities: boolean
+  can_create_child_organizations: boolean
   lifecycle_status: 'active' | 'inactive' | 'archived'
   created_at: string | null
   created_by_name: string | null
@@ -82,6 +83,7 @@ interface OrganizationManagementPanelProps {
   canCreate: boolean
   canEdit: boolean
   canDelete: boolean
+  canManageCapabilities: boolean
 }
 
 function descendantsOf(
@@ -142,6 +144,7 @@ export function OrganizationManagementPanel({
   canCreate,
   canEdit,
   canDelete,
+  canManageCapabilities,
 }: OrganizationManagementPanelProps) {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [organizationTypes, setOrganizationTypes] = useState<
@@ -165,6 +168,10 @@ export function OrganizationManagementPanel({
   const [parentId, setParentId] = useState<string | null>(null)
   const [organizationTypeCode, setOrganizationTypeCode] = useState('')
   const [governorate, setGovernorate] = useState('')
+  const [
+    canCreateChildOrganizations,
+    setCanCreateChildOrganizations,
+  ] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -303,6 +310,9 @@ export function OrganizationManagementPanel({
     setParentId(organization.parent_id)
     setOrganizationTypeCode(organization.organization_type_code)
     setGovernorate(organization.governorate || '')
+    setCanCreateChildOrganizations(
+      organization.can_create_child_organizations === true
+    )
     setError(null)
   }
 
@@ -313,6 +323,7 @@ export function OrganizationManagementPanel({
     setParentId(null)
     setOrganizationTypeCode('')
     setGovernorate('')
+    setCanCreateChildOrganizations(false)
     setError(null)
   }
 
@@ -323,13 +334,37 @@ export function OrganizationManagementPanel({
     setParentId(null)
     setOrganizationTypeCode('')
     setGovernorate('')
+    setCanCreateChildOrganizations(false)
     setError(null)
   }
 
+  const hasCreatableParent = useMemo(
+    () =>
+      organizations.some(
+        (organization) =>
+          organization.is_active !== false &&
+          organization.can_create_child_organizations === true
+      ),
+    [organizations]
+  )
+
   const disabledParentIds = useMemo(() => {
-    if (!editing) return []
-    return [editing.id, ...descendantsOf(editing.id, organizations)]
-  }, [editing, organizations])
+    if (editing) {
+      return [editing.id, ...descendantsOf(editing.id, organizations)]
+    }
+
+    if (creating) {
+      return organizations
+        .filter(
+          (organization) =>
+            organization.is_active === false ||
+            organization.can_create_child_organizations !== true
+        )
+        .map((organization) => organization.id)
+    }
+
+    return []
+  }, [creating, editing, organizations])
 
   const selectedParent = parentId
     ? organizationById.get(parentId) ?? null
@@ -448,6 +483,10 @@ export function OrganizationManagementPanel({
 
       if (organizationTypeCode === 'health_directorate') {
         body.governorate = governorate.trim()
+      }
+
+      if (canManageCapabilities) {
+        body.can_create_child_organizations = canCreateChildOrganizations
       }
 
       if (editing) body.id = editing.id
@@ -666,7 +705,7 @@ export function OrganizationManagementPanel({
             </select>
           </div>
 
-          {canCreate && (
+          {canCreate && hasCreatableParent && (
             <button
               type="button"
               onClick={openCreate}
@@ -1267,6 +1306,28 @@ export function OrganizationManagementPanel({
                     className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-teal-500"
                     placeholder="مثال: الدقهلية"
                   />
+                </label>
+              )}
+
+              {canManageCapabilities && (
+                <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-teal-100 bg-teal-50/60 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={canCreateChildOrganizations}
+                    onChange={(event) =>
+                      setCanCreateChildOrganizations(event.target.checked)
+                    }
+                    className="mt-0.5 h-4 w-4 accent-teal-700"
+                  />
+                  <span>
+                    <span className="block text-xs font-bold text-slate-800">
+                      السماح بإنشاء جهات فرعية تحت هذه الجهة
+                    </span>
+                    <span className="mt-1 block text-[10px] leading-5 text-slate-500">
+                      لا تمنح هذه العلامة صلاحية بمفردها؛ يجب أن يملك المستخدم
+                      أيضًا صلاحية إنشاء الجهات وأن يكون داخل النطاق التنظيمي.
+                    </span>
+                  </span>
                 </label>
               )}
 
