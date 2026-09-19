@@ -28,7 +28,13 @@ export function DesktopSidebar({
   homeHref = '/v2/dashboard',
 }: DesktopSidebarProps) {
   const pathname = usePathname()
-  const groups: NavGroupKey[] = ['main', 'operations', 'admin', 'support']
+  const groups: NavGroupKey[] = [
+    'main',
+    'operations',
+    'finance',
+    'admin',
+    'support',
+  ]
 
   return (
     <aside
