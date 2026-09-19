@@ -24,6 +24,11 @@ function getRoleAssignmentsForSource(
   return roles.filter((role) => role.roleId === source.roleId)
 }
 
+const INFORMATION_CENTER_EXACT_ASSIGNMENT_PERMISSIONS = new Set([
+  'violations.view',
+  'violations.correct',
+])
+
 const INFORMATION_CENTER_MINISTRY_FALLBACK_BLOCKED_TYPES = new Set([
   'sector',
   'central_administration',
@@ -90,12 +95,14 @@ export function getV2PermissionSourceAnchors(input: {
   roles: readonly V2RoleAssignment[]
   userOrganizationId: string | null
   organizationFacts: ReadonlyMap<string, V2OrganizationFact>
+  permissionKey?: string
 }): string[] {
   const {
     source,
     roles,
     userOrganizationId,
     organizationFacts,
+    permissionKey,
   } = input
 
   if (source.kind === 'user_override') {
@@ -110,6 +117,13 @@ export function getV2PermissionSourceAnchors(input: {
       if (!assignmentOrganizationId) return []
 
       if (assignment.roleCode !== 'information_center') {
+        return [assignmentOrganizationId]
+      }
+
+      if (
+        permissionKey &&
+        INFORMATION_CENTER_EXACT_ASSIGNMENT_PERMISSIONS.has(permissionKey)
+      ) {
         return [assignmentOrganizationId]
       }
 
@@ -253,6 +267,7 @@ export function evaluateV2ResourceScope(input: {
       roles: snapshot.roles,
       userOrganizationId: user.organizationId,
       organizationFacts,
+      permissionKey,
     })
 
     for (const anchorOrganizationId of anchors) {
