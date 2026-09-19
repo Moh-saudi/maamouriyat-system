@@ -10,6 +10,8 @@ const INFORMATION_CENTER_DELEGABLE_SYSTEM_ROLES = new Set([
   'directorate_manager',
   'health_admin_manager',
   'information_center',
+  'correction_unit_manager',
+  'correction_unit_member',
   'field_inspector',
 ])
 
