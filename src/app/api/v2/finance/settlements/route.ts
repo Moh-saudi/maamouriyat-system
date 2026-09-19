@@ -172,7 +172,7 @@ export async function GET() {
         ? admin
             .from('missions')
             .select(
-              'id, serial_number, facility_id, scheduled_date, expected_end_date, completed_at, status, checkin_time, checkout_time, gps_verified, duration_minutes'
+              'id, serial_number, facility_id, scheduled_date, expected_end_date, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, completed_at, status, checkin_time, checkout_time, gps_verified, duration_minutes'
             )
             .in('id', missionIds)
         : Promise.resolve({ data: [], error: null }),
@@ -239,6 +239,19 @@ export async function GET() {
             : 'غير متاح',
           mission_status: mission ? mission.status : null,
           scheduled_date: mission ? mission.scheduled_date : null,
+          expected_end_date: mission ? mission.expected_end_date : null,
+          actual_start_date: mission ? mission.actual_start_date : null,
+          actual_end_date: mission ? mission.actual_end_date : null,
+          actual_duration_days: mission ? mission.actual_duration_days : null,
+          actual_overnight_nights: mission
+            ? mission.actual_overnight_nights
+            : null,
+          completion_disposition: mission
+            ? mission.completion_disposition
+            : null,
+          timing_adjustment_reason: mission
+            ? mission.timing_adjustment_reason
+            : null,
           completed_at: mission ? mission.completed_at : null,
           checkin_time: mission ? mission.checkin_time : null,
           checkout_time: mission ? mission.checkout_time : null,
