@@ -27,12 +27,12 @@ export function filterV2NavigationItems(
     const permissionKey = V2_NAV_PERMISSION_BY_ID[item.id]
     if (!permissionKey) return false
 
-    if (Array.isArray(permissionKey)) {
-      return permissionKey.some(
-        (key) => snapshot.permissions[key]?.granted === true
-      )
+    if (typeof permissionKey === 'string') {
+      return snapshot.permissions[permissionKey]?.granted === true
     }
 
-    return snapshot.permissions[permissionKey]?.granted === true
+    return permissionKey.some(
+      (key) => snapshot.permissions[key]?.granted === true
+    )
   })
 }
