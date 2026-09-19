@@ -668,8 +668,23 @@ export function MissionExecutionForm({
         }
         
         if (itemId) {
+          let restoredAnswer = res.answer
+
+          if (
+            typeof restoredAnswer === 'string' &&
+            restoredAnswer.startsWith('__json__:')
+          ) {
+            try {
+              restoredAnswer = JSON.parse(
+                restoredAnswer.slice('__json__:'.length)
+              )
+            } catch {
+              // Keep the stored value as-is if legacy JSON is malformed.
+            }
+          }
+
           initial[itemId] = {
-            answer: res.answer,
+            answer: restoredAnswer,
             notes: notes,
             photo_url: res.photo_url || undefined
           }
@@ -3005,7 +3020,7 @@ export function MissionExecutionForm({
                       {isExpanded && (
                         <div style={{ padding: '14px', display: 'grid', gap: '12px', background: '#ffffff', borderTop: '1px solid #eef6f6' }}>
                           {sectionItems.map((item: any) => {
-                            const currentAnswer = answers[item.id]?.answer || '';
+                            const currentAnswer = answers[item.id]?.answer ?? '';
                             const answerType = item.answer_type || 'yes_no';
                             const optionsList = item.options
                               ? item.options.split(',').map((opt: string) => opt.trim()).filter(Boolean)
