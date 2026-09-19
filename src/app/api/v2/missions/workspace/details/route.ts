@@ -176,6 +176,12 @@ export async function GET(request: Request) {
           checkout_time: mission.checkout_time,
           gps_verified: mission.gps_verified === true,
           completed_at: mission.completed_at,
+          actual_start_date: mission.actual_start_date,
+          actual_end_date: mission.actual_end_date,
+          actual_duration_days: mission.actual_duration_days,
+          actual_overnight_nights: mission.actual_overnight_nights,
+          completion_disposition: mission.completion_disposition,
+          timing_adjustment_reason: mission.timing_adjustment_reason,
           facility: facility
             ? {
                 id: facility.id,
