@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -108,6 +109,7 @@ type OptionsPayload = {
   programs?: ProgramOption[]
   canApprove?: boolean
   canUseTemplateLibrary?: boolean
+  canManagePrograms?: boolean
   preparationMode?: 'secretariat' | 'issuer'
   error?: string
 }
@@ -225,6 +227,7 @@ export function MissionAssignmentForm() {
   const [programs, setPrograms] = useState<ProgramOption[]>([])
   const [canApprove, setCanApprove] = useState(false)
   const [canUseTemplateLibrary, setCanUseTemplateLibrary] = useState(false)
+  const [canManagePrograms, setCanManagePrograms] = useState(false)
   const [preparationMode, setPreparationMode] = useState<
     'secretariat' | 'issuer'
   >('issuer')
@@ -288,6 +291,7 @@ export function MissionAssignmentForm() {
         setPrograms(payload.programs ?? [])
         setCanApprove(payload.canApprove === true)
         setCanUseTemplateLibrary(payload.canUseTemplateLibrary === true)
+        setCanManagePrograms(payload.canManagePrograms === true)
         setPreparationMode(payload.preparationMode ?? 'issuer')
 
         if (nextTemplates.some((template) => template.in_my_library)) {
@@ -1126,14 +1130,24 @@ export function MissionAssignmentForm() {
 
             {sourceMode === 'program' && (
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-3">
-                <div className="mb-3">
-                  <h3 className="text-xs font-black text-slate-900">
-                    المشروعات والمبادرات
-                  </h3>
-                  <p className="mt-1 text-[10px] text-slate-500">
-                    المشروع يحدد مجموعة المنشآت، وبعد اختياره تستطيع التصفية
-                    بالمحافظة والإدارة الصحية.
-                  </p>
+                <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-black text-slate-900">
+                      المشروعات والمبادرات
+                    </h3>
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      المشروع يحدد مجموعة المنشآت، وبعد اختياره تستطيع التصفية
+                      بالمحافظة والإدارة الصحية.
+                    </p>
+                  </div>
+                  {canManagePrograms && (
+                    <Link
+                      href="/v2/facilities/programs"
+                      className="inline-flex h-8 items-center rounded-lg border border-indigo-200 bg-white px-2.5 text-[9px] font-bold text-indigo-700 hover:bg-indigo-50"
+                    >
+                      إدارة منشآت المشروعات
+                    </Link>
+                  )}
                 </div>
 
                 <div className="grid gap-2 lg:grid-cols-2">
