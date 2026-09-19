@@ -197,52 +197,6 @@ async function loadVisibleTemplates(input: {
   })
 }
 
-async function permissionState(input: {
-  userId: string
-  access: Awaited<ReturnType<typeof requireAnyV2Permission>> extends infer T
-    ? never
-    : never
-}) {
-  return input
-}
-
-async function resolveAccess(input: {
-  userId: string
-  access: Parameters<typeof hasV2Permission>[0]
-  resource: V2ResourceScopeContext
-  teamUserIds: string[]
-  teamChangeAllowed: boolean
-}) {
-  const isTeamMember = input.teamUserIds.includes(input.userId)
-  let canExecuteAssigned = false
-  let canManage = false
-
-  if (isTeamMember && hasV2Permission(input.access, 'missions.execute')) {
-    const decision = await checkV2ResourceAccess({
-      user: {
-        profileId: input.userId,
-      } as never,
-      snapshot: input.access,
-      permissionKey: 'missions.execute',
-      resource: input.resource,
-    })
-    canExecuteAssigned = decision.allowed
-  }
-
-  if (hasV2Permission(input.access, 'missions.checklist_change')) {
-    canManage = true
-  }
-
-  return {
-    isTeamMember,
-    canExecuteAssigned,
-    canManage,
-    canChange:
-      canManage ||
-      (isTeamMember && canExecuteAssigned && input.teamChangeAllowed),
-  }
-}
-
 export async function GET(
   _request: Request,
   context: RouteContext
