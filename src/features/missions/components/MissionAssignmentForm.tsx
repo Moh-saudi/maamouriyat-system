@@ -73,7 +73,9 @@ type TargetOption = {
   target_missions: number
   assigned_user_id: string | null
   assigned_user_name: string | null
+  scope_level: 'ministry' | 'sector' | 'governorate' | 'health_admin' | 'user'
   scope_name: string
+  target_type: 'aggregate' | 'specific_facilities'
   facility_ids: string[]
   facility_count: number
   visited_count: number
@@ -1075,6 +1077,12 @@ export function MissionAssignmentForm() {
                               </p>
                               <p className="mt-1 text-[9px] text-slate-400">
                                 {target.period_label} · {target.scope_name}
+                              </p>
+                              <p className="mt-1 text-[9px] font-bold text-slate-500">
+                                {target.target_type === 'specific_facilities'
+                                  ? 'منشآت محددة بالاسم'
+                                  : 'مستهدف تراكمي بالعدد'}
+                                {' · '}المطلوب {target.target_missions.toLocaleString('en-US')} مأمورية
                               </p>
                             </div>
                             <span className="shrink-0 rounded-full bg-teal-50 px-2 py-1 text-[9px] font-black text-teal-800">
