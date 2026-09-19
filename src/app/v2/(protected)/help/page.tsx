@@ -125,9 +125,8 @@ export default async function V2HelpPage({
     'organizations.manage_capabilities',
   ])
   const canWorkMissions = hasAnyPermission(access, [
-    'missions.view',
-    'missions.create',
     'missions.execute',
+    'mission_results.record',
     'mission_results.edit',
   ])
   const canPrepareMissions = hasAnyPermission(access, [
