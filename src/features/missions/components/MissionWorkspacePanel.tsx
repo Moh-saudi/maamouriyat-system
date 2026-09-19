@@ -6,7 +6,6 @@ import {
   AlertTriangle,
   BriefcaseBusiness,
   Building2,
-  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
