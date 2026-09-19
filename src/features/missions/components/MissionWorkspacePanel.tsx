@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   BriefcaseBusiness,
-  Building2,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
