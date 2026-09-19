@@ -36,6 +36,45 @@ function callerRoleCodes(
   return new Set(access.roles.map((role) => role.roleCode))
 }
 
+const FUNCTIONAL_SERVICE_SCOPE_ROLES = new Set([
+  'mission_secretariat',
+  'finance_officer',
+  'finance_approver',
+])
+
+const FUNCTIONAL_SERVICE_ANCHOR_TYPES = new Set([
+  'health_administration',
+  'health_directorate',
+  'general_administration',
+  'central_administration',
+  'sector',
+  'ministry',
+])
+
+async function resolveFunctionalServiceAnchor(
+  organizationId: string
+): Promise<string> {
+  const facts = await loadV2OrganizationFacts([organizationId])
+  let currentId: string | null = organizationId
+  const visited = new Set<string>()
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId)
+    const fact = facts.get(currentId)
+
+    if (
+      fact?.organizationTypeCode &&
+      FUNCTIONAL_SERVICE_ANCHOR_TYPES.has(fact.organizationTypeCode)
+    ) {
+      return currentId
+    }
+
+    currentId = fact?.parentId ?? null
+  }
+
+  return organizationId
+}
+
 function isSystemRoleCompatibleWithOrganization(input: {
   roleCode: string
   organizationTypeCode: string | null
@@ -542,10 +581,19 @@ export async function POST(request: Request) {
     let assignmentOrganizationId: string | null = null
 
     if (!allNational) {
-      assignmentOrganizationId =
-        typeof body.assignment_org_id === 'string'
-          ? body.assignment_org_id
-          : target.profile.organization_id
+      if (
+        FUNCTIONAL_SERVICE_SCOPE_ROLES.has(role.code) &&
+        target.profile.organization_id
+      ) {
+        assignmentOrganizationId = await resolveFunctionalServiceAnchor(
+          target.profile.organization_id
+        )
+      } else {
+        assignmentOrganizationId =
+          typeof body.assignment_org_id === 'string'
+            ? body.assignment_org_id
+            : target.profile.organization_id
+      }
 
       if (!assignmentOrganizationId) {
         return NextResponse.json(
@@ -556,7 +604,8 @@ export async function POST(request: Request) {
 
       if (
         target.profile.organization_id &&
-        assignmentOrganizationId !== target.profile.organization_id
+        assignmentOrganizationId !== target.profile.organization_id &&
+        !FUNCTIONAL_SERVICE_SCOPE_ROLES.has(role.code)
       ) {
         return NextResponse.json(
           {
