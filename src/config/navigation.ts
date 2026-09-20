@@ -83,12 +83,21 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     description: 'القوائم المرجعية ومعايير التفتيش الفنية',
   },
   {
+    id: 'financial-claims',
+    label: 'طلباتي المالية',
+    href: '/v2/financial-claims',
+    iconName: 'WalletCards',
+    group: 'finance',
+    mobilePriority: 7,
+    description: 'تجميع المأموريات المكتملة وإرسال بيانات الإقامة والانتقالات للمالية',
+  },
+  {
     id: 'finance',
     label: 'الاستحقاقات المالية',
     href: '/v2/finance',
     iconName: 'WalletCards',
     group: 'finance',
-    mobilePriority: 7,
+    mobilePriority: 8,
     description: 'مراجعة واعتماد وصرف بدلات ومكافآت المأموريات المنفذة',
   },
   {
@@ -97,7 +106,7 @@ export const V2_NAVIGATION_ITEMS: readonly NavItem[] = [
     href: '/v2/reports',
     iconName: 'BarChart3',
     group: 'finance',
-    mobilePriority: 8,
+    mobilePriority: 9,
     description: 'تقارير المأموريات والاستحقاقات المالية حسب الصلاحيات',
   },
   // ── المجموعة الثالثة: الإدارة والنظام
