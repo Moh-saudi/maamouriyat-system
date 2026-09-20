@@ -16,6 +16,7 @@ import {
   loadWorkspaceMissionsForGroup,
   loadWorkspaceOrganizations,
   loadWorkspaceTeamRows,
+  loadWorkspaceUsers,
   type MissionWorkspaceMissionRow,
   type MissionWorkspaceTeamRow,
 } from '@/server/services/missions/workspace-data'
@@ -34,6 +35,13 @@ type RunRow = {
   template_name: string
   template_version: string | null
   status: string
+  source_type: string
+  previous_run_id: string | null
+  started_by: string | null
+  started_at: string
+  archived_by: string | null
+  archived_at: string | null
+  change_reason: string | null
 }
 
 function buildTeamMap(rows: MissionWorkspaceTeamRow[]) {
@@ -106,10 +114,10 @@ export default async function AssignmentFormsPage({
       admin
         .from('mission_checklist_runs')
         .select(
-          'id, mission_id, template_id, template_name, template_version, status'
+          'id, mission_id, template_id, template_name, template_version, status, source_type, previous_run_id, started_by, started_at, archived_by, archived_at, change_reason'
         )
         .in('mission_id', missionIds)
-        .eq('status', 'active'),
+        .order('created_at', { ascending: false }),
       admin
         .from('mission_results')
         .select('mission_id, checklist_run_id')
@@ -123,10 +131,27 @@ export default async function AssignmentFormsPage({
     )
   }
 
+  const typedRuns = (runRows ?? []) as RunRow[]
   const runByMission = new Map<string, RunRow>()
-  for (const run of (runRows ?? []) as RunRow[]) {
-    runByMission.set(run.mission_id, run)
+  const runsByMission = new Map<string, RunRow[]>()
+  const checklistActorIds = new Set<string>()
+
+  for (const run of typedRuns) {
+    const history = runsByMission.get(run.mission_id) ?? []
+    history.push(run)
+    runsByMission.set(run.mission_id, history)
+
+    if (run.status === 'active' && !runByMission.has(run.mission_id)) {
+      runByMission.set(run.mission_id, run)
+    }
+
+    if (run.started_by) checklistActorIds.add(run.started_by)
+    if (run.archived_by) checklistActorIds.add(run.archived_by)
   }
+
+  const checklistActors = await loadWorkspaceUsers([
+    ...checklistActorIds,
+  ])
 
   const answerCountByRun = new Map<string, number>()
   for (const row of resultRows ?? []) {
@@ -243,6 +268,22 @@ export default async function AssignmentFormsPage({
         permissions.canExecute &&
         !completedStatus(mission.status),
       completed: completedStatus(mission.status),
+      checklistHistory: (runsByMission.get(mission.id) ?? []).map(
+        (historyRun) => ({
+          id: historyRun.id,
+          templateName: historyRun.template_name,
+          templateVersion: historyRun.template_version,
+          status: historyRun.status,
+          sourceType: historyRun.source_type,
+          reason: historyRun.change_reason,
+          startedAt: historyRun.started_at,
+          archivedAt: historyRun.archived_at,
+          actorName: historyRun.started_by
+            ? checklistActors.get(historyRun.started_by)?.full_name ??
+              'مستخدم غير مسمى'
+            : 'النظام',
+        })
+      ),
     })
   }
 
