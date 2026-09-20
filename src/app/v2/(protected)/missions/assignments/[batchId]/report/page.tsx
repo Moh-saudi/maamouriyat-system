@@ -11,7 +11,6 @@ import {
 } from 'lucide-react'
 import {
   evaluateV2ResourceScope,
-  hasV2Permission,
 } from '@/server/authorization'
 import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
 import { requireV2PagePermission } from '@/server/authorization/page-guard'
@@ -28,7 +27,6 @@ import {
   type MissionWorkspaceUserRow,
 } from '@/server/services/missions/workspace-data'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
-import { GroupedReportSubmissionPanel } from '@/features/missions/components/GroupedReportSubmissionPanel'
 
 type PageProps = {
   params: Promise<{ batchId: string }>
@@ -290,20 +288,6 @@ export default async function GroupedMissionReportPage({
   const completedBy = batch.completed_by
     ? users.get(batch.completed_by)
     : null
-
-  const canSubmitToFinance =
-    hasV2Permission(access, 'missions.execute') &&
-    (
-      missions.some(
-        (mission) =>
-          mission.primary_inspector_id === user.profileId
-      ) ||
-      teamRows.some(
-        (member) =>
-          member.user_id === user.profileId &&
-          member.is_primary === true
-      )
-    )
 
   return (
     <div className="space-y-4">
@@ -572,16 +556,17 @@ export default async function GroupedMissionReportPage({
         </div>
       </section>
 
-      <GroupedReportSubmissionPanel
-        batchId={batchId}
-        canSubmit={canSubmitToFinance}
-        submittedAt={batch.report_submitted_to_finance_at}
-      />
-
-      <section className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-[10px] leading-5 text-blue-800">
-        التقرير أصبح متاحًا لأن التنفيذ الفعلي للتكليف انتهى. الاستحقاقات
-        المالية لا تُنشأ إلا بعد مراجعة التقرير وطباعته وتوقيعه ثم تأكيد
-        إرساله للشئون المالية.
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-[10px] leading-5 text-blue-800">
+        <p>
+          هذا تقرير فني لنتائج المرور ولا يُرسل إلى المالية. يرسل كل عضو
+          بيانات المدة والإقامة والمواصلات من طلب الاستحقاق المالي المستقل.
+        </p>
+        <Link
+          href="/v2/financial-claims"
+          className="inline-flex h-9 items-center rounded-xl bg-blue-700 px-3 font-black text-white"
+        >
+          فتح طلباتي المالية
+        </Link>
       </section>
     </div>
   )
