@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react'
 
-type Row = {
+export type MissionAssignmentFormsRow = {
   missionId: string
   serialNumber: string
   facilityName: string
@@ -54,7 +54,7 @@ type TemplateOption = {
 
 type Props = {
   batchId: string
-  initialRows: Row[]
+  initialRows: MissionAssignmentFormsRow[]
 }
 
 export function MissionAssignmentFormsPanel({
@@ -119,7 +119,7 @@ export function MissionAssignmentFormsPanel({
     }
   }
 
-  async function toggleTeamChange(row: Row) {
+  async function toggleTeamChange(row: MissionAssignmentFormsRow) {
     if (!row.canManage || row.completed) return
 
     setBusyMissionId(row.missionId)
