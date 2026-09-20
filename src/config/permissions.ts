@@ -16,6 +16,7 @@ export const V2_NAV_PERMISSION_BY_ID: Readonly<
   ],
   organizations: 'organizations.view',
   users: 'users.view',
+  'financial-claims': 'missions.execute',
   finance: 'finance.view',
   reports: ['reports.missions_view', 'reports.finance_view'],
   settings: 'settings.view',
