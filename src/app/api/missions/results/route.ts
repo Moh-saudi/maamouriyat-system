@@ -323,6 +323,15 @@ export async function POST(request: Request) {
       )
     }
 
+    const executionAccess = await authorizeMissionResource({
+      user: gate.user,
+      access: gate.access,
+      permissionKey: 'missions.execute',
+      missionId,
+    })
+
+    if (!executionAccess.ok) return executionAccess.response
+
     const admin = getAdminSupabaseClient()
     const activeRun = await loadActiveChecklistRun(missionId)
     const requestedRunId =

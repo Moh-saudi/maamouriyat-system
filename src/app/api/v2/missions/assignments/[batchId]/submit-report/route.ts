@@ -18,12 +18,27 @@ type RouteContext = {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: RouteContext
 ) {
   try {
     const gate = await requireV2Permission('missions.execute')
     if (!gate.ok) return gate.response
+
+    const body = (await request.json().catch(() => null)) as {
+      confirmed_signed?: unknown
+    } | null
+
+    if (body?.confirmed_signed !== true) {
+      return NextResponse.json(
+        {
+          error:
+            'يجب تأكيد مراجعة التقرير وطباعته وتوقيعه قبل إرساله إلى المالية.',
+          code: 'SIGNED_REPORT_CONFIRMATION_REQUIRED',
+        },
+        { status: 400 }
+      )
+    }
 
     const authorizedUser = gate.user
     const authorizedAccess = gate.access
