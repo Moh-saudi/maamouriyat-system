@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   BriefcaseBusiness,
@@ -460,6 +460,8 @@ export function MissionWorkspacePanel({
   const [details, setDetails] = useState<
     Record<string, DetailMission[]>
   >({})
+  const modeChosenManually = useRef(false)
+  const autoSelectionDone = useRef(false)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -506,19 +508,36 @@ export function MissionWorkspacePanel({
 
         if (cancelled) return
 
-        setRows(payload.rows ?? [])
-        setCounts(
+        const nextCounts =
           payload.counts ?? {
             assigned: { batches: 0, missions: 0 },
             issued: { batches: 0, missions: 0 },
             oversight: { batches: 0, missions: 0 },
             pending: { batches: 0, missions: 0 },
           }
-        )
+
+        setRows(payload.rows ?? [])
+        setCounts(nextCounts)
         setTotalBatches(payload.total_batches ?? 0)
         setTotalMissions(payload.total_missions ?? 0)
         setPages(payload.pages ?? 1)
         setCanApprove(payload.can_approve === true)
+
+        if (
+          !modeChosenManually.current &&
+          !autoSelectionDone.current &&
+          (nextCounts[mode]?.batches ?? 0) === 0
+        ) {
+          const fallbackMode = (
+            ['assigned', 'issued', 'oversight', 'pending'] as MissionMode[]
+          ).find((candidate) => (nextCounts[candidate]?.batches ?? 0) > 0)
+
+          autoSelectionDone.current = true
+          if (fallbackMode && fallbackMode !== mode) {
+            setMode(fallbackMode)
+            setPage(1)
+          }
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(
@@ -652,6 +671,7 @@ export function MissionWorkspacePanel({
               key={tab.id}
               type="button"
               onClick={() => {
+                modeChosenManually.current = true
                 setMode(tab.id)
                 setPage(1)
               }}
