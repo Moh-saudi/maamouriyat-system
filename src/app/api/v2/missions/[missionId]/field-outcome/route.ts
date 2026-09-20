@@ -8,9 +8,20 @@ type RouteContext = { params: Promise<{ missionId: string }> }
 type Payload = {
   action?: 'start' | 'not_performed'
   reason?: string
+  reason_code?: string
   latitude?: number
   longitude?: number
 }
+
+const NON_EXECUTION_REASON_CODES = new Set([
+  'facility_closed',
+  'access_blocked',
+  'reception_refused',
+  'wrong_address',
+  'facility_changed',
+  'team_emergency',
+  'other',
+])
 
 function validCoordinate(value: unknown, min: number, max: number) {
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
@@ -49,6 +60,12 @@ export async function POST(request: Request, context: RouteContext) {
     }
     if (body.action === 'not_performed' && (body.reason?.trim().length || 0) < 5) {
       return NextResponse.json({ error: 'سبب عدم التنفيذ إلزامي.' }, { status: 400 })
+    }
+    if (
+      body.action === 'not_performed' &&
+      !NON_EXECUTION_REASON_CODES.has(body.reason_code || '')
+    ) {
+      return NextResponse.json({ error: 'اختر سبب تعذر المرور.' }, { status: 400 })
     }
 
     const admin = getAdminSupabaseClient()
@@ -128,6 +145,7 @@ export async function POST(request: Request, context: RouteContext) {
           ...common,
           status: 'completed',
           execution_outcome: 'not_performed',
+          non_execution_reason_code: body.reason_code,
           non_execution_reason: body.reason!.trim(),
           checkin_time: now,
           checkout_time: now,

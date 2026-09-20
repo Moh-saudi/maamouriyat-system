@@ -36,6 +36,7 @@ import {
 import { getFacilityTypeLabel } from '@/config/facility-types'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import { GroupedAssignmentCompletionPanel } from '@/features/missions/components/GroupedAssignmentCompletionPanel'
+import { MissionUnableVisitButton } from '@/features/missions/components/MissionUnableVisitButton'
 
 type PageProps = {
   params: Promise<{ batchId: string }>
@@ -304,6 +305,12 @@ export default async function GroupedMissionExecutionPage({
     })
 
   const completedCount = rows.filter((row) => row.completed).length
+  const performedCount = rows.filter(
+    (row) => row.completed && row.outcome === 'performed'
+  ).length
+  const notPerformedCount = rows.filter(
+    (row) => row.completed && row.outcome === 'not_performed'
+  ).length
   const unverifiedTerminalCount = rows.filter(
     (row) => row.statusCompleted && !row.completed
   ).length
@@ -318,6 +325,9 @@ export default async function GroupedMissionExecutionPage({
   const remainingCount = Math.max(0, rows.length - completedCount)
   const progress = rows.length
     ? Math.round((completedCount / rows.length) * 100)
+    : 0
+  const executionRate = rows.length
+    ? Math.round((performedCount / rows.length) * 100)
     : 0
   const allCompleted = rows.length > 0 && completedCount === rows.length
   const executableCount = rows.filter((row) => row.canExecute).length
@@ -513,10 +523,10 @@ export default async function GroupedMissionExecutionPage({
           <div>
             <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
               <span>
-                النتائج المسجلة {completedCount.toLocaleString('en-US')} /{' '}
+                حسم النتائج {completedCount.toLocaleString('en-US')} /{' '}
                 {rows.length.toLocaleString('en-US')}
               </span>
-              <span>{progress.toLocaleString('en-US')}%</span>
+              <span>{progress.toLocaleString('en-US')}% حسم</span>
             </div>
             <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
               <div
@@ -524,23 +534,30 @@ export default async function GroupedMissionExecutionPage({
                 style={{ width: progress + '%' }}
               />
             </div>
+            <div className="mt-2 flex items-center justify-between text-[9px] font-bold text-emerald-700">
+              <span>التنفيذ الفعلي</span>
+              <span>{executionRate.toLocaleString('en-US')}%</span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-emerald-50">
+              <div className="h-full rounded-full bg-emerald-600" style={{ width: executionRate + '%' }} />
+            </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="rounded-xl bg-emerald-50 p-2.5 text-center">
-                <p className="text-[8px] font-bold text-emerald-700">نتيجة مسجلة</p>
+                <p className="text-[8px] font-bold text-emerald-700">تم المرور</p>
                 <p className="mt-1 text-base font-black text-emerald-900">
-                  {completedCount.toLocaleString('en-US')}
+                  {performedCount.toLocaleString('en-US')}
+                </p>
+              </div>
+              <div className="rounded-xl bg-rose-50 p-2.5 text-center">
+                <p className="text-[8px] font-bold text-rose-700">تعذر المرور</p>
+                <p className="mt-1 text-base font-black text-rose-900">
+                  {notPerformedCount.toLocaleString('en-US')}
                 </p>
               </div>
               <div className="rounded-xl bg-teal-50 p-2.5 text-center">
                 <p className="text-[8px] font-bold text-teal-700">جارية</p>
                 <p className="mt-1 text-base font-black text-teal-900">
                   {currentCount.toLocaleString('en-US')}
-                </p>
-              </div>
-              <div className="rounded-xl bg-sky-50 p-2.5 text-center">
-                <p className="text-[8px] font-bold text-sky-700">قادمة</p>
-                <p className="mt-1 text-base font-black text-sky-900">
-                  {upcomingCount.toLocaleString('en-US')}
                 </p>
               </div>
               <div className="rounded-xl bg-slate-100 p-2.5 text-center">
@@ -679,23 +696,29 @@ export default async function GroupedMissionExecutionPage({
                     مراجعة النتيجة
                   </span>
                 ) : row.canExecute ? (
-                  <Link
-                    href={
-                      '/v2/missions/' +
-                      row.mission.id +
-                      '/execute?returnTo=' +
-                      encodeURIComponent(
-                        '/v2/missions/assignments/' + batchId + '/execute'
-                      )
-                    }
-                    className="inline-flex h-8 items-center gap-1 rounded-lg bg-teal-700 px-3 text-[9px] font-black text-white hover:bg-teal-800"
-                  >
-                    <ClipboardCheck className="h-3.5 w-3.5" />
-                    {row.lifecycle.key === 'current'
-                      ? 'استكمال التنفيذ'
-                      : 'بدء التنفيذ'}
-                    <ChevronLeft className="h-3 w-3" />
-                  </Link>
+                  <>
+                    <Link
+                      href={
+                        '/v2/missions/' +
+                        row.mission.id +
+                        '/execute?returnTo=' +
+                        encodeURIComponent(
+                          '/v2/missions/assignments/' + batchId + '/execute'
+                        )
+                      }
+                      className="inline-flex h-8 items-center gap-1 rounded-lg bg-teal-700 px-3 text-[9px] font-black text-white hover:bg-teal-800"
+                    >
+                      <ClipboardCheck className="h-3.5 w-3.5" />
+                      {row.lifecycle.key === 'current'
+                        ? 'استكمال التنفيذ'
+                        : 'بدء التنفيذ'}
+                      <ChevronLeft className="h-3 w-3" />
+                    </Link>
+                    <MissionUnableVisitButton
+                      missionId={row.mission.id}
+                      facilityName={row.facility.name}
+                    />
+                  </>
                 ) : (
                   <span className="inline-flex h-8 items-center gap-1 rounded-lg bg-slate-100 px-2.5 text-[8px] font-bold text-slate-400">
                     <Clock3 className="h-3.5 w-3.5" />

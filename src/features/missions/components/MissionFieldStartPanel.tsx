@@ -13,6 +13,16 @@ type Props = {
 
 type Coordinates = { latitude: number; longitude: number }
 
+const REASON_OPTIONS = [
+  ['facility_closed', 'المنشأة مغلقة'],
+  ['access_blocked', 'تعذر الوصول إلى المنشأة'],
+  ['reception_refused', 'رفض استقبال فريق المرور'],
+  ['wrong_address', 'المنشأة غير موجودة بالعنوان'],
+  ['facility_changed', 'تغيرت جهة أو تبعية المنشأة'],
+  ['team_emergency', 'ظرف طارئ للفريق'],
+  ['other', 'سبب آخر'],
+] as const
+
 function readPosition(): Promise<Coordinates> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -40,6 +50,7 @@ export function MissionFieldStartPanel({
 }: Props) {
   const router = useRouter()
   const [reason, setReason] = useState('')
+  const [reasonCode, setReasonCode] = useState('')
   const [showUnable, setShowUnable] = useState(false)
   const [busy, setBusy] = useState<'start' | 'not_performed' | null>(null)
   const [error, setError] = useState('')
@@ -50,6 +61,10 @@ export function MissionFieldStartPanel({
       setError('اكتب سببًا واضحًا لعدم تنفيذ المرور على المنشأة.')
       return
     }
+    if (action === 'not_performed' && !reasonCode) {
+      setError('اختر سبب تعذر المرور على المنشأة.')
+      return
+    }
 
     setBusy(action)
     try {
@@ -58,7 +73,12 @@ export function MissionFieldStartPanel({
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, reason: reason.trim(), ...coordinates }),
+        body: JSON.stringify({
+          action,
+          reason_code: reasonCode || undefined,
+          reason: reason.trim(),
+          ...coordinates,
+        }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'تعذر تسجيل حالة المنشأة.')
@@ -113,6 +133,16 @@ export function MissionFieldStartPanel({
             <label className="text-[10px] font-black text-slate-700" htmlFor="non-execution-reason">
               سبب عدم التنفيذ (إلزامي)
             </label>
+            <select
+              value={reasonCode}
+              onChange={(event) => setReasonCode(event.target.value)}
+              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none focus:border-rose-400"
+            >
+              <option value="">اختر السبب</option>
+              {REASON_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
             <textarea
               id="non-execution-reason"
               value={reason}

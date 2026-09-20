@@ -37,6 +37,7 @@ export type MissionWorkspaceMissionRow = {
   gps_verified: boolean | null
   completed_at: string | null
   execution_outcome: 'performed' | 'not_performed' | null
+  non_execution_reason_code: string | null
   non_execution_reason: string | null
   outcome_recorded_by: string | null
   outcome_recorded_at: string | null
@@ -100,7 +101,7 @@ export type MissionWorkspaceProgramRow = {
 }
 
 const MISSION_SELECT =
-  'id, assignment_batch_id, template_id, team_template_change_allowed, template_change_allowed_by, template_change_allowed_at, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, checkin_lat, checkin_lng, checkout_lat, checkout_lng, gps_verified, completed_at, execution_outcome, non_execution_reason, outcome_recorded_by, outcome_recorded_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
+  'id, assignment_batch_id, template_id, team_template_change_allowed, template_change_allowed_by, template_change_allowed_at, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, checkin_lat, checkin_lng, checkout_lat, checkout_lng, gps_verified, completed_at, execution_outcome, non_execution_reason_code, non_execution_reason, outcome_recorded_by, outcome_recorded_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
 
 export function hasVerifiedMissionTerminalOutcome(
   mission: MissionWorkspaceMissionRow
@@ -123,7 +124,8 @@ export function hasVerifiedMissionTerminalOutcome(
   }
 
   if (mission.execution_outcome === 'not_performed') {
-    return (mission.non_execution_reason?.trim().length ?? 0) >= 5
+    return Boolean(mission.non_execution_reason_code) &&
+      (mission.non_execution_reason?.trim().length ?? 0) >= 5
   }
 
   return false
