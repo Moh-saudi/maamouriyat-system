@@ -168,7 +168,13 @@ export async function GET(request: Request) {
   try {
     const gate = await requireAnyV2Permission([
       'missions.view',
+      'missions.execute',
       'missions.checklist_change',
+      'missions.create',
+      'missions.assign',
+      'missions.prepare',
+      'missions.propose_team',
+      'missions.approve',
     ])
     if (!gate.ok) return gate.response
 
@@ -304,17 +310,48 @@ export async function GET(request: Request) {
       authorizedAccess,
       'missions.checklist_change'
     )
+    const issuancePermissionKeys = [
+      'missions.create',
+      'missions.assign',
+      'missions.prepare',
+      'missions.propose_team',
+    ] as const
     const today = new Date().toISOString().slice(0, 10)
     const groups = new Map<string, GroupAccumulator>()
 
     for (const mission of missions) {
+      const teamRowsForMission = teamByMission.get(mission.id) ?? []
+      const assignedToMe =
+        assignedMissionIds.has(mission.id) ||
+        teamRowsForMission.some(
+          (member) => member.user_id === authorizedUser.profileId
+        )
       const canViewResource =
         canView && relationAllowed(mission, 'missions.view')
+      const canExecuteResource =
+        assignedToMe &&
+        canExecute &&
+        relationAllowed(mission, 'missions.execute')
       const canManageChecklistResource =
         canManageChecklists &&
         relationAllowed(mission, 'missions.checklist_change')
+      const canViewIssuedResource =
+        mission.created_by === authorizedUser.profileId &&
+        issuancePermissionKeys.some(
+          (permissionKey) =>
+            hasV2Permission(authorizedAccess, permissionKey) &&
+            relationAllowed(mission, permissionKey)
+        )
+      const canApproveResource =
+        canApprove && relationAllowed(mission, 'missions.approve')
 
-      if (!canViewResource && !canManageChecklistResource) continue
+      if (
+        !canViewResource &&
+        !canExecuteResource &&
+        !canManageChecklistResource &&
+        !canViewIssuedResource &&
+        !canApproveResource
+      ) continue
 
       const facility = facilities.get(mission.facility_id)
       if (!facility) continue
@@ -347,8 +384,6 @@ export async function GET(request: Request) {
       const creator = mission.created_by
         ? users.get(mission.created_by)
         : undefined
-      const teamRowsForMission = teamByMission.get(mission.id) ?? []
-
       let group = groups.get(key)
       if (!group) {
         group = {
@@ -417,14 +452,9 @@ export async function GET(request: Request) {
         group.sample_facilities.push(facility.name)
       }
 
-      const assignedToMe = assignedMissionIds.has(mission.id)
       if (assignedToMe) group.assigned_mission_count += 1
 
-      if (
-        assignedToMe &&
-        canExecute &&
-        relationAllowed(mission, 'missions.execute')
-      ) {
+      if (canExecuteResource) {
         group.executable_mission_count += 1
       }
 
@@ -436,9 +466,8 @@ export async function GET(request: Request) {
       }
 
       if (
-        canApprove &&
-        normalizedStatus === 'pending_approval' &&
-        relationAllowed(mission, 'missions.approve')
+        canApproveResource &&
+        normalizedStatus === 'pending_approval'
       ) {
         group.approvable_mission_count += 1
       }

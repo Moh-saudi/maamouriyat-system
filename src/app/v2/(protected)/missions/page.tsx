@@ -4,10 +4,19 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { V2PageContainer } from '@/components/ui/V2PageContainer'
 import { MissionWorkspacePanel } from '@/features/missions/components/MissionWorkspacePanel'
 import { hasV2Permission } from '@/server/authorization'
-import { requireV2PagePermission } from '@/server/authorization/page-guard'
+import { requireAnyV2PagePermission } from '@/server/authorization/page-guard'
 
 export default async function V2MissionsPage() {
-  const { access } = await requireV2PagePermission('missions.view')
+  const { access } = await requireAnyV2PagePermission([
+    'missions.view',
+    'missions.execute',
+    'missions.checklist_change',
+    'missions.create',
+    'missions.assign',
+    'missions.prepare',
+    'missions.propose_team',
+    'missions.approve',
+  ])
 
   const canCreate =
     (hasV2Permission(access, 'missions.create') &&

@@ -34,7 +34,13 @@ export async function GET(request: Request) {
   try {
     const gate = await requireAnyV2Permission([
       'missions.view',
+      'missions.execute',
       'missions.checklist_change',
+      'missions.create',
+      'missions.assign',
+      'missions.prepare',
+      'missions.propose_team',
+      'missions.approve',
     ])
     if (!gate.ok) return gate.response
 
@@ -135,6 +141,12 @@ export async function GET(request: Request) {
       authorizedAccess,
       'missions.checklist_change'
     )
+    const issuancePermissionKeys = [
+      'missions.create',
+      'missions.assign',
+      'missions.prepare',
+      'missions.propose_team',
+    ] as const
 
     function relationAllowed(
       mission: MissionWorkspaceMissionRow,
@@ -167,13 +179,39 @@ export async function GET(request: Request) {
 
     const rows = missions
       .filter((mission) => {
+        const team = teamByMission.get(mission.id) ?? []
+        const assignedToMe =
+          mission.assigned_user_id === authorizedUser.profileId ||
+          mission.primary_inspector_id === authorizedUser.profileId ||
+          team.some(
+            (member) => member.user_id === authorizedUser.profileId
+          )
         const canViewResource =
           canView && relationAllowed(mission, 'missions.view')
+        const canExecuteResource =
+          assignedToMe &&
+          canExecute &&
+          relationAllowed(mission, 'missions.execute')
         const canManageChecklistResource =
           canManageChecklists &&
           relationAllowed(mission, 'missions.checklist_change')
+        const canViewIssuedResource =
+          mission.created_by === authorizedUser.profileId &&
+          issuancePermissionKeys.some(
+            (permissionKey) =>
+              hasV2Permission(authorizedAccess, permissionKey) &&
+              relationAllowed(mission, permissionKey)
+          )
+        const canApproveResource =
+          canApprove && relationAllowed(mission, 'missions.approve')
 
-        return canViewResource || canManageChecklistResource
+        return (
+          canViewResource ||
+          canExecuteResource ||
+          canManageChecklistResource ||
+          canViewIssuedResource ||
+          canApproveResource
+        )
       })
       .map((mission) => {
         const facility = facilities.get(mission.facility_id)
