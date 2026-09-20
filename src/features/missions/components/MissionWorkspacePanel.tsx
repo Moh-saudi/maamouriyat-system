@@ -624,18 +624,36 @@ export function MissionWorkspacePanel({
           label: 'مكلف بها',
           note: 'أنا ضمن فريق التنفيذ',
           icon: BriefcaseBusiness,
+          cardClass: 'border-cyan-200 bg-cyan-50/60 hover:bg-cyan-50',
+          activeClass: 'border-cyan-500 bg-cyan-50 ring-cyan-200',
+          iconClass: 'bg-cyan-100 text-cyan-700',
+          activeIconClass: 'bg-cyan-700 text-white',
+          numberClass: 'text-cyan-800',
+          badgeClass: 'bg-cyan-100 text-cyan-800',
         },
         {
           id: 'issued' as MissionMode,
           label: 'صادرة مني',
           note: 'أنا أعددت أو أصدرت التكليف',
           icon: ClipboardCheck,
+          cardClass: 'border-blue-200 bg-blue-50/60 hover:bg-blue-50',
+          activeClass: 'border-blue-500 bg-blue-50 ring-blue-200',
+          iconClass: 'bg-blue-100 text-blue-700',
+          activeIconClass: 'bg-blue-700 text-white',
+          numberClass: 'text-blue-800',
+          badgeClass: 'bg-blue-100 text-blue-800',
         },
         {
           id: 'oversight' as MissionMode,
           label: 'داخل نطاق إشرافي',
           note: 'كل ما تسمح به صلاحياتي',
           icon: ShieldCheck,
+          cardClass: 'border-violet-200 bg-violet-50/60 hover:bg-violet-50',
+          activeClass: 'border-violet-500 bg-violet-50 ring-violet-200',
+          iconClass: 'bg-violet-100 text-violet-700',
+          activeIconClass: 'bg-violet-700 text-white',
+          numberClass: 'text-violet-800',
+          badgeClass: 'bg-violet-100 text-violet-800',
         },
         ...(canApprove
           ? [
@@ -644,6 +662,12 @@ export function MissionWorkspacePanel({
                 label: 'بانتظار اعتمادي',
                 note: 'تكليفات تحتاج قراري',
                 icon: Clock3,
+                cardClass: 'border-amber-200 bg-amber-50/60 hover:bg-amber-50',
+                activeClass: 'border-amber-500 bg-amber-50 ring-amber-200',
+                iconClass: 'bg-amber-100 text-amber-700',
+                activeIconClass: 'bg-amber-600 text-white',
+                numberClass: 'text-amber-800',
+                badgeClass: 'bg-amber-100 text-amber-800',
               },
             ]
           : []),
@@ -676,10 +700,10 @@ export function MissionWorkspacePanel({
                 setPage(1)
               }}
               className={
-                'rounded-2xl border p-4 text-right transition ' +
+                'rounded-2xl border p-4 text-right shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ' +
                 (active
-                  ? 'border-teal-300 bg-teal-50 ring-1 ring-teal-100'
-                  : 'border-slate-200 bg-white hover:bg-slate-50')
+                  ? tab.activeClass + ' ring-2'
+                  : tab.cardClass)
               }
             >
               <div className="flex items-start justify-between gap-2">
@@ -687,29 +711,39 @@ export function MissionWorkspacePanel({
                   className={
                     'flex h-9 w-9 items-center justify-center rounded-xl ' +
                     (active
-                      ? 'bg-teal-700 text-white'
-                      : 'bg-slate-100 text-slate-500')
+                      ? tab.activeIconClass
+                      : tab.iconClass)
                   }
                 >
                   <Icon className="h-4 w-4" />
                 </div>
-                <span
-                  className={
-                    'rounded-full px-2.5 py-1 text-[10px] font-black ' +
-                    (active
-                      ? 'bg-white text-teal-800'
-                      : 'bg-slate-100 text-slate-600')
-                  }
-                >
-                  {count.batches.toLocaleString('en-US')} تكليف
+                {active && (
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[9px] font-black text-slate-700 shadow-sm">
+                    التبويب الحالي
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 flex items-end justify-between gap-3">
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <strong className={'text-3xl font-black leading-none tabular-nums ' + tab.numberClass}>
+                      {count.batches.toLocaleString('en-US')}
+                    </strong>
+                    <span className="text-[10px] font-black text-slate-500">
+                      تكليف
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs font-black text-slate-900">
+                    {tab.label}
+                  </p>
+                  <p className="mt-1 text-[9px] text-slate-500">
+                    {tab.note}
+                  </p>
+                </div>
+                <span className={'shrink-0 rounded-xl px-2.5 py-1.5 text-[10px] font-black tabular-nums ' + tab.badgeClass}>
+                  {count.missions.toLocaleString('en-US')} مأمورية
                 </span>
               </div>
-              <p className="mt-3 text-xs font-black text-slate-900">
-                {tab.label}
-              </p>
-              <p className="mt-1 text-[9px] text-slate-400">
-                {tab.note} · {count.missions.toLocaleString('en-US')} مأمورية
-              </p>
             </button>
           )
         })}
