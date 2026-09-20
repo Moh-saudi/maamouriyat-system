@@ -21,7 +21,10 @@ import {
   type MissionWorkspaceTeamRow,
 } from '@/server/services/missions/workspace-data'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
-import { MissionAssignmentFormsPanel } from '@/features/missions/components/MissionAssignmentFormsPanel'
+import {
+  MissionAssignmentFormsPanel,
+  type MissionAssignmentFormsRow,
+} from '@/features/missions/components/MissionAssignmentFormsPanel'
 import type { V2ResourceScopeContext } from '@/server/authorization/scope-types'
 
 type PageProps = {
@@ -230,7 +233,7 @@ export default async function AssignmentFormsPage({
     }
   }
 
-  const rows = []
+  const rows: MissionAssignmentFormsRow[] = []
 
   for (const mission of missions) {
     const facility = facilities.get(mission.facility_id)
