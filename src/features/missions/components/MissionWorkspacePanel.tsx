@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { CompactFilterSelect } from '@/components/ui/CompactFilterSelect'
 import { getFacilityTypeLabel } from '@/config/facility-types'
+import { MissionUnableVisitButton } from '@/features/missions/components/MissionUnableVisitButton'
 import {
   MISSION_OPERATIONAL_STATE,
   resolveMissionOperationalState,
@@ -415,25 +416,31 @@ function MissionDetailRow({
           </Link>
         )}
         {mission.relations.can_execute && (
-          <Link
-            href={
-              '/v2/missions/' +
-              mission.id +
-              '/execute' +
-              (batchId
-                ? '?returnTo=' +
-                  encodeURIComponent(
-                    '/v2/missions/assignments/' +
-                      batchId +
-                      '/execute'
-                  )
-                : '')
-            }
-            className="inline-flex h-8 items-center gap-1 rounded-lg bg-teal-700 px-2.5 text-[9px] font-bold text-white hover:bg-teal-800"
-          >
-            <ClipboardCheck className="h-3.5 w-3.5" />
-            تنفيذ
-          </Link>
+          <>
+            <Link
+              href={
+                '/v2/missions/' +
+                mission.id +
+                '/execute' +
+                (batchId
+                  ? '?returnTo=' +
+                    encodeURIComponent(
+                      '/v2/missions/assignments/' +
+                        batchId +
+                        '/execute'
+                    )
+                  : '')
+              }
+              className="inline-flex h-8 items-center gap-1 rounded-lg bg-teal-700 px-2.5 text-[9px] font-bold text-white hover:bg-teal-800"
+            >
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              تنفيذ
+            </Link>
+            <MissionUnableVisitButton
+              missionId={mission.id}
+              facilityName={mission.facility?.name ?? 'المنشأة'}
+            />
+          </>
         )}
       </div>
     </div>
