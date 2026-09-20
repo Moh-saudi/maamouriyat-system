@@ -315,12 +315,22 @@ function MissionDetailRow({
     actualStartDate: mission.actual_start_date,
     actualEndDate: mission.actual_end_date,
   })
+  const executed = lifecycle.key === 'executed' || lifecycle.key === 'ended'
 
   return (
-    <div className="grid gap-3 border-b border-slate-100 px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto]">
+    <div className={
+      'grid gap-2 border-b px-3 py-2.5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] ' +
+      (executed ? 'border-emerald-100 bg-emerald-50/40' : 'border-slate-100')
+    }>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className={'h-2.5 w-2.5 rounded-full ' + lifecycle.dotClassName} />
+          {executed ? (
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm ring-4 ring-emerald-100" title="تم تسجيل نتيجة المرور">
+              <CheckCircle2 className="h-4 w-4" />
+            </span>
+          ) : (
+            <span className={'h-3 w-3 rounded-full ring-4 ring-white ' + lifecycle.dotClassName} />
+          )}
           <span className={'rounded-full px-2 py-0.5 text-[8px] font-black ring-1 ' + lifecycle.badgeClassName}>
             {lifecycle.label}
           </span>
@@ -399,8 +409,8 @@ function MissionDetailRow({
             className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[9px] font-bold text-slate-600 hover:bg-slate-50"
           >
             <Printer className="h-3.5 w-3.5" />
-            {lifecycle.key === 'executed' || lifecycle.key === 'ended'
-              ? 'طباعة التقرير'
+            {executed
+              ? 'محضر المنشأة'
               : 'طباعة التكليف'}
           </Link>
         )}
@@ -440,6 +450,7 @@ export function MissionWorkspacePanel({
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [rows, setRows] = useState<AssignmentGroup[]>([])
   const [counts, setCounts] = useState<Record<MissionMode, ModeCount>>({
     assigned: { batches: 0, missions: 0 },
@@ -488,6 +499,7 @@ export function MissionWorkspacePanel({
         const params = new URLSearchParams({
           mode,
           page: String(page),
+          page_size: String(pageSize),
         })
 
         if (status) params.set('status', status)
@@ -556,7 +568,7 @@ export function MissionWorkspacePanel({
     return () => {
       cancelled = true
     }
-  }, [debouncedSearch, mode, page, status])
+  }, [debouncedSearch, mode, page, pageSize, status])
 
   async function toggleGroup(groupKey: string) {
     if (expanded.has(groupKey)) {
@@ -674,6 +686,15 @@ export function MissionWorkspacePanel({
       ],
     [canApprove]
   )
+
+  const visiblePageNumbers = useMemo(() => {
+    const start = Math.max(1, Math.min(page - 2, pages - 4))
+    const end = Math.min(pages, start + 4)
+    return Array.from(
+      { length: Math.max(0, end - start + 1) },
+      (_, index) => start + index
+    )
+  }, [page, pages])
 
   return (
     <div className="space-y-4">
@@ -812,12 +833,29 @@ export function MissionWorkspacePanel({
             {totalBatches.toLocaleString('en-US')} تكليفات ·{' '}
             {totalMissions.toLocaleString('en-US')} مأمورية ميدانية
           </p>
-          {loading && (
-            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-teal-700">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              تحديث...
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-[9px] font-bold text-slate-500">
+              في الصفحة
+              <select
+                value={pageSize}
+                onChange={(event) => {
+                  setPageSize(Number(event.target.value))
+                  setPage(1)
+                }}
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-[9px] font-black text-slate-700"
+              >
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+              </select>
+            </label>
+            {loading && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-bold text-teal-700">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                تحديث...
+              </span>
+            )}
+          </div>
         </div>
 
         {loading && rows.length === 0 ? (
@@ -863,9 +901,9 @@ export function MissionWorkspacePanel({
                   <button
                     type="button"
                     onClick={() => void toggleGroup(group.group_key)}
-                    className="w-full p-4 text-right sm:p-5"
+                    className="w-full p-3 text-right sm:px-4 sm:py-3"
                   >
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_360px_auto]">
+                    <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_280px_auto]">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-[9px] font-black text-teal-800">
@@ -885,6 +923,15 @@ export function MissionWorkspacePanel({
                             <span className={'h-2 w-2 rounded-full ' + lifecycle.dotClassName} />
                             {lifecycle.label}
                           </span>
+                          {group.completed_count > 0 &&
+                            group.completed_count < group.mission_count && (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-[9px] font-black text-emerald-800 ring-1 ring-emerald-200">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                جارٍ الاستكمال · تم المرور على{' '}
+                                {group.completed_count.toLocaleString('en-US')} من{' '}
+                                {group.mission_count.toLocaleString('en-US')}
+                              </span>
+                            )}
                           {group.status !== group.operational_state && group.status !== 'approved' && (
                             <span
                               className={
@@ -910,7 +957,7 @@ export function MissionWorkspacePanel({
                           )}
                         </div>
 
-                        <h2 className="mt-2 text-sm font-black text-slate-900">
+                        <h2 className="mt-1.5 text-[13px] font-black text-slate-900" title={group.sample_facilities.join(' · ')}>
                           {group.governorates.length > 1
                             ? group.facility_count.toLocaleString('en-US') +
                               ' منشأة موزعة على ' +
@@ -942,13 +989,13 @@ export function MissionWorkspacePanel({
                         </div>
 
                         {group.visit_purpose && (
-                          <p className="mt-2 line-clamp-2 text-[10px] leading-5 text-slate-500">
+                          <p className="mt-1 line-clamp-1 text-[9px] leading-4 text-slate-500" title={group.visit_purpose}>
                             {group.visit_purpose}
                           </p>
                         )}
 
                         {group.sample_facilities.length > 1 && (
-                          <p className="mt-2 truncate text-[9px] text-slate-400">
+                          <p className="mt-1 truncate text-[8px] text-slate-400" title={group.sample_facilities.join(' · ')}>
                             {group.sample_facilities.join(' · ')}
                             {group.facility_count >
                             group.sample_facilities.length
@@ -963,8 +1010,8 @@ export function MissionWorkspacePanel({
                         )}
                       </div>
 
-                      <div className="space-y-3">
-                        <div className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2.5">
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2">
                           <SourceIcon className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" />
                           <div className="min-w-0">
                             <p className="text-[8px] font-bold text-slate-400">
@@ -1049,8 +1096,8 @@ export function MissionWorkspacePanel({
                           </p>
                         </div>
 
-                        <div className="flex items-center gap-2 text-[9px] font-black text-teal-700">
-                          {group.mission_count.toLocaleString('en-US')} مأمورية
+                        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-black text-teal-700 shadow-sm">
+                          عرض التفاصيل · {group.mission_count.toLocaleString('en-US')} مأمورية
                           {loadingDetails ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
@@ -1210,7 +1257,7 @@ export function MissionWorkspacePanel({
         )}
 
         {pages > 1 && (
-          <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
             <button
               type="button"
               disabled={page <= 1 || loading}
@@ -1222,10 +1269,27 @@ export function MissionWorkspacePanel({
               <ChevronRight className="h-3.5 w-3.5" />
               السابق
             </button>
-            <span className="text-[9px] font-bold text-slate-400">
-              صفحة {page.toLocaleString('en-US')} من{' '}
-              {pages.toLocaleString('en-US')}
-            </span>
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <span className="ml-1 text-[9px] font-bold text-slate-400">
+                صفحة {page.toLocaleString('en-US')} من {pages.toLocaleString('en-US')}
+              </span>
+              {visiblePageNumbers.map((pageNumber) => (
+                <button
+                  key={pageNumber}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setPage(pageNumber)}
+                  className={
+                    'flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-[10px] font-black transition disabled:opacity-50 ' +
+                    (pageNumber === page
+                      ? 'bg-teal-700 text-white shadow-sm'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-teal-700')
+                  }
+                >
+                  {pageNumber.toLocaleString('en-US')}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               disabled={page >= pages || loading}

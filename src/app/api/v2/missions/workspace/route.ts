@@ -23,7 +23,8 @@ import {
   type MissionWorkspaceTeamRow,
 } from '@/server/services/missions/workspace-data'
 
-const PAGE_SIZE = 15
+const DEFAULT_PAGE_SIZE = 10
+const ALLOWED_PAGE_SIZES = new Set([10, 15, 25])
 
 type MissionMode = 'assigned' | 'issued' | 'oversight' | 'pending'
 
@@ -96,6 +97,8 @@ function deriveOverallStatus(counts: StatusCounts) {
   if (entries.length === 1) return entries[0][0]
 
   const activeStatuses = new Set(entries.map(([status]) => status))
+  const completed = (counts.completed ?? 0) + (counts.closed ?? 0)
+  const total = entries.reduce((sum, [, count]) => sum + count, 0)
 
   if (
     [...activeStatuses].every(
@@ -104,6 +107,10 @@ function deriveOverallStatus(counts: StatusCounts) {
   ) {
     return 'completed'
   }
+
+  // A grouped assignment is already under execution as soon as one facility
+  // has a terminal result, even if the remaining children are still approved.
+  if (completed > 0 && completed < total) return 'in_progress'
 
   if (activeStatuses.has('in_progress')) return 'in_progress'
   if (activeStatuses.has('pending_approval')) return 'pending_approval'
@@ -200,6 +207,12 @@ export async function GET(request: Request) {
     const page = Number.isFinite(requestedPage)
       ? Math.max(1, Math.floor(requestedPage))
       : 1
+    const requestedPageSize = Number(
+      url.searchParams.get('page_size') || DEFAULT_PAGE_SIZE
+    )
+    const pageSize = ALLOWED_PAGE_SIZES.has(requestedPageSize)
+      ? requestedPageSize
+      : DEFAULT_PAGE_SIZE
 
     const [missions, teamRows] = await Promise.all([
       loadAllWorkspaceMissions(),
@@ -577,18 +590,18 @@ export async function GET(request: Request) {
       (sum, row) => sum + row.mission_count,
       0
     )
-    const start = (page - 1) * PAGE_SIZE
+    const start = (page - 1) * pageSize
     const paged = rows
-      .slice(start, start + PAGE_SIZE)
+      .slice(start, start + pageSize)
       .map(({ _search, ...row }) => row)
 
     return NextResponse.json({
       mode,
       page,
-      page_size: PAGE_SIZE,
+      page_size: pageSize,
       total_batches: totalBatches,
       total_missions: totalMissions,
-      pages: Math.max(1, Math.ceil(totalBatches / PAGE_SIZE)),
+      pages: Math.max(1, Math.ceil(totalBatches / pageSize)),
       counts,
       can_approve: canApprove,
       rows: paged,
