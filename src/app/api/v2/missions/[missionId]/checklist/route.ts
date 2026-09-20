@@ -716,6 +716,21 @@ export async function POST(
         )
       }
 
+      if (
+        message.includes(
+          'MISSION_TEMPLATE_CHANGE_HAS_ACTIVE_CORRECTION'
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'لا يمكن تغيير الاستمارة الآن لأن هناك مخالفة مرتبطة بالنموذج القديم بدأ عليها إجراء تصحيحي. يجب حسم المخالفة أو استبعادها إداريًا أولًا.',
+            code: 'CHECKLIST_CHANGE_BLOCKED_BY_CORRECTION',
+          },
+          { status: 409 }
+        )
+      }
+
       console.error(
         '[mission-checklist:POST] change failed:',
         error.message
