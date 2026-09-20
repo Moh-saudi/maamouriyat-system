@@ -15,6 +15,8 @@ type SettlementRow = {
   id: string
   mission_id: string
   assignment_batch_id: string | null
+  claim_id: string | null
+  claim_item_id: string | null
   user_id: string
   scope_org_id: string
   status: string
@@ -43,7 +45,7 @@ async function loadSettlement(settlementId: string) {
   const { data, error } = await admin
     .from('mission_financial_settlements')
     .select(
-      'id, mission_id, assignment_batch_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
+      'id, mission_id, assignment_batch_id, claim_id, claim_item_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
     )
     .eq('id', settlementId)
     .maybeSingle()
@@ -109,7 +111,7 @@ export async function GET() {
     const { data: settlementRows, error } = await admin
       .from('mission_financial_settlements')
       .select(
-        'id, mission_id, assignment_batch_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
+        'id, mission_id, assignment_batch_id, claim_id, claim_item_id, user_id, scope_org_id, status, currency, mission_days, overnight_nights, fixed_amount, daily_rate, daily_amount, overnight_rate, overnight_amount, bonus_amount, adjustment_amount, total_amount, notes, rejection_reason, payment_reference, prepared_at, approved_at, paid_at, created_at'
       )
       .order('created_at', { ascending: false })
       .limit(600)
@@ -173,11 +175,15 @@ export async function GET() {
           .filter((value): value is string => Boolean(value))
       ),
     ]
+    const claimIds = [...new Set(visible.map((row) => row.claim_id).filter((value): value is string => Boolean(value)))]
+    const claimItemIds = [...new Set(visible.map((row) => row.claim_item_id).filter((value): value is string => Boolean(value)))]
 
     const [
       { data: missions, error: missionsError },
       { data: users, error: usersError },
       { data: batches, error: batchesError },
+      { data: claims, error: claimsError },
+      { data: claimItems, error: claimItemsError },
     ] = await Promise.all([
       missionIds.length
         ? admin
@@ -190,7 +196,7 @@ export async function GET() {
       userIds.length
         ? admin
             .from('users')
-            .select('id, full_name, job_title, organization_id')
+            .select('id, full_name, job_title, organization_id, financial_code')
             .in('id', userIds)
         : Promise.resolve({ data: [], error: null }),
       batchIds.length
@@ -201,9 +207,19 @@ export async function GET() {
             )
             .in('id', batchIds)
         : Promise.resolve({ data: [], error: null }),
+      claimIds.length
+        ? admin.from('mission_financial_claims')
+            .select('id, claim_number, status, submitted_at, employee_notes')
+            .in('id', claimIds)
+        : Promise.resolve({ data: [], error: null }),
+      claimItemIds.length
+        ? admin.from('mission_financial_claim_items')
+            .select('id, governorate, destination_summary, accommodation_type, accommodation_details, accommodation_cost_claimed, transport_mode, departure_location, return_location, transport_details, transport_cost_claimed, employee_notes')
+            .in('id', claimItemIds)
+        : Promise.resolve({ data: [], error: null }),
     ])
 
-    if (missionsError || usersError || batchesError) {
+    if (missionsError || usersError || batchesError || claimsError || claimItemsError) {
       return NextResponse.json(
         { error: 'تعذر تحميل بيانات المأموريات أو المستحقين' },
         { status: 500 }
@@ -239,6 +255,8 @@ export async function GET() {
     const batchById = new Map(
       (batches ?? []).map((row) => [String(row.id), row])
     )
+    const claimById = new Map((claims ?? []).map((row) => [String(row.id), row]))
+    const claimItemById = new Map((claimItems ?? []).map((row) => [String(row.id), row]))
 
     return NextResponse.json({
       permissions: {
@@ -257,9 +275,22 @@ export async function GET() {
           ? batchById.get(settlement.assignment_batch_id)
           : null
         const isGrouped = Boolean(batch)
+        const claim = settlement.claim_id ? claimById.get(settlement.claim_id) : null
+        const claimItem = settlement.claim_item_id ? claimItemById.get(settlement.claim_item_id) : null
 
         return {
           ...settlement,
+          claim_number: claim ? String(claim.claim_number) : null,
+          claim_status: claim ? String(claim.status) : null,
+          claim_submitted_at: claim ? claim.submitted_at : null,
+          accommodation_type: claimItem?.accommodation_type ?? null,
+          accommodation_details: claimItem?.accommodation_details ?? null,
+          accommodation_cost_claimed: Number(claimItem?.accommodation_cost_claimed || 0),
+          transport_mode: claimItem?.transport_mode ?? null,
+          departure_location: claimItem?.departure_location ?? null,
+          return_location: claimItem?.return_location ?? null,
+          transport_details: claimItem?.transport_details ?? null,
+          transport_cost_claimed: Number(claimItem?.transport_cost_claimed || 0),
           is_grouped: isGrouped,
           batch_mission_count: batch
             ? Number(batch.mission_count || 0)
@@ -340,6 +371,10 @@ export async function GET() {
           beneficiary_job_title:
             user && typeof user.job_title === 'string'
               ? user.job_title
+              : null,
+          beneficiary_financial_code:
+            user && typeof user.financial_code === 'string'
+              ? user.financial_code
               : null,
           facility_name: batch
             ? 'تكليف مجمع · ' +
