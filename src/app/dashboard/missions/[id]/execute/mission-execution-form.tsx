@@ -1935,6 +1935,7 @@ export function MissionExecutionForm({
 
       const { error: violationError } = await supabase.from('violations').insert({
         assigned_to_dept: correctionUnit.trim() || null,
+        checklist_run_id: checklistRunId,
         description: violationDescription.trim(),
         facility_id: violationFacId,
         mission_id: mission.id,
