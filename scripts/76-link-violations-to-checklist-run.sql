@@ -103,7 +103,7 @@ BEGIN
         v_blocking_violations;
     END IF;
 
-    UPDATE public.violations
+    UPDATE public.violations AS v
     SET
       record_state = 'voided',
       voided_at = NOW(),
@@ -112,9 +112,9 @@ BEGIN
         'استبعاد موثق: تم استبدال استمارة المأمورية قبل بدء إجراءات التصحيح. السبب: '
         || v_reason,
       updated_at = NOW()
-    WHERE checklist_run_id = v_current.id
-      AND record_state = 'active'
-      AND COALESCE(status, 'new') = 'new';
+    WHERE v.checklist_run_id = v_current.id
+      AND v.record_state = 'active'
+      AND COALESCE(v.status, 'new') = 'new';
 
     GET DIAGNOSTICS v_voided_violations = ROW_COUNT;
 
