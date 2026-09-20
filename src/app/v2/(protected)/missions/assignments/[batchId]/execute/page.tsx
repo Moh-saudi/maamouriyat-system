@@ -652,7 +652,7 @@ export default async function GroupedMissionExecutionPage({
                     className="inline-flex h-8 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[9px] font-bold text-emerald-700"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    عرض النتيجة
+                    محضر نتيجة المنشأة
                   </Link>
                 ) : row.canExecute ? (
                   <Link

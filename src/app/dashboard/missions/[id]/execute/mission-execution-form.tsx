@@ -1571,6 +1571,17 @@ export function MissionExecutionForm({
 
   function handleInitiateComplete() {
     setError('')
+    if (inspectorLat === null || inspectorLng === null) {
+      setError('يجب التقاط موقعك الحالي قبل إنهاء مرور المنشأة.')
+      return
+    }
+
+    if (!gpsVerified) {
+      setError(
+        'لا يمكن إنهاء المرور لأن موقعك خارج النطاق المعتمد للمنشأة. راجع إحداثيات المنشأة أو تواصل مع مركز المعلومات.'
+      )
+      return
+    }
     if (destinationType === 'facility' && !isUnregisteredFacility && !actualFacilityId) {
       setError('يرجى اختيار المنشأة الفعلية.')
       return
@@ -1662,6 +1673,17 @@ export function MissionExecutionForm({
 
     // Strict enforcement on final completion
     if (status === 'completed') {
+      if (
+        inspectorLat === null ||
+        inspectorLng === null ||
+        !gpsVerified
+      ) {
+        setError(
+          'لا يمكن اعتماد نتيجة المرور دون موقع ميداني متحقق داخل نطاق المنشأة.'
+        )
+        return
+      }
+
       if (!validateActualTimingForCompletion()) {
         return
       }

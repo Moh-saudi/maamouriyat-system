@@ -6,6 +6,9 @@ import { createClient } from '@supabase/supabase-js'
 import { PrintButton } from './print-button'
 import { departmentChecklists } from '@/lib/checklist-data'
 import { formatFacilityType } from '@/lib/facility-types'
+import { checkV2ResourceAccess } from '@/server/authorization'
+import { requireV2PagePermission } from '@/server/authorization/page-guard'
+import { loadMissionResourceScope } from '@/server/authorization/resources/mission'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,6 +22,7 @@ type EvaluatedItem = {
   answer: string | null
   notes: string | null
   isViolation: boolean
+  photoUrl: string | null
   priority?: string | null
 }
 
@@ -57,7 +61,7 @@ function statusText(value: string | null) {
   const s = (value || '').toLowerCase()
   if (s === 'assigned') return 'مكلفة'
   if (s === 'in_progress' || s === 'executing') return 'قيد التنفيذ'
-  if (s === 'completed' || s === 'closed' || s === 'done') return 'مكتملة معتمدة ✅'
+  if (s === 'completed' || s === 'closed' || s === 'done') return 'نتيجة المنشأة مسجلة ✅'
   if (s === 'draft') return 'مسودة'
   if (s === 'approved') return 'معتمدة للتنفيذ'
   return value ?? 'غير محددة'
@@ -92,6 +96,9 @@ function getAdminClient() {
 
 export default async function MissionPrintPage({ params }: PageProps) {
   const { id } = await params
+  const { user: authorizedUser, access } = await requireV2PagePermission(
+    'missions.view'
+  )
   const supabase = await createServerSupabaseClient()
   if (!supabase) redirect('/login')
 
@@ -134,6 +141,26 @@ export default async function MissionPrintPage({ params }: PageProps) {
   }
 
   const mission = missionData
+  const resource = await loadMissionResourceScope(id)
+  if (!resource) redirect('/v2/missions')
+  const viewDecision = await checkV2ResourceAccess({
+    user: authorizedUser,
+    snapshot: access,
+    permissionKey: 'missions.view',
+    resource,
+  })
+  if (!viewDecision.allowed) redirect('/v2/access-denied')
+
+  const isCompleted = ['completed', 'closed', 'done'].includes(
+    (mission.status || '').toLowerCase()
+  )
+  if (!isCompleted) {
+    redirect(
+      mission.assignment_batch_id
+        ? `/v2/missions/assignments/${mission.assignment_batch_id}/execute`
+        : '/v2/missions'
+    )
+  }
   const facId = mission.facility_id || mission.target_facility_id || mission.actual_facility_id
   const assignedUserId = mission.assigned_user_id || mission.primary_inspector_id
   const creatorId = mission.created_by
@@ -146,7 +173,7 @@ export default async function MissionPrintPage({ params }: PageProps) {
     clientToUse.from('form_criteria').select('id, section_id, template_id, criterion_text, score_max_value, sort_order').eq('is_active', true),
     clientToUse.from('form_sections').select('id, template_id, name, section_number, sort_order').eq('is_active', true),
     clientToUse.from('checklist_items').select('id, text, score_max_value'),
-    clientToUse.from('mission_results').select('checklist_item_id, answer, notes').eq('mission_id', id)
+    clientToUse.from('mission_results').select('checklist_item_id, answer, notes, photo_url').eq('mission_id', id)
   ])
 
   // Resolve Facility with multi-column fallback and select(*)
@@ -210,7 +237,6 @@ export default async function MissionPrintPage({ params }: PageProps) {
   const sectorName = orgRes.data?.name || assignedUser?.department || 'قطاع الرعاية الصحية الأولية وتنمية الأسرة'
   const assignedDept = assignedUser?.department || sectorName || 'ديوان عام وزارة الصحة والسكان'
   const issuingOrg = creator?.department || sectorName || 'ديوان عام الوزارة'
-  const isCompleted = ['completed', 'closed', 'done'].includes((mission.status || '').toLowerCase())
 
   const GOV_MAP: Record<string, string> = {
     cairo: 'القاهرة',
@@ -422,15 +448,22 @@ export default async function MissionPrintPage({ params }: PageProps) {
       text: itemText,
       answer: ans,
       notes: cleanNotes === itemText ? null : cleanNotes || null,
-      isViolation
+      isViolation,
+      photoUrl: r.photo_url || null,
     })
   })
 
   const evaluatedSections: EvaluatedSection[] = Array.from(groupedSectionsMap.values())
   const applicableItems = totalItems - naCount
-  const complianceScore = maxScore > 0 
-    ? Math.round((totalScore / maxScore) * 100) 
-    : (applicableItems > 0 ? Math.round(((yesCount + (partialCount * 0.5)) / applicableItems) * 100) : 0)
+  const calculatedComplianceScore = maxScore > 0
+    ? Math.round((totalScore / maxScore) * 100)
+    : (applicableItems > 0
+        ? Math.round(((yesCount + partialCount * 0.5) / applicableItems) * 100)
+        : 0)
+  const storedComplianceScore = Number(mission.score_pct)
+  const complianceScore = Number.isFinite(storedComplianceScore)
+    ? Math.round(storedComplianceScore)
+    : calculatedComplianceScore
 
   const scoreColor = complianceScore >= 85 ? '#15803d' : complianceScore >= 65 ? '#b45309' : '#b91c1c'
   const scoreBg    = complianceScore >= 85 ? '#f0fdf4' : complianceScore >= 65 ? '#fffbeb' : '#fef2f2'
@@ -538,10 +571,14 @@ export default async function MissionPrintPage({ params }: PageProps) {
       {/* ── Toolbar (screen only) ── */}
       <div style={S.toolbar} className="no-print">
         <Link
-          href="/dashboard/missions"
+          href={
+            mission.assignment_batch_id
+              ? `/v2/missions/assignments/${mission.assignment_batch_id}/execute`
+              : '/v2/missions'
+          }
           style={{ color: '#006d77', fontWeight: 'bold', fontSize: '13.5px', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px' }}
         >
-          ← العودة للمأموريات
+          ← العودة للتكليف
         </Link>
         <PrintButton />
       </div>
@@ -579,7 +616,7 @@ export default async function MissionPrintPage({ params }: PageProps) {
           </div>
           <div style={{ textAlign: 'left' }}>
             <div style={{ fontSize: '10px', opacity: 0.8 }}>نظام حوكمة المأمورية الميدانية</div>
-            <div style={{ fontSize: '10px', opacity: 0.8 }}>{isCompleted ? 'تقرير تفتيش ميداني معتمد' : 'وثيقة تكليف ميداني'}</div>
+            <div style={{ fontSize: '10px', opacity: 0.8 }}>محضر نتيجة مرور منشأة</div>
             <div style={{ fontSize: '14px', fontWeight: '900', marginTop: '4px' }}>{displaySerialNumber}</div>
           </div>
         </header>
@@ -588,7 +625,7 @@ export default async function MissionPrintPage({ params }: PageProps) {
         <div style={S.titleBlock}>
           <div>
             <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '2px' }}>
-              {isCompleted ? 'تقرير نتائج المرور والتفتيش الميداني' : 'تكليف مأمورية ميدانية'}
+              محضر نتيجة المنشأة — ليس التقرير الرسمي للتكليف
             </div>
             <h1 style={{ margin: 0, fontSize: '22px', fontWeight: '900', color: '#0e4b5a' }}>{displaySerialNumber}</h1>
           </div>
@@ -741,7 +778,7 @@ export default async function MissionPrintPage({ params }: PageProps) {
                       <th style={{ ...S.th, width: '32px', textAlign: 'center' }}>#</th>
                       <th style={S.th}>المعيار الرقابي</th>
                       <th style={{ ...S.th, width: '120px', textAlign: 'center' }}>نتيجة التفتيش</th>
-                      <th style={{ ...S.th, width: '180px' }}>ملاحظات المفتش</th>
+                      <th style={{ ...S.th, width: '180px' }}>الملاحظات والتوثيق</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -760,6 +797,16 @@ export default async function MissionPrintPage({ params }: PageProps) {
                           </td>
                           <td style={{ ...S.td, color: '#475569' }}>
                             {item.notes || <span style={{ color: '#cbd5e1' }}>—</span>}
+                            {item.photoUrl && (
+                              <a
+                                href={item.photoUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ display: 'block', marginTop: '6px', color: '#0369a1', fontWeight: 'bold', textDecoration: 'none' }}
+                              >
+                                📷 فتح صورة التوثيق
+                              </a>
+                            )}
                           </td>
                         </tr>
                       )

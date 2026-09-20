@@ -16,6 +16,24 @@ function validCoordinate(value: unknown, min: number, max: number) {
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max
 }
 
+function distanceMetres(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+) {
+  const radius = 6371e3
+  const toRadians = (value: number) => (value * Math.PI) / 180
+  const dLat = toRadians(lat2 - lat1)
+  const dLng = toRadians(lng2 - lng1)
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLng / 2) ** 2
+  return Math.round(radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
+}
+
 export async function POST(request: Request, context: RouteContext) {
   try {
     const gate = await requireV2Permission('missions.execute')
@@ -71,9 +89,29 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const now = new Date().toISOString()
+    const facilityId = mission.target_facility_id || mission.facility_id
+    const { data: facility } = await admin
+      .from('facilities')
+      .select('latitude, longitude')
+      .eq('id', facilityId)
+      .maybeSingle()
+    const hasOfficialCoordinates =
+      facility?.latitude !== null &&
+      facility?.latitude !== undefined &&
+      facility?.longitude !== null &&
+      facility?.longitude !== undefined
+    const distance = hasOfficialCoordinates
+      ? distanceMetres(
+          body.latitude!,
+          body.longitude!,
+          Number(facility.latitude),
+          Number(facility.longitude)
+        )
+      : null
+    const gpsVerified = distance === null ? false : distance <= 200
     const common = {
-      gps_verified: true,
-      actual_facility_id: mission.target_facility_id || mission.facility_id,
+      gps_verified: body.action === 'not_performed' ? false : gpsVerified,
+      actual_facility_id: facilityId,
       outcome_recorded_by: gate.user.profileId,
       outcome_recorded_at: now,
       updated_at: now,
@@ -105,7 +143,13 @@ export async function POST(request: Request, context: RouteContext) {
       console.error('[mission-field-outcome] update failed:', error.message)
       return NextResponse.json({ error: 'تعذر تسجيل حالة المنشأة.' }, { status: 500 })
     }
-    return NextResponse.json({ success: true, action: body.action, recorded_at: now })
+    return NextResponse.json({
+      success: true,
+      action: body.action,
+      recorded_at: now,
+      gps_verified: gpsVerified,
+      distance_metres: distance,
+    })
   } catch (error) {
     console.error('[mission-field-outcome] unexpected error:', error)
     return NextResponse.json({ error: 'حدث خطأ غير متوقع أثناء تسجيل الحالة.' }, { status: 500 })
