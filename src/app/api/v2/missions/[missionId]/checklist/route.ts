@@ -6,6 +6,8 @@ import {
 import { requireAnyV2Permission } from '@/server/authorization/http-guard'
 import { getAdminSupabaseClient } from '@/server/supabase/admin'
 import type { V2ResourceScopeContext } from '@/server/authorization/scope-types'
+import type { V2AuthenticatedUser } from '@/server/auth/types'
+import type { V2AuthorizationSnapshot } from '@/server/authorization/types'
 
 type RouteContext = {
   params: Promise<{ missionId: string }>
@@ -261,16 +263,18 @@ async function hydrateTemplateDefinitions(
 }
 
 async function loadVisibleTemplates(input: {
-  userId: string
+  user: V2AuthenticatedUser
+  access: V2AuthorizationSnapshot
   currentTemplateId: string | null
   facilityType: string | null
+  canManage: boolean
 }) {
   const admin = getAdminSupabaseClient()
 
   const { data: libraryRows, error: libraryError } = await admin
     .from('user_template_library')
     .select('template_id')
-    .eq('user_id', input.userId)
+    .eq('user_id', input.user.profileId)
 
   if (libraryError) {
     throw new Error(
@@ -297,21 +301,55 @@ async function loadVisibleTemplates(input: {
     )
   }
 
-  return ((data ?? []) as TemplateRow[]).filter((template) => {
+  const templates = (data ?? []) as TemplateRow[]
+  const visible: TemplateRow[] = []
+
+  for (const template of templates) {
     const isCurrent = template.id === input.currentTemplateId
-    const visible =
+
+    const compatible =
+      isCurrent ||
+      !template.applicable_facility_types ||
+      template.applicable_facility_types.length === 0 ||
+      !input.facilityType ||
+      template.applicable_facility_types.includes(input.facilityType)
+
+    if (!compatible) continue
+
+    const directlyVisible =
       isCurrent ||
       template.visibility === 'system' ||
-      template.created_by_user_id === input.userId ||
+      template.created_by_user_id === input.user.profileId ||
       libraryIds.has(template.id)
 
-    if (!visible) return false
+    if (directlyVisible) {
+      visible.push(template)
+      continue
+    }
 
-    const types = template.applicable_facility_types
-    if (!types || types.length === 0 || !input.facilityType) return true
+    if (
+      !input.canManage ||
+      template.visibility !== 'organization' ||
+      !template.created_by_org
+    ) {
+      continue
+    }
 
-    return isCurrent || types.includes(input.facilityType)
-  })
+    const decision = await checkV2ResourceAccess({
+      user: input.user,
+      snapshot: input.access,
+      permissionKey: 'missions.checklist_change',
+      resource: {
+        organizationId: template.created_by_org,
+      },
+    })
+
+    if (decision.allowed) {
+      visible.push(template)
+    }
+  }
+
+  return visible
 }
 
 export async function GET(
@@ -432,9 +470,11 @@ export async function GET(
       activeRun?.template_id ?? loaded.mission.template_id
 
     const visibleTemplates = await loadVisibleTemplates({
-      userId: authorizedUser.profileId,
+      user: authorizedUser,
+      access: authorizedAccess,
       currentTemplateId,
       facilityType: loaded.facility.facility_type,
+      canManage,
     })
     const templates = await hydrateTemplateDefinitions(visibleTemplates)
 
@@ -640,9 +680,11 @@ export async function POST(
     }
 
     const templates = await loadVisibleTemplates({
-      userId: authorizedUser.profileId,
+      user: authorizedUser,
+      access: authorizedAccess,
       currentTemplateId: loaded.mission.template_id,
       facilityType: loaded.facility.facility_type,
+      canManage,
     })
 
     if (!templates.some((template) => template.id === templateId)) {
