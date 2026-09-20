@@ -39,6 +39,18 @@ type Settlement = {
   mission_serial_number: string
   beneficiary_name: string
   beneficiary_job_title: string | null
+  beneficiary_financial_code: string | null
+  claim_number: string | null
+  claim_status: string | null
+  claim_submitted_at: string | null
+  accommodation_type: string | null
+  accommodation_details: string | null
+  accommodation_cost_claimed: number
+  transport_mode: string | null
+  departure_location: string | null
+  return_location: string | null
+  transport_details: string | null
+  transport_cost_claimed: number
   facility_name: string
   health_admin: string | null
   governorate: string | null
@@ -349,7 +361,7 @@ export function FinanceSettlementsPanel() {
                     {row.beneficiary_name}
                   </p>
                   <p className="mt-1 truncate text-[10px] text-slate-400">
-                    {row.mission_serial_number} · {row.facility_name}
+                    {row.claim_number ? row.claim_number + ' · ' : ''}{row.mission_serial_number} · {row.facility_name}
                     {row.is_grouped ? ' · تسوية واحدة للتكليف' : ''}
                   </p>
                 </div>
@@ -385,6 +397,11 @@ export function FinanceSettlementsPanel() {
               <p className="mt-1 text-[10px] text-slate-500">
                 {selected.mission_serial_number} · {selected.facility_name}
               </p>
+              {selected.claim_number && (
+                <p className="mt-1 text-[10px] font-black text-blue-700">
+                  طلب {selected.claim_number} · الكود المالي {selected.beneficiary_financial_code || 'غير مسجل'}
+                </p>
+              )}
               {selected.is_grouped && (
                 <span className="mt-1 inline-flex rounded-full bg-violet-50 px-2 py-1 text-[8px] font-black text-violet-700">
                   تكليف مجمع · استحقاق واحد لكل عضو فريق
@@ -413,6 +430,15 @@ export function FinanceSettlementsPanel() {
           </div>
 
           <div className="p-4">
+            {selected.claim_number && (
+              <div className="mb-4 grid gap-2 rounded-xl border border-blue-100 bg-blue-50/40 p-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div><p className="text-[9px] font-bold text-slate-400">وسيلة الانتقال</p><p className="mt-1 text-[11px] font-extrabold text-slate-700">{selected.transport_mode || '—'}</p></div>
+                <div><p className="text-[9px] font-bold text-slate-400">خط السير</p><p className="mt-1 text-[11px] font-extrabold text-slate-700">{selected.departure_location || '—'} ← {selected.return_location || '—'}</p></div>
+                <div><p className="text-[9px] font-bold text-slate-400">الإقامة</p><p className="mt-1 text-[11px] font-extrabold text-slate-700">{selected.accommodation_type || '—'}{selected.accommodation_details ? ' · ' + selected.accommodation_details : ''}</p></div>
+                <div><p className="text-[9px] font-bold text-slate-400">تكاليف مطلوبة للمراجعة</p><p className="mt-1 text-[11px] font-extrabold text-blue-800">مواصلات {money(selected.transport_cost_claimed)} · إقامة {money(selected.accommodation_cost_claimed)} ج.م</p></div>
+                {selected.transport_details && <p className="text-[10px] text-slate-600 sm:col-span-2 lg:col-span-4"><span className="font-black">تفاصيل الانتقال:</span> {selected.transport_details}</p>}
+              </div>
+            )}
             {selected.is_grouped ? (
               <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-xl bg-violet-50 px-3 py-2.5">
