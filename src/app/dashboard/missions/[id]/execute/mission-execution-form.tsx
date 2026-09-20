@@ -1781,6 +1781,10 @@ export function MissionExecutionForm({
     }
 
     if (status === 'completed') {
+      missionUpdatePayload.execution_outcome = 'performed'
+      missionUpdatePayload.non_execution_reason = null
+      missionUpdatePayload.outcome_recorded_by = currentUserId
+      missionUpdatePayload.outcome_recorded_at = now
       missionUpdatePayload.completed_at = now
       missionUpdatePayload.checkout_time = now
 

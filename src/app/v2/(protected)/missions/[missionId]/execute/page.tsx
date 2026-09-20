@@ -6,6 +6,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { MissionExecutionForm } from '@/app/dashboard/missions/[id]/execute/mission-execution-form'
+import { MissionFieldStartPanel } from '@/features/missions/components/MissionFieldStartPanel'
 import { defaultCorrectionUnits, type CorrectionUnitOption } from '@/lib/correction-units'
 import {
   checkV2ResourceAccess,
@@ -134,6 +135,9 @@ export default async function V2MissionExecutePage({
        assignment_batch_id,
        serial_number,
        status,
+       execution_outcome,
+       non_execution_reason,
+       outcome_recorded_at,
        scheduled_date,
        expected_end_date,
        expected_nights,
@@ -226,7 +230,7 @@ export default async function V2MissionExecutePage({
   }
 
   const [
-    facilities,
+    allFacilities,
     organizations,
     { data: users },
     { data: facility },
@@ -255,6 +259,18 @@ export default async function V2MissionExecutePage({
       .limit(1)
       .maybeSingle(),
   ])
+
+  const assignedFacility = facility as FacilityRow | null
+  const targetGovernorateName = assignedFacility?.governorate?.trim() || null
+  const facilities = mission.destination_type === 'governorate' && targetGovernorateName
+    ? allFacilities.filter(
+        (row) => row.governorate?.trim() === targetGovernorateName
+      )
+    : allFacilities.filter(
+        (row) =>
+          row.id ===
+          (mission.target_facility_id || mission.facility_id)
+      )
 
   let savedResults: any[] = []
   if (activeRun?.id) {
@@ -308,6 +324,9 @@ export default async function V2MissionExecutePage({
     .sort((a, b) => a.localeCompare(b, 'ar'))
     .map((name) => ({ id: name, name }))
 
+  const executionStarted =
+    mission.status === 'in_progress' || Boolean(mission.checkin_time)
+
   return (
     <div className="space-y-3">
       <div className="sticky top-2 z-40 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
@@ -350,20 +369,29 @@ export default async function V2MissionExecutePage({
         </div>
       </div>
 
-      <MissionExecutionForm
-        currentUserId={user.profileId}
-        currentUserDept={profile.department ?? undefined}
-        currentUserOrgUnitId={profile.org_unit_id ?? undefined}
-        correctionUnits={correctionUnits}
-        facilities={facilities}
-        governorates={governorates}
-        mission={normalizedMission}
+      <MissionFieldStartPanel
+        missionId={missionId}
+        facilityName={facility?.name || 'المنشأة المحددة'}
+        started={executionStarted}
         returnHref={returnHref}
-        users={users ?? []}
-        currentUserLevel={profile.level ?? profile.org_level ?? 7}
-        savedResults={savedResults}
-        orgUnits={organizations}
       />
+
+      {executionStarted && (
+        <MissionExecutionForm
+          currentUserId={user.profileId}
+          currentUserDept={profile.department ?? undefined}
+          currentUserOrgUnitId={profile.org_unit_id ?? undefined}
+          correctionUnits={correctionUnits}
+          facilities={facilities}
+          governorates={governorates}
+          mission={normalizedMission}
+          returnHref={returnHref}
+          users={users ?? []}
+          currentUserLevel={profile.level ?? profile.org_level ?? 7}
+          savedResults={savedResults}
+          orgUnits={organizations}
+        />
+      )}
     </div>
   )
 }

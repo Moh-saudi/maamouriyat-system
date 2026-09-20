@@ -50,6 +50,7 @@ type GroupedExecutionRow = {
   assignedToMe: boolean
   canExecute: boolean
   completed: boolean
+  outcome: 'performed' | 'not_performed' | null
 }
 
 type BatchRow = {
@@ -282,6 +283,7 @@ export default async function GroupedMissionExecutionPage({
         assignedToMe,
         canExecute,
         completed: completedStatus(mission.status),
+        outcome: mission.execution_outcome,
       }
     })
     .filter(
@@ -393,7 +395,7 @@ export default async function GroupedMissionExecutionPage({
             </Link>
 
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-bold text-slate-600">
-              التنفيذ {completedCount.toLocaleString('en-US')} /{' '}
+              تم تسجيل النتيجة {completedCount.toLocaleString('en-US')} /{' '}
               {rows.length.toLocaleString('en-US')}
             </span>
           </div>
@@ -503,7 +505,7 @@ export default async function GroupedMissionExecutionPage({
           <div>
             <div className="flex items-center justify-between text-[9px] font-bold text-slate-400">
               <span>
-                التنفيذ {completedCount.toLocaleString('en-US')} /{' '}
+                النتائج المسجلة {completedCount.toLocaleString('en-US')} /{' '}
                 {rows.length.toLocaleString('en-US')}
               </span>
               <span>{progress.toLocaleString('en-US')}%</span>
@@ -516,7 +518,7 @@ export default async function GroupedMissionExecutionPage({
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="rounded-xl bg-emerald-50 p-2.5 text-center">
-                <p className="text-[8px] font-bold text-emerald-700">منفذة</p>
+                <p className="text-[8px] font-bold text-emerald-700">نتيجة مسجلة</p>
                 <p className="mt-1 text-base font-black text-emerald-900">
                   {completedCount.toLocaleString('en-US')}
                 </p>
@@ -601,6 +603,17 @@ export default async function GroupedMissionExecutionPage({
                 <h3 className="mt-1.5 text-[12px] font-black text-slate-900">
                   {row.facility.name}
                 </h3>
+
+                {row.completed && (
+                  <p className={
+                    'mt-1.5 text-[9px] font-black ' +
+                    (row.outcome === 'not_performed' ? 'text-rose-700' : 'text-emerald-700')
+                  }>
+                    {row.outcome === 'not_performed'
+                      ? 'لم يتم المرور: ' + (row.mission.non_execution_reason || 'لم يسجل السبب')
+                      : 'تم المرور وتسجيل الاستمارة'}
+                  </p>
+                )}
 
                 <div className="mt-1.5 flex flex-wrap gap-1.5 text-[8px] font-bold">
                   <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">

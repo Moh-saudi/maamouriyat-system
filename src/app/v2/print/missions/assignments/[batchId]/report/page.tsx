@@ -263,7 +263,11 @@ export default async function GroupedMissionReportPrintPage({
       ),
     0
   )
-  const scored = rows.filter((row) => row.mission.score_pct !== null)
+  const scored = rows.filter(
+    (row) =>
+      row.mission.execution_outcome !== 'not_performed' &&
+      row.mission.score_pct !== null
+  )
   const averageScore =
     scored.length > 0
       ? Math.round(
@@ -484,6 +488,16 @@ export default async function GroupedMissionReportPrintPage({
                     <span className="mt-0.5 block font-mono text-[7px] font-normal text-slate-400">
                       {row.mission.serial_number}
                     </span>
+                    <span className={
+                      'mt-1 block text-[7px] font-black ' +
+                      (row.mission.execution_outcome === 'not_performed'
+                        ? 'text-rose-700'
+                        : 'text-emerald-700')
+                    }>
+                      {row.mission.execution_outcome === 'not_performed'
+                        ? 'لم يتم المرور: ' + (row.mission.non_execution_reason || 'السبب غير مسجل')
+                        : 'تم المرور'}
+                    </span>
                   </td>
                   <td className="border border-slate-200 px-2 py-2 text-center">
                     {row.facility.health_admin || '—'}
@@ -492,12 +506,16 @@ export default async function GroupedMissionReportPrintPage({
                     {row.organization}
                   </td>
                   <td className="border border-slate-200 px-2 py-2 text-center font-black">
-                    {row.mission.score_pct === null
+                    {row.mission.execution_outcome === 'not_performed'
+                      ? 'لم يتم'
+                      : row.mission.score_pct === null
                       ? '—'
                       : Number(row.mission.score_pct).toLocaleString('en-US') + '%'}
                   </td>
                   <td className="border border-slate-200 px-2 py-2">
-                    {row.recommendations || 'لا توجد توصيات مسجلة'}
+                    {row.mission.execution_outcome === 'not_performed'
+                      ? row.mission.non_execution_reason || 'سبب عدم التنفيذ غير مسجل'
+                      : row.recommendations || 'لا توجد توصيات مسجلة'}
                   </td>
                 </tr>
               ))}

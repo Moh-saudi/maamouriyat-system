@@ -32,6 +32,9 @@ export type MissionWorkspaceMissionRow = {
   checkout_time: string | null
   gps_verified: boolean | null
   completed_at: string | null
+  execution_outcome: 'performed' | 'not_performed' | null
+  non_execution_reason: string | null
+  outcome_recorded_at: string | null
   actual_start_date: string | null
   actual_end_date: string | null
   actual_duration_days: number | null
@@ -92,7 +95,7 @@ export type MissionWorkspaceProgramRow = {
 }
 
 const MISSION_SELECT =
-  'id, assignment_batch_id, template_id, team_template_change_allowed, template_change_allowed_by, template_change_allowed_at, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
+  'id, assignment_batch_id, template_id, team_template_change_allowed, template_change_allowed_by, template_change_allowed_at, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, execution_outcome, non_execution_reason, outcome_recorded_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
 
 export async function loadAllWorkspaceMissions(): Promise<
   MissionWorkspaceMissionRow[]

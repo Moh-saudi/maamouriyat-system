@@ -253,7 +253,9 @@ export default async function GroupedMissionReportPage({
     })
 
   const scoredRows = rows.filter(
-    (row) => row.mission.score_pct !== null
+    (row) =>
+      row.mission.execution_outcome !== 'not_performed' &&
+      row.mission.score_pct !== null
   )
   const averageScore =
     scoredRows.length > 0
@@ -509,6 +511,20 @@ export default async function GroupedMissionReportPage({
                     )}
                   </div>
 
+                  <p className={
+                    'mt-2 rounded-lg px-2.5 py-2 text-[9px] font-black ' +
+                    (row.mission.execution_outcome === 'not_performed'
+                      ? 'bg-rose-50 text-rose-800'
+                      : 'bg-emerald-50 text-emerald-800')
+                  }>
+                    {row.mission.execution_outcome === 'not_performed'
+                      ? 'لم يتم المرور — السبب: ' + (row.mission.non_execution_reason || 'غير مسجل')
+                      : 'تم المرور وتسجيل الاستمارة'}
+                    {row.mission.outcome_recorded_at
+                      ? ' · ' + new Date(row.mission.outcome_recorded_at).toLocaleString('ar-EG')
+                      : ''}
+                  </p>
+
                   {row.recommendations && (
                     <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[9px] leading-5 text-amber-900">
                       <span className="font-black">التوصيات:</span>{' '}
@@ -523,7 +539,9 @@ export default async function GroupedMissionReportPage({
                       التقييم
                     </span>
                     <strong className="text-[11px] text-slate-800">
-                      {row.mission.score_pct === null
+                      {row.mission.execution_outcome === 'not_performed'
+                        ? 'لم يتم'
+                        : row.mission.score_pct === null
                         ? '—'
                         : Number(row.mission.score_pct).toLocaleString('en-US') +
                           '%'}
