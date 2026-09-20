@@ -30,10 +30,15 @@ export type MissionWorkspaceMissionRow = {
   requires_hotel_booking: boolean | null
   checkin_time: string | null
   checkout_time: string | null
+  checkin_lat: number | null
+  checkin_lng: number | null
+  checkout_lat: number | null
+  checkout_lng: number | null
   gps_verified: boolean | null
   completed_at: string | null
   execution_outcome: 'performed' | 'not_performed' | null
   non_execution_reason: string | null
+  outcome_recorded_by: string | null
   outcome_recorded_at: string | null
   actual_start_date: string | null
   actual_end_date: string | null
@@ -95,7 +100,34 @@ export type MissionWorkspaceProgramRow = {
 }
 
 const MISSION_SELECT =
-  'id, assignment_batch_id, template_id, team_template_change_allowed, template_change_allowed_by, template_change_allowed_at, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, gps_verified, completed_at, execution_outcome, non_execution_reason, outcome_recorded_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
+  'id, assignment_batch_id, template_id, team_template_change_allowed, template_change_allowed_by, template_change_allowed_at, serial_number, facility_id, primary_inspector_id, assigned_user_id, created_by, status, priority, scheduled_date, expected_end_date, visit_purpose, notes, total_score, max_score, score_pct, total_criteria, violations_count, violation_count, requires_overnight, requires_hotel_booking, checkin_time, checkout_time, checkin_lat, checkin_lng, checkout_lat, checkout_lng, gps_verified, completed_at, execution_outcome, non_execution_reason, outcome_recorded_by, outcome_recorded_at, actual_start_date, actual_end_date, actual_duration_days, actual_overnight_nights, completion_disposition, timing_adjustment_reason, created_at, source_target_id, source_program_id'
+
+export function hasVerifiedMissionTerminalOutcome(
+  mission: MissionWorkspaceMissionRow
+) {
+  const hasFieldEvidence = Boolean(
+    mission.checkin_time &&
+      mission.checkout_time &&
+      mission.checkin_lat !== null &&
+      mission.checkin_lng !== null &&
+      mission.checkout_lat !== null &&
+      mission.checkout_lng !== null &&
+      mission.outcome_recorded_by &&
+      mission.outcome_recorded_at
+  )
+
+  if (!hasFieldEvidence) return false
+
+  if (mission.execution_outcome === 'performed') {
+    return mission.gps_verified === true
+  }
+
+  if (mission.execution_outcome === 'not_performed') {
+    return (mission.non_execution_reason?.trim().length ?? 0) >= 5
+  }
+
+  return false
+}
 
 export async function loadAllWorkspaceMissions(): Promise<
   MissionWorkspaceMissionRow[]

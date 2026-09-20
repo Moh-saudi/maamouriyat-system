@@ -6,6 +6,7 @@ import { requireV2Permission } from '@/server/authorization/http-guard'
 import { loadV2OrganizationFacts } from '@/server/authorization/organization-scope-repository'
 import {
   loadWorkspaceFacilities,
+  hasVerifiedMissionTerminalOutcome,
   loadWorkspaceMissionsForGroup,
   loadWorkspaceTeamRows,
   normalizeMissionWorkspaceStatus,
@@ -114,7 +115,9 @@ export async function POST(
     }
 
     const remaining = missions.filter(
-      (mission) => !isCompletedStatus(mission.status)
+      (mission) =>
+        !isCompletedStatus(mission.status) ||
+        !hasVerifiedMissionTerminalOutcome(mission)
     ).length
 
     if (remaining > 0) {
@@ -203,6 +206,16 @@ export async function POST(
       if (message.includes('MISSION_BATCH_NOT_FULLY_EXECUTED')) {
         return NextResponse.json(
           { error: 'لا يمكن إنهاء التكليف قبل استكمال كل المنشآت.' },
+          { status: 409 }
+        )
+      }
+
+      if (message.includes('MISSION_BATCH_OUTCOME_NOT_VERIFIED')) {
+        return NextResponse.json(
+          {
+            error:
+              'لا يمكن إنهاء التكليف قبل توثيق نتيجة كل منشأة بالسبب والموقع ووقت البداية والنهاية.',
+          },
           { status: 409 }
         )
       }

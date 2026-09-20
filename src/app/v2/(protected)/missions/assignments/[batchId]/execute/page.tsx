@@ -19,6 +19,7 @@ import { loadV2OrganizationFacts } from '@/server/authorization/organization-sco
 import { requireV2PagePermission } from '@/server/authorization/page-guard'
 import {
   loadWorkspaceFacilities,
+  hasVerifiedMissionTerminalOutcome,
   loadWorkspaceMissionsForGroup,
   loadWorkspaceOrganizations,
   loadWorkspaceTeamRows,
@@ -50,6 +51,7 @@ type GroupedExecutionRow = {
   assignedToMe: boolean
   canExecute: boolean
   completed: boolean
+  statusCompleted: boolean
   outcome: 'performed' | 'not_performed' | null
 }
 
@@ -282,7 +284,10 @@ export default async function GroupedMissionExecutionPage({
         lifecycle,
         assignedToMe,
         canExecute,
-        completed: completedStatus(mission.status),
+        completed:
+          completedStatus(mission.status) &&
+          hasVerifiedMissionTerminalOutcome(mission),
+        statusCompleted: completedStatus(mission.status),
         outcome: mission.execution_outcome,
       }
     })
@@ -299,6 +304,9 @@ export default async function GroupedMissionExecutionPage({
     })
 
   const completedCount = rows.filter((row) => row.completed).length
+  const unverifiedTerminalCount = rows.filter(
+    (row) => row.statusCompleted && !row.completed
+  ).length
   const currentCount = rows.filter(
     (row) => row.lifecycle.key === 'current'
   ).length
@@ -394,8 +402,8 @@ export default async function GroupedMissionExecutionPage({
               استمارات التكليف
             </Link>
 
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-bold text-slate-600">
-              تم تسجيل النتيجة {completedCount.toLocaleString('en-US')} /{' '}
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-bold text-slate-600">
+              نتائج موثقة {completedCount.toLocaleString('en-US')} /{' '}
               {rows.length.toLocaleString('en-US')}
             </span>
           </div>
@@ -542,6 +550,11 @@ export default async function GroupedMissionExecutionPage({
                 </p>
               </div>
             </div>
+            {unverifiedTerminalCount > 0 && (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[9px] font-bold text-amber-800">
+                يوجد {unverifiedTerminalCount.toLocaleString('en-US')} سجل مكتمل قديمًا دون نتيجة ميدانية موثقة؛ لا يُحتسب ضمن اكتمال التكليف ويحتاج مراجعة إدارية.
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -615,6 +628,12 @@ export default async function GroupedMissionExecutionPage({
                   </p>
                 )}
 
+                {row.statusCompleted && !row.completed && (
+                  <p className="mt-1.5 text-[9px] font-black text-amber-700">
+                    سجل مكتمل قديمًا دون توثيق نتيجة المرور؛ يحتاج مراجعة إدارية.
+                  </p>
+                )}
+
                 <div className="mt-1.5 flex flex-wrap gap-1.5 text-[8px] font-bold">
                   <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">
                     المحافظة: {row.facility.governorate || '—'}
@@ -654,6 +673,11 @@ export default async function GroupedMissionExecutionPage({
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     محضر نتيجة المنشأة
                   </Link>
+                ) : row.statusCompleted ? (
+                  <span className="inline-flex h-8 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-[8px] font-bold text-amber-700">
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    مراجعة النتيجة
+                  </span>
                 ) : row.canExecute ? (
                   <Link
                     href={
