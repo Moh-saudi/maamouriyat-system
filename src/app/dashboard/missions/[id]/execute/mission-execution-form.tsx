@@ -1960,7 +1960,7 @@ export function MissionExecutionForm({
     if (status === 'completed') {
       setSuccess(
         isGroupedExecution
-          ? `تم إنهاء المرور على هذه المنشأة بالمدة الفعلية (${actualDurationDays} يوم). عُد إلى التكليف لاستكمال باقي المنشآت.`
+          ? 'تم إنهاء المرور على هذه المنشأة وحفظ نتائج الاستمارة. عُد إلى التكليف لاستكمال باقي المنشآت.'
           : `تم اعتماد المأمورية بالمدة الفعلية (${actualDurationDays} يوم) وتجهيزها للمراجعة المالية.`
       )
       setShowSuccessModal(true)
@@ -4383,7 +4383,11 @@ export function MissionExecutionForm({
                   gap: '8px'
                 }}
               >
-                {loading ? 'جاري الاعتماد...' : '✅ نعم، اعتماد وإغلاق المأمورية نهائياً'}
+                {loading
+                  ? 'جاري الحفظ...'
+                  : isGroupedExecution
+                    ? '✅ نعم، إنهاء المرور على هذه المنشأة'
+                    : '✅ نعم، اعتماد وإغلاق المأمورية نهائياً'}
               </button>
 
               <button
